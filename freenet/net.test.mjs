@@ -54,5 +54,11 @@ console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
   const st = cborDecode(Buffer.from(v.state, 'hex'));
   assert.ok(slotOk(pk, 'profile', st.slots.profile) && !slotOk(pk, 'avatar', st.slots.profile));
   assert.equal(anteBits(Buffer.alloc(32, 1), Buffer.from(v.ante, 'hex')), 0, 'another persona\'s proof counts for nothing');
+  // a level made here is byte for byte what viso-ante writes (vector: sk = [7; 32], ts 1700000000000)
+  const { makeAnte, grindAnte } = await import('./viso.js');
+  const nonce = cborDecode(Buffer.from(v.ante, 'hex')).nonce;
+  assert.equal(hex(makeAnte(new Uint8Array(32).fill(7), nonce, 1700000000000)), v.ante);
+  const sk9 = new Uint8Array(32).fill(9), made = await grindAnte(sk9, 10);
+  assert.ok(anteBits(ed.getPublicKey(sk9), made) >= 10);
   console.log('viso ok, level', p.bits, 'bits');
 }

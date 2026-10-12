@@ -4,6 +4,7 @@
 import * as net from './net.js';
 import { makeWorld } from '../world.js';
 import { textOk, CHAT_BITS } from './chat.js';
+import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText } from './colony.js';
 
 // Viso avatars as object URLs, loaded once per persona; until then a coloured dot stands in.
@@ -75,6 +76,20 @@ export async function start(app) {
   async function signedIn(persona) {
     me = persona;
     profile = await net.loadPersona(persona);
+    // A key held here has no Viso contract: build its level here once, as Viso would.
+    const sk = await net.localKey(persona);
+    if (sk && !(profile?.bits >= COLONY_BITS)) {
+      const slotKey = `ante:${persona.slice(0, 16)}`, unhex = (h) => Uint8Array.from(h.match(/../g).map((x) => parseInt(x, 16)));
+      let ante = await net.storeGet(slotKey);
+      if (!ante) {
+        const bytes = await grindAnte(unhex(sk), COLONY_BITS, (n) => app.toast([`Building your explorer level… ${Math.min(99, Math.round((100 * n) / 2 ** COLONY_BITS))}%`]));
+        ante = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+        await net.storePut(slotKey, ante);
+        app.toast([`Explorer level ${anteBits(unhex(persona), bytes)} reached.`]);
+      }
+      const bytes = unhex(ante);
+      profile = { name: profile?.name ?? '', avatar: profile?.avatar ?? null, ante: bytes, bits: anteBits(unhex(persona), bytes) };
+    }
     // the Viso profile name, else a name chosen here
     nick = [...(profile?.name ?? '')].slice(0, 24).join('').trim().replaceAll('|', '/') || (await net.storeGet('nick')) || '';
     while (!nick) {
@@ -92,7 +107,21 @@ export async function start(app) {
   }
 
   signBtn.hidden = false;
-  signBtn.onclick = async () => { try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); } };
+  const signDlg = document.getElementById('signDlg');
+  signBtn.onclick = () => signDlg.showModal();
+  document.getElementById('signClose').onclick = () => signDlg.close();
+  document.getElementById('signViso').onclick = async () => { try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); } };
+  const withKey = async (sk) => {
+    signDlg.close();
+    try { await signedIn(await net.createLocalIdentity(sk)); app.toast(['Signed in. Back up your key from the Atlas.']); } catch (e) { app.toast([app.esc(e.message)]); }
+  };
+  document.getElementById('signNew').onclick = () => withKey();
+  document.getElementById('signImport').onclick = () => {
+    const k = prompt('Your secret key (64 hexadecimal characters):')?.replace(/\s/g, '').toLowerCase();
+    if (k === undefined) return;
+    if (!/^[0-9a-f]{64}$/.test(k)) return app.toast(['A key is 64 hexadecimal characters.']);
+    withKey(k);
+  };
   renameBtn.onclick = async () => {
     const col = colonyOf(app.world().seed), name = prompt('Rename your planet (1-32 characters):', col?.name ?? '');
     if (!name || !validText(name.trim(), 'x')) return;
@@ -119,7 +148,34 @@ export async function start(app) {
   await refreshGalaxy();
   update();
 
-  // ---------------------------------------------------------------- global chat (hideable)
+  // ---------------------------------------------------------------- leaderboard
+  const lbBtn = document.getElementById('lbBtn'), lbDlg = document.getElementById('lbDlg');
+  function renderLeaderboard() {
+    const rows = new Map();
+    for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
+      const r = rows.get(c.persona) ?? { nick: c.nick, persona: c.persona, t: 0, planets: [] };
+      const t = seconds(colScore(seed, c));
+      r.t += t; r.planets.push({ seed, name: c.name, t }); rows.set(c.persona, r);
+    }
+    const all = [...rows.values()].sort((a, b) => b.planets.length - a.planets.length || b.t - a.t);
+    const av = (p) => { const u = avatar(p, renderLeaderboard); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
+    const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — ${r.planets.length} ${r.planets.length === 1 ? 'colony' : 'colonies'}, ${fmt(r.t)}</summary>
+      <ul>${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
+    const mine = all.findIndex((r) => r.persona === me);
+    document.getElementById('lbBody').innerHTML = all.length
+      ? `<p><small>${all.length} explorers · ${Object.keys(galaxy.colonies ?? {}).length} colonies · ranked by colonies, then time. Open a name to see their planets.</small></p>
+        <ol>${all.slice(0, 20).map((r, i) => row(r, i + 1)).join('')}</ol>
+        ${mine >= 20 ? `<p>…</p><ol>${row(all[mine], mine + 1)}</ol>` : ''}
+        ${me && mine < 0 ? '<p><small>You have no colony yet: stay on a planet for a few minutes.</small></p>' : ''}`
+      : '<p><small>No colonies yet. Stay on a planet for a few minutes to found the first one.</small></p>';
+    lbDlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => lbDlg.close()));
+  }
+  lbBtn.hidden = false;
+  lbBtn.onclick = () => { renderLeaderboard(); lbDlg.showModal(); };
+  document.getElementById('lbClose').onclick = () => lbDlg.close();
+  net.onUpdate(() => { if (lbDlg.open) setTimeout(renderLeaderboard, 500); });
+
+
   const chatBtn = document.getElementById('chatBtn'), panel = document.getElementById('chat');
   const log = document.getElementById('chatLog'), form = document.getElementById('chatForm'), input = document.getElementById('chatText');
   let chat = { messages: {} }, seen = 0, open = false;
@@ -187,24 +243,19 @@ export async function start(app) {
     beacon: (w) => { const c = colonyOf(w.seed); return c && { x: c.x / 100, hue: hueOf(c.persona), label: c.nick }; },
     colonyOf,
     atlasHtml() {
-      const rows = new Map();
-      for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
-        const r = rows.get(c.persona) ?? { nick: c.nick, n: 0, t: 0, persona: c.persona };
-        r.n++; r.t += seconds(colScore(seed, c)); rows.set(c.persona, r);
-      }
-      const top = [...rows.values()].sort((a, b) => b.n - a.n || b.t - a.t).slice(0, 20);
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);
       const av = (p) => { const u = avatar(p, () => {}); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
-      return `<h3>Explorer</h3><p>${me ? `${av(me)}${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}… · Viso level ${level()} (colonies need ${COLONY_BITS}, chat ${CHAT_BITS})</small> <button id="signOutBtn">Sign out</button>` : 'Not signed in: sign in with Viso to colonize planets and chat.'}</p>
+      return `<h3>Explorer</h3><p>${me ? `${av(me)}${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}… · Viso level ${level()} (colonies need ${COLONY_BITS}, chat ${CHAT_BITS})</small> <button id="signOutBtn">Sign out</button> <button id="backupBtn" hidden>Back up key</button>` : 'Not signed in: sign in to colonize planets and chat.'}</p>
         <h3>Your colonies <small>${mine.length}</small></h3>
         ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${app.esc(c.name)}</a> <small style="display:inline">${fmt(seconds(colScore(seed, c)))}</small></li>`).join('')}</ul>` : '<p><small>Stay on a planet for a few minutes to colonize it.</small></p>'}
-        <h3>Leaderboard <small>${Object.keys(galaxy.colonies ?? {}).length} colonies</small></h3>
-        ${top.length ? `<ol>${top.map((r) => `<li>${av(r.persona)}${r.persona === me ? '<b>' : ''}${app.esc(r.nick)}${r.persona === me ? '</b>' : ''} — ${r.n} ${r.n === 1 ? 'colony' : 'colonies'}, ${fmt(r.t)}</li>`).join('')}</ol>` : '<p><small>No colonies yet.</small></p>'}
         ${q.has('admin') ? '<button id="blockBtn">Admin: block stars or personas</button>' : ''}`;
     },
     bindAtlas(dlg) {
+      const bk = dlg.querySelector('#backupBtn');
+      net.localKey(me ?? '').then((k) => { if (bk && k) { bk.hidden = false; bk.onclick = () => prompt('Your explorer key. Keep it somewhere safe: whoever has it plays as you, and without it you cannot get this explorer back.', k); } });
       const so = dlg.querySelector('#signOutBtn');
       if (so) so.onclick = async () => {
+        if (await net.localKey(me) && !confirm('Signing out forgets this key on this node. Did you back it up?')) return;
         saveMiner(); me = null; nick = ''; profile = null; miner = null; minerSeed = null; // stop the miner before the session goes
         await net.signOut(); await net.storePut('nick', '');
         update(); app.refresh(); dlg.close(); app.toast(['Signed out.']);

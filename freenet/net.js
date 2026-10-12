@@ -251,13 +251,19 @@ export async function finishSignIn(q) {
   return persona;
 }
 
-/** Dev and tests only: sign in as the persona of this secret key (hex), making the proof Viso would.
- *  Colonies and chat still need the persona's Viso contract with an `ante` level. */
+/** Without Viso: sign in as the persona of this secret key (hex; a new one if omitted), making the
+ *  proof Viso would. The key is kept in the node's store so it can be backed up. */
 export async function createLocalIdentity(secretHex) {
   const sk = secretHex ? unhex(secretHex) : ed.utils.randomPrivateKey(), persona = hex(ed.getPublicKey(sk));
   const cert = { base: linkBase(), challenge: `wd1.${await appKey()}.${hex(crypto.getRandomValues(new Uint8Array(16)))}`, ts: Date.now(), sig: '' };
   cert.sig = hex(ed.sign(connectMessage(unhex(persona), cert.base, cert.challenge, cert.ts), sk));
+  await storePut('persona-key', hex(sk)); // kept so the explorer can back it up and build its level
   await storePut('session', JSON.stringify({ persona, cert }));
   return persona;
 }
-export const signOut = () => storePut('session', '');
+/** The secret key (hex) of a persona made or imported here; null for a Viso persona. */
+export async function localKey(persona) {
+  const k = await storeGet('persona-key');
+  return k && hex(ed.getPublicKey(unhex(k))) === persona ? k : null;
+}
+export const signOut = async () => { await storePut('session', ''); await storePut('persona-key', ''); };

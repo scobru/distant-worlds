@@ -36,6 +36,8 @@
   #chatLog li { padding: 6px 0; border-bottom: 1px solid #fff1; }
   #chatLog small { opacity: .6; }
   #chatLog .card { display: block; margin-top: 6px; padding: 8px; border-radius: 10px; background: #fff1; color: inherit; text-decoration: none; }
+  #lbBody ol { padding-left: 28px; } #lbBody li { padding: 6px 0; } #lbBody details ul { margin: 4px 0 0 26px; font-size: 14px; }
+  #lbBody .me { background: #fff1; border-radius: 8px; }
   .av { display: inline-block; width: 20px; height: 20px; border-radius: 50%; vertical-align: middle; margin-right: 6px; object-fit: cover; }
   #chatForm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   #chatForm input { flex: 1 1 100%; background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 10px; padding: 8px; font: inherit; }
@@ -57,6 +59,7 @@
   <button id="fav">☆ Save</button>
   <button id="signBtn" hidden>Sign in</button>
   <button id="renameBtn" hidden>✎ Rename planet</button>
+  <button id="lbBtn" hidden>🏆 Leaderboard</button>
   <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
   <button id="share">Share</button>
   <button id="atlasBtn">Atlas</button>
@@ -75,6 +78,12 @@
   <p id="mapInfo"></p><div id="mapSvg"></div>
   <div class="pan"><button data-d="-1,0" aria-label="West">←</button><button data-d="0,-1" aria-label="North">↑</button>
   <button data-d="0,1" aria-label="South">↓</button><button data-d="1,0" aria-label="East">→</button><button id="mapHome">Here</button></div></dialog>
+<dialog id="signDlg"><div class="row"><h2>Sign in</h2><button id="signClose">Close</button></div>
+  <p>Your explorer signs colonies and chat messages. Colonizing needs level 20, chatting level 16.</p>
+  <p><button id="signViso">Sign in with Viso</button><br><small>Your Viso persona: its name, avatar and level come with it.</small></p>
+  <p><button id="signNew">Create a new key</button><br><small>A key made on this node. Its level is built here (a few seconds of work). Back it up from the Atlas.</small></p>
+  <p><button id="signImport">Import a key</button><br><small>A key you backed up before (64 hex characters).</small></p></dialog>
+<dialog id="lbDlg"><div class="row"><h2>Leaderboard</h2><button id="lbClose">Close</button></div><div id="lbBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
 import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, GALAXY } from './world.js';

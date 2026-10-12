@@ -66,6 +66,44 @@ export function anteBits(pk, bytes) {
   } catch { return 0; }
 }
 
+// ---- making a level for a key held here (no Viso): the same ante v0.2.0 proof Viso grinds
+const PURPOSE = 'viso:persona-level:v1';
+const cborHead = (mt, n) => {
+  if (n < 24) return [(mt << 5) | n];
+  if (n < 256) return [(mt << 5) | 24, n];
+  if (n < 65536) return [(mt << 5) | 25, n >> 8, n & 255];
+  if (n < 2 ** 32) return [(mt << 5) | 26, ...[24, 16, 8, 0].map((k) => (n >>> k) & 255)];
+  const v = BigInt(n);
+  return [(mt << 5) | 27, ...[56n, 48n, 40n, 32n, 24n, 16n, 8n, 0n].map((k) => Number((v >> k) & 255n))];
+};
+const cText = (t) => { const b = enc.encode(t); return [...cborHead(3, b.length), ...b]; };
+const cInts = (bytes) => [...cborHead(4, bytes.length), ...[...bytes].flatMap((x) => cborHead(0, x))];
+
+/** The `ante` slot content for secret key `sk` at `nonce`, byte for byte what viso-ante's make_slot writes. */
+export function makeAnte(sk, nonce, ts) {
+  const pk = ed.getPublicKey(sk), purpose = enc.encode(PURPOSE);
+  const sig = ed.sign(cat(enc.encode('ante:proof-signature:v1'), pk, u32le(purpose.length), purpose, u64le(nonce), u64le(ts)), sk);
+  return Uint8Array.from([...cborHead(5, 5), ...cText('identity_vk'), ...cInts(pk), ...cText('purpose'), ...cText(PURPOSE),
+    ...cText('nonce'), ...cborHead(0, nonce), ...cText('ts'), ...cborHead(0, ts), ...cText('signature'), ...cInts(sig)]);
+}
+
+/** Search a nonce reaching `bits` for this key (about 2^bits blake3 hashes), yielding to the page;
+ *  `onProgress(hashes)` lets the UI show it. Returns the slot content. */
+export async function grindAnte(sk, bits, onProgress = () => {}) {
+  const pk = ed.getPublicKey(sk), purpose = enc.encode(PURPOSE);
+  const pre = cat(enc.encode('ante:pow-challenge:v1'), u32le(purpose.length), purpose, pk), buf = new Uint8Array(pre.length + 8);
+  buf.set(pre);
+  const view = new DataView(buf.buffer);
+  for (let n = 0; ; n++) {
+    view.setUint32(pre.length, n >>> 0, true); view.setUint32(pre.length + 4, Math.floor(n / 2 ** 32), true);
+    const h = blake3(buf);
+    let z = 0;
+    for (const x of h) { if (x) { z += Math.clz32(x) - 24; break; } z += 8; }
+    if (z >= bits) return makeAnte(sk, n, Date.now());
+    if (n % 20000 === 19999) { onProgress(n + 1); await new Promise((r) => setTimeout(r)); }
+  }
+}
+
 /** Decode a persona's state, keeping only correctly signed, non-empty slots. */
 export function readPersona(pkHex, stateBytes) {
   const pk = unhex(pkHex), st = cborDecode(stateBytes), out = { name: '', bio: '', avatar: null, ante: null, bits: 0 };
