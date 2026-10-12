@@ -9,6 +9,7 @@ Everything comes from a seed in the URL (`…/#v1-8393_2007_4`): share the link 
 - **Traits**: era (ancient … far future), civilization (uninhabited, humans, aliens, ruins), fauna (birds, herds, sky jellyfish, giants, flying whales), flora (forest, conifers, crystals, mushrooms) and visual style (classic, neon, pastel, mono, sepia).
 - **Galaxy**: every world is a star on a map (10,000 × 10,000 sectors, `#v1-<x>_<y>_<n>`). Regions such as the Alien Nebula or the Sky Seas change what grows there.
 - **Composable species**: animals are built from parts (legs, neck, head, horns, tail, pattern) and go into your bestiary.
+- **Herbarium**: each world grows 1-3 plant species of its flora (own proportions, colour, sometimes flowers, a Latin-sounding name); the ones you see are pressed into the Atlas.
 - **Hover cards**: point at (or tap) a plant, animal, building, relic, flyer or flag to see what it is, and whether it is already in your atlas or bestiary.
 - **Music** (`audio.js`): each world has its own lead instrument (bell, glass, pluck, marimba, flute), drone (organ, wind, choir), optional pad / bass / percussion and reverb; it gets richer when more is happening on screen.
 - **Game**, all in the browser (`localStorage`, no server):

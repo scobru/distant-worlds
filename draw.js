@@ -15,6 +15,9 @@ export function drawThing(g, t, x, y, s, o) {
     for (let k = -3; k <= 3; k += 0.25) g.lineTo(k, -0.3 - r() * 0.9);
     g.lineTo(3, 1); g.clip();
   }
+  const pl = t.plant;
+  if (pl) g.scale(pl.wide, pl.tall); // each plant species has its own proportions
+  const bloomColor = pl ? `hsl(${pl.hue} 80% ${o.night ? 55 : 72}%)` : o.accent;
   const f = () => { g.fill(); if (neon) g.stroke(); };
   const P = (...pts) => { g.beginPath(); for (let i = 0; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]); g.closePath(); f(); };
   const R = (a, b, w, h) => { g.beginPath(); g.rect(a, b, w, h); f(); };
@@ -197,7 +200,7 @@ export function drawThing(g, t, x, y, s, o) {
     // ---- flora of the cultures
     case 'blossoms': // cherry tree: dark trunk, pink cloud
       R(-0.05, -0.55, 0.1, 0.55);
-      g.save(); g.fillStyle = o.night ? '#a56' : '#f6b8d0'; g.globalAlpha = 0.9; C(0, -0.75, 0.3); C(-0.25, -0.6, 0.22); C(0.25, -0.62, 0.22); C(0.05, -0.95, 0.2); g.restore(); break;
+      g.save(); g.fillStyle = pl ? bloomColor : o.night ? '#a56' : '#f6b8d0'; g.globalAlpha = 0.9; C(0, -0.75, 0.3); C(-0.25, -0.6, 0.22); C(0.25, -0.62, 0.22); C(0.05, -0.95, 0.2); g.restore(); break;
     case 'bamboo':
       for (let k = 0; k < 3; k++) { const a = -0.2 + k * 0.2, hh = 1.2 + r() * 0.8; R(a - 0.03, -hh, 0.06, hh); for (let j = 1; j < 5; j++) R(a - 0.05, -hh * j / 5, 0.1, 0.03); P(a, -hh, a + 0.25, -hh - 0.15, a + 0.05, -hh + 0.1); }
       break;
@@ -222,12 +225,16 @@ export function drawThing(g, t, x, y, s, o) {
       R(-0.05, -0.5, 0.1, 0.5); C(0, -0.75, 0.32); C(-0.22, -0.55, 0.22); C(0.22, -0.55, 0.22); break;
     case 'conifers': P(-0.3, 0, 0, -1.3, 0.3, 0); break;
     case 'crystals':
-      g.fillStyle = o.accent; g.globalAlpha = 0.75; g.shadowColor = o.accent; g.shadowBlur = 12;
+      g.fillStyle = g.shadowColor = pl ? bloomColor : o.accent; g.globalAlpha = 0.75; g.shadowBlur = 12;
       for (let i = 0; i < 3; i++) { const a = -0.3 + i * 0.3, h = 0.5 + r() * 0.9; P(a - 0.1, 0, a - 0.05, -h, a + 0.02, -h - 0.15, a + 0.1, 0); }
       break;
     case 'mushrooms':
       R(-0.06, -0.6, 0.12, 0.6);
-      g.fillStyle = o.accent; g.globalAlpha = 0.85; g.beginPath(); g.ellipse(0, -0.6, 0.4, 0.28, 0, Math.PI, 0); f(); break;
+      g.fillStyle = pl ? bloomColor : o.accent; g.globalAlpha = 0.85; g.beginPath(); g.ellipse(0, -0.6, 0.4, 0.28, 0, Math.PI, 0); f(); break;
+  }
+  if (pl?.bloom && ['forest', 'conifers', 'palms', 'cacti', 'deadwood', 'bamboo'].includes(t.kind)) { // flowering species
+    g.shadowBlur = 0; g.globalAlpha = 1; g.fillStyle = bloomColor;
+    for (let k = 0; k < 6; k++) { g.beginPath(); g.arc((r() - 0.5) * 0.6, -0.45 - r() * 0.65, 0.055, 0, 7); g.fill(); }
   }
   g.restore();
 }

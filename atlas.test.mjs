@@ -78,3 +78,17 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(x0 < 100 && x1 > 100 && y0 < 200 && y1 === 200);
   console.log('describe ok,', n, 'entities');
 }
+
+// Herbarium: plants are recorded once; ten make a Herbalist.
+{
+  const { emptyState, findPlant } = await import('./atlas.js');
+  const { makeWorld, makePlant } = await import('./world.js');
+  const st = emptyState(), w = makeWorld('v1-1_1_1');
+  assert.deepEqual(makePlant('s', 0, 'forest'), makePlant('s', 0, 'forest'));
+  let last;
+  for (let i = 0; i < 10; i++) { last = findPlant(st, makePlant('w' + i, 0, 'cacti'), w); assert.ok(last.isNew); }
+  assert.ok(!findPlant(st, makePlant('w0', 0, 'cacti'), w).isNew);
+  assert.ok(last.achievements.includes('Herbalist'));
+  for (let i = 0; i < 100; i++) { const p = makeWorld('p' + i).plants; for (const pl of p) assert.ok(/^[A-Z][a-z]+ [a-z]+$/.test(pl.name), pl.name); }
+  console.log('herbarium ok:', makePlant('x', 0, 'blossoms').name);
+}

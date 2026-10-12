@@ -326,6 +326,7 @@ export function makeWorld(seedStr) {
     floraDensity: flora === 'barren' ? 0 : r() * 20,
     herdLayer: nLayers - 1 - Math.floor(r() * 2),
   };
+  const plants = flora === 'barren' ? [] : Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => makePlant(seedStr, k, flora));
   const species = fauna === 'herds' || fauna === 'giants'
     ? Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => makeSpecies(seedStr, k, fauna === 'giants')) : [];
 
@@ -339,7 +340,7 @@ export function makeWorld(seedStr) {
 
   const scaleName = civ === 'aliens' ? pick(['hirajoshi', 'lydian']) : cult.scale && r() < 0.75 ? cult.scale : pick(Object.keys(SCALES));
   return {
-    seed: seedStr, sector, region: region?.[0] ?? null, species, relief, rivers, islands, aurora, smoke, culture, weather: cult.weather ?? null,
+    seed: seedStr, sector, region: region?.[0] ?? null, species, plants, relief, rivers, islands, aurora, smoke, culture, weather: cult.weather ?? null,
     name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'ruins' && civ !== 'uninhabited' && (eraIdx >= 2 || civ === 'aliens'),
     ships: eraIdx >= 4 || civ === 'aliens' ? Math.floor(r() * 5) : 0,
@@ -382,7 +383,7 @@ export function chunk(w, i, c) {
   if (w.pop.structs && (i === n - 2 || i === n - 3)) for (let k = count(w.pop.structDensity / 2); k--;)
     things.push({ kind: pick(w.pop.structs), x: c + r(), size: 0.05 + r() * 0.09, seed: id(), broken: w.civ === 'ruins' });
   if (i >= n - 2) for (let k = count(w.pop.floraDensity / 2); k--;)
-    things.push({ kind: w.flora, x: c + r(), size: 0.015 + r() * 0.04, seed: id() });
+    things.push({ kind: w.flora, x: c + r(), size: 0.015 + r() * 0.04, seed: id(), plant: w.plants[Math.floor(r() * w.plants.length)] });
   if (i === n - 2 && r() < 0.06) things.push({ kind: pick(RELICS), x: c + 0.2 + r() * 0.6, size: 0.1, seed: id(), relic: true });
   things.sort((a, b) => b.size - a.size);
 
@@ -456,4 +457,18 @@ export function colonists(persona, seed, flagX, minutes) {
     kind: 'species', dna, x: flagX - 0.3 + r() * 0.35, range: 0.1 + r() * 0.3, speed: (2 + r() * 5) * 1e-6,
     size: 0.028 + r() * 0.018, phase: r() * 2, seed: Math.floor(r() * 2 ** 32), hop: r() < 0.35,
   }));
+}
+
+// Plant species: each world grows a few of its flora family, each with its own proportions, colour
+// and maybe flowers, and a Latin-sounding name. They go into the herbarium.
+const GENUS = ['ia', 'ella', 'ora', 'anthe', 'aria', 'ix'], EPITHET = ['is', 'um', 'ensis', 'ata', 'ica', 'oides'];
+export function makePlant(worldSeed, k, family) {
+  const r = rngFrom(`${worldSeed}:plant:${k}`), syl = () => SYL[Math.floor(r() * SYL.length)];
+  const genus = syl() + syl() + GENUS[Math.floor(r() * GENUS.length)], epithet = syl() + EPITHET[Math.floor(r() * EPITHET.length)];
+  const bloom = r() < 0.35, tall = 0.7 + r() * 0.8, wide = 0.7 + r() * 0.6;
+  return {
+    id: `${worldSeed}~${k}`, family, name: `${genus[0].toUpperCase()}${genus.slice(1)} ${epithet}`,
+    tall, wide, hue: Math.floor(r() * 360), bloom,
+    rarity: bloom && (tall > 1.35 || wide > 1.2) ? 'rare' : 'common',
+  };
 }

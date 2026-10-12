@@ -27,11 +27,12 @@ export const ACHIEVEMENTS = [
   ['Naturalist', 'Catalogue 10 species', (st) => st.species.length >= 10],
   ['Taxonomist', 'Catalogue 50 species', (st) => st.species.length >= 50],
   ['Cryptozoologist', 'Find a legendary species', (st) => st.species.some((s) => s.rarity === 'legendary')],
+  ['Herbalist', 'Press 10 plants in your herbarium', (st) => (st.plants ?? []).length >= 10],
   ['Explorer', 'Explore 100 worlds', (st) => st.count >= 100],
   ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
 ];
 
-export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], stars: [], daily: { done: null, streak: 0, best: 0 } });
+export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], plants: [], stars: [], daily: { done: null, streak: 0, best: 0 } });
 
 // Applies `change` to the state; returns the entries, combos and achievements it unlocked.
 function discover(st, keys, combo, change = () => {}) {
@@ -58,6 +59,14 @@ export const visit = (st, w) => discover(st,
 export function findSpecies(st, sp, w) {
   if (st.species.some((s) => s.id === sp.id)) return { isNew: false, achievements: [] };
   const news = discover(st, [], null, () => st.species.unshift({ id: sp.id, name: sp.name, rarity: sp.rarity, world: w.seed, worldName: w.name }));
+  return { isNew: true, achievements: news.achievements };
+}
+
+// Records a plant species seen while walking.
+export function findPlant(st, pl, w) {
+  st.plants ??= [];
+  if (st.plants.some((p) => p.id === pl.id)) return { isNew: false, achievements: [] };
+  const news = discover(st, [], null, () => st.plants.unshift({ id: pl.id, name: pl.name, family: pl.family, rarity: pl.rarity, world: w.seed, worldName: w.name }));
   return { isNew: true, achievements: news.achievements };
 }
 
