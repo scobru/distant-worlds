@@ -47,6 +47,7 @@ function ridge(r, points, octaves, rough) {
 export const ERE = ['antico', 'medievale', 'industriale', 'presente', 'futuro', 'lontano futuro'];
 export const CIVILTA = ['disabitato', 'umani', 'alieni', 'rovine'];
 export const FLORA = ['brullo', 'foresta', 'conifere', 'cristalli', 'funghi'];
+export const FAUNA = ['nessuna', 'uccelli', 'branchi', 'meduse', 'giganti', 'balene'];
 export const STILI = ['classico', 'neon', 'pastello', 'mono', 'seppia'];
 
 const STRUTTURE = {
@@ -118,10 +119,31 @@ export function makeWorld(seedStr) {
   }
   for (const L of layers) L.things.sort((a, b) => b.size - a.size);
 
+  // Creatures: flyers live in the sky, walkers on a ridge. Speeds are in screen-widths per ms.
+  const fauna = pick(FAUNA), flyers = [];
+  const sign = () => (r() < 0.5 ? -1 : 1);
+  const walk = (L, kind, x, speed, size) => L.creatures.push({ kind, x, speed, size, seed: Math.floor(r() * 2 ** 32) });
+  for (const L of layers) L.creatures = [];
+  const near = layers[nLayers - 1], mid = layers[nLayers - 2];
+  if (fauna === 'uccelli') for (let k = 1 + Math.floor(r() * 3); k--;)
+    flyers.push({ kind: 'stormo', x: r(), y: 0.1 + r() * 0.3, speed: sign() * (1 + r() * 2) * 1e-5, size: 0.006 + r() * 0.006, seed: Math.floor(r() * 2 ** 32) });
+  if (fauna === 'meduse') for (let k = 2 + Math.floor(r() * 5); k--;)
+    flyers.push({ kind: 'medusa', x: r(), y: 0.1 + r() * 0.35, speed: sign() * r() * 3e-6, size: 0.015 + r() * 0.02, seed: Math.floor(r() * 2 ** 32) });
+  if (fauna === 'balene') for (let k = 1 + Math.floor(r() * 2); k--;)
+    flyers.push({ kind: 'balena', x: r(), y: 0.1 + r() * 0.2, speed: sign() * (2 + r() * 2) * 1e-6, size: 0.08 + r() * 0.07, seed: Math.floor(r() * 2 ** 32) });
+  if (fauna === 'branchi') {
+    const L = r() < 0.5 ? near : mid, x = r(), v = sign() * (2 + r() * 3) * 1e-6;
+    for (let k = 3 + Math.floor(r() * 5); k--;) walk(L, 'quadrupede', x + r() * 0.12, v, 0.03 + r() * 0.02);
+  }
+  if (fauna === 'giganti') for (let k = 1 + Math.floor(r() * 3); k--;)
+    walk(layers[Math.min(1, nLayers - 2)], 'gigante', r(), sign() * (1 + r()) * 1e-6, 0.08 + r() * 0.07);
+  if (civ === 'umani' || civ === 'alieni') for (let k = 2 + Math.floor(r() * 5); k--;)
+    walk(mid, civ === 'umani' ? 'abitante' : 'alieno', r(), sign() * (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
+
   const scaleName = civ === 'alieni' ? pick(['hirajoshi', 'lydian']) : pick(Object.keys(SCALES));
   return {
     seed: seedStr,
-    name, era, civ, flora, style, night, sky, accent, layers,
+    name, era, civ, flora, fauna, style, flyers, night, sky, accent, layers,
     lights: civ !== 'rovine' && civ !== 'disabitato' && (eraIdx >= 2 || civ === 'alieni'),
     ships: eraIdx >= 4 || civ === 'alieni' ? Math.floor(r() * 5) : 0,
     stars: night ? 300 : Math.floor(r() * 60),

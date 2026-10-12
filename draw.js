@@ -100,3 +100,71 @@ export function drawThing(g, t, x, y, s, o) {
   }
   g.restore();
 }
+
+// Creatures, drawn facing their direction of travel. `o.t` drives gait / flapping.
+export function drawCreature(g, c, x, y, s, o) {
+  const r = rng(c.seed), ph = r() * 7, t = o.t;
+  const neon = o.style === 'neon';
+  g.save();
+  g.translate(x, y); g.scale(c.speed < 0 ? -s : s, s);
+  g.fillStyle = g.strokeStyle = o.color; g.lineCap = 'round';
+  if (neon) { g.strokeStyle = g.shadowColor = o.accent; g.shadowBlur = 8; }
+  const swing = Math.sin(t / 220 + ph);
+  const leg = (a, b, len, w, k) => { g.lineWidth = w; g.beginPath(); g.moveTo(a, b); g.lineTo(a + Math.sin(t / 220 + ph + k) * len * 0.35, b + len); g.stroke(); };
+  const E = (a, b, rx, ry, rot = 0) => { g.beginPath(); g.ellipse(a, b, rx, ry, rot, 0, 7); g.fill(); if (neon) { g.lineWidth = 1.5 * devicePixelRatio / s; g.stroke(); } };
+  if (!neon) g.strokeStyle = o.color;
+
+  switch (c.kind) {
+    case 'stormo':
+      g.strokeStyle = o.bird; g.lineWidth = 0.25;
+      for (let i = 0; i < 3 + r() * 7; i++) {
+        const bx = -i * (1.5 + r() * 2), by = (r() - 0.5) * 4 + Math.sin(t / 900 + i) * 0.5, f = Math.sin(t / 140 + i * 1.3) * 0.7;
+        g.beginPath(); g.moveTo(bx - 1, by - f); g.lineTo(bx, by); g.lineTo(bx + 1, by - f); g.stroke();
+      }
+      break;
+    case 'medusa': {
+      g.translate(0, Math.sin(t / 1500 + ph) * 0.5);
+      g.fillStyle = g.strokeStyle = g.shadowColor = o.accent; g.shadowBlur = 12; g.globalAlpha = 0.65; g.lineWidth = 0.06;
+      g.beginPath(); g.ellipse(0, 0, 0.5, 0.4, 0, Math.PI, 0); g.fill();
+      for (let i = -2; i <= 2; i++) {
+        g.beginPath(); g.moveTo(i * 0.2, 0);
+        for (let k = 1; k <= 6; k++) g.lineTo(i * 0.2 + Math.sin(t / 400 + k + i) * 0.08, k * 0.18);
+        g.stroke();
+      }
+      break;
+    }
+    case 'balena':
+      g.translate(0, Math.sin(t / 3000 + ph) * 0.05); g.fillStyle = o.whale; g.globalAlpha = 0.8;
+      E(0, 0, 1, 0.28);
+      g.save(); g.translate(-0.95, 0); g.rotate(Math.sin(t / 1200 + ph) * 0.25);
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(-0.35, -0.2); g.lineTo(-0.28, 0); g.lineTo(-0.35, 0.2); g.fill(); g.restore();
+      E(0.1, 0.25, 0.25, 0.05, 0.5);
+      break;
+    case 'quadrupede':
+      for (const [a, k] of [[-0.45, 0], [-0.3, 3], [0.3, 1.5], [0.45, 4.5]]) leg(a, -0.5, 0.5, 0.1, k);
+      E(0, -0.6, 0.6, 0.2);
+      g.lineWidth = 0.12; g.beginPath(); g.moveTo(0.5, -0.65); g.lineTo(0.75, -0.95 + swing * 0.03); g.stroke();
+      E(0.85, -0.97 + swing * 0.03, 0.17, 0.09, 0.3);
+      break;
+    case 'gigante':
+      for (const [a, k] of [[-0.35, 0], [-0.25, 3], [0.25, 1.5], [0.35, 4.5]]) leg(a, -0.75, 0.75, 0.07, k);
+      E(0, -0.85, 0.5, 0.2);
+      g.lineWidth = 0.08; g.beginPath(); g.moveTo(0.4, -0.9);
+      g.quadraticCurveTo(0.75, -1.3, 0.8, -1.75 + swing * 0.02); g.stroke();
+      E(0.88, -1.77 + swing * 0.02, 0.12, 0.05);
+      g.beginPath(); g.moveTo(-0.45, -0.85); g.quadraticCurveTo(-0.9, -0.8 + swing * 0.05, -1.1, -0.5); g.stroke();
+      break;
+    case 'abitante':
+      leg(0, -0.5, 0.5, 0.1, 0); leg(0, -0.5, 0.5, 0.1, Math.PI);
+      g.lineWidth = 0.14; g.beginPath(); g.moveTo(0, -0.5); g.lineTo(0, -0.95); g.stroke();
+      leg(0, -0.9, 0.35, 0.07, Math.PI); E(0, -1.08, 0.11, 0.12);
+      break;
+    case 'alieno':
+      for (const k of [0, 2.1, 4.2]) leg(0, -0.7, 0.7, 0.06, k);
+      g.lineWidth = 0.08; g.beginPath(); g.moveTo(0, -0.7); g.lineTo(0, -1.2); g.stroke();
+      E(0.05, -1.35, 0.2, 0.15, -0.2);
+      if (o.lights) { g.fillStyle = g.shadowColor = o.accent; g.shadowBlur = 6; E(0.14, -1.37, 0.04, 0.03); }
+      break;
+  }
+  g.restore();
+}

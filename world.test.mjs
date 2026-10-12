@@ -9,5 +9,6 @@ console.log('ok', a.name, '/', c.name, a.music.scaleName, a.music.bpm + 'bpm');
 for (let i = 0; i < 300; i++) {
   const w = makeWorld('s' + i);
   for (const L of w.layers) for (const t of L.things) assert.ok(t.kind && t.x >= 0 && t.x < 1, JSON.stringify(t));
+  for (const c of [...w.flyers, ...w.layers.flatMap((L) => L.creatures)]) assert.ok(c.kind && c.speed !== undefined && c.size > 0);
   assert.ok(w.music.wave && w.music.scale);
 }
