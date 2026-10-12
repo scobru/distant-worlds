@@ -90,7 +90,7 @@ function knot(seed, o, i) {
   h ^= h >>> 15; h = Math.imul(h, 0x27d4eb2f); h ^= h >>> 13;
   return (h >>> 0) / 4294967296;
 }
-export function height(L, x) {
+function noise(L, x) {
   let amp = 1, f = L.freq, sum = 0, total = 0;
   for (let o = 0; o < 4; o++) {
     const X = x * f, k = Math.floor(X), t = X - k, s = t * t * (3 - 2 * t);
@@ -98,6 +98,72 @@ export function height(L, x) {
     total += amp; amp *= L.rough; f *= 2;
   }
   return sum / total;
+}
+const smooth = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/** Ground height in [0, 1] at x; the layer's shape gives each world its relief. */
+export function height(L, x) {
+  const v = noise(L, x);
+  switch (L.shape) {
+    case 'peaks': { // ridged: sharp crests, deep valleys
+      const r = 1 - Math.abs(2 * v - 1);
+      return r * r;
+    }
+    case 'mesas': { // flat tops and sheer walls, in steps
+      const f = Math.min(v * 1.25, 0.999) * 3, k = Math.floor(f);
+      return (k + smooth(0.8, 1, f - k)) / 3;
+    }
+    case 'dunes': { // long windward slopes, short steep lee faces
+      const X = x * L.freq * 1.5, k = Math.floor(X), t = X - k;
+      const saw = t < 0.8 ? smooth(0, 0.8, t) : 1 - smooth(0.8, 1, t);
+      return 0.55 * v + 0.45 * saw * (0.6 + 0.4 * knot(L.seed, 9, k));
+    }
+    case 'spires': { // rolling ground pierced by needles of rock
+      const X = x * L.freq * 2, k = Math.floor(X);
+      let spike = 0;
+      for (const c of [k - 1, k, k + 1]) {
+        if (knot(L.seed, 7, c) < 0.55) continue;
+        const d = Math.abs(X - (c + 0.5)) / (0.08 + 0.1 * knot(L.seed, 8, c));
+        if (d < 1) spike = Math.max(spike, (1 - d) ** 2 * (0.5 + 0.5 * knot(L.seed, 6, c)));
+      }
+      return Math.min(1, 0.45 * v + spike);
+    }
+    default: return v;
+  }
+}
+
+/** Rivers run from the horizon towards the viewer, about one every few screens. Pure, like chunk(). */
+export function riversNear(w, x0, x1) {
+  if (!w.rivers) return [];
+  const out = [];
+  for (let k = Math.floor(x0 / 1.6) - 1; k <= Math.floor(x1 / 1.6) + 1; k++) {
+    const r = rngFrom(`${w.seed}:river:${k}`);
+    if (r() < 0.7) out.push({ x: (k + 0.2 + r() * 0.6) * 1.6, width: 0.7 + r() * 0.9, phase: r() * 7 });
+  }
+  return out;
+}
+
+/** Columns of smoke rising from the far ranges (industry, ruins, war). */
+export function smokeNear(w, x0, x1) {
+  if (!w.smoke) return [];
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:smoke:${k}`);
+    if (r() < 0.6) out.push({ x: k + r(), size: 0.6 + r() * 0.8, phase: r() * 7 });
+  }
+  return out;
+}
+
+/** Floating islands drift in the sky (parallax ISLAND_PARALLAX), some pouring a waterfall. */
+export const ISLAND_PARALLAX = 0.08;
+export function islandsNear(w, x0, x1) {
+  if (!w.islands) return [];
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:islands:${k}`);
+    for (let n = Math.floor(r() * 3); n--;) out.push({ x: k + r(), y: 0.14 + r() * 0.28, size: 0.06 + r() * 0.1, fall: r() < 0.6, tree: r() < 0.6, seed: Math.floor(r() * 2 ** 32) });
+  }
+  return out;
 }
 
 export const RELICS = ['portal', 'monolith', 'skeleton'];
@@ -107,6 +173,7 @@ export const TRAITS = {
   era: { ancient: 3, medieval: 3, industrial: 2, present: 2, future: 2, 'far future': 1 },
   civ: { uninhabited: 4, humans: 3, ruins: 2, aliens: 1 },
   flora: { barren: 3, forest: 3, conifers: 3, mushrooms: 1.5, crystals: 1 },
+  relief: { rolling: 3, peaks: 3, mesas: 1.5, dunes: 1.5, spires: 1, islands: 1 },
   fauna: { none: 3, birds: 4, herds: 3, giants: 1, jellyfish: 1, whales: 0.5 },
   style: { classic: 5, pastel: 2, sepia: 1.5, mono: 1, neon: 1 },
 };
@@ -172,15 +239,21 @@ export function makeWorld(seedStr) {
   const groundHue = hue + 180 + (r() - 0.5) * 80;
   const accent = c(hue + shift + 180, 90, 65);
 
+  const relief = wpick(T('relief'));
   const nLayers = 3 + Math.floor(r() * 3);
   const layers = Array.from({ length: nLayers }, (_, i) => {
     const depth = i / (nLayers - 1); // 0 far, 1 near
+    // the relief shapes the distant ranges; the two nearest layers stay walkable (dunes and mesas reach them)
+    const shape = relief === 'islands' ? 'rolling' : i < nLayers - 2 || relief === 'dunes' || relief === 'mesas' ? relief : 'rolling';
+    const tall = shape === 'peaks' || shape === 'spires' ? 1.8 : 1;
     return {
       seed: Math.floor(r() * 2 ** 32),
       freq: 2 + Math.floor(r() * 4),
       rough: 0.35 + r() * 0.3,
+      shape,
       base: 0.5 + depth * 0.32,
-      span: 0.12 + r() * 0.25 * (1 - depth * 0.5),
+      // tall ranges, but their crests stay below the top fifth of the sky
+      span: Math.min((0.12 + r() * 0.25 * (1 - depth * 0.5)) * (depth < 0.7 ? tall : 1), 0.3 + depth * 0.32),
       color: c(groundHue, 20 + r() * 30, night ? 16 - depth * 12 : 30 - depth * 22),
       parallax: 0.15 + depth * 0.85,
     };
@@ -206,12 +279,15 @@ export function makeWorld(seedStr) {
     ? Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => makeSpecies(seedStr, k, fauna === 'giants')) : [];
 
   const rings = chance(P.rings), sea = chance(P.sea);
-  const traits = { era, civ, flora, fauna, style, night: night, rings: rings, sea: sea };
+  const traits = { era, civ, flora, fauna, style, relief, night, rings, sea };
+  // Vertical features: rivers towards the viewer, floating islands, auroras, smoke columns.
+  const rivers = relief !== 'dunes' && (sea || r() < 0.35), islands = relief === 'islands' || r() < 0.08;
+  const aurora = night && r() < 0.35, smoke = ERAS.indexOf(era) === 2 || civ === 'ruins' ? r() < 0.6 : r() < 0.05;
   const rarity = RARITY.findLast(([, min]) => bits >= min)[0];
 
   const scaleName = civ === 'aliens' ? pick(['hirajoshi', 'lydian']) : pick(Object.keys(SCALES));
   return {
-    seed: seedStr, sector, region: region?.[0] ?? null, species,
+    seed: seedStr, sector, region: region?.[0] ?? null, species, relief, rivers, islands, aurora, smoke,
     name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'ruins' && civ !== 'uninhabited' && (eraIdx >= 2 || civ === 'aliens'),
     ships: eraIdx >= 4 || civ === 'aliens' ? Math.floor(r() * 5) : 0,
@@ -220,6 +296,7 @@ export function makeWorld(seedStr) {
     moons: Array.from({ length: Math.floor(r() * 4) }, () => ({ x: r(), y: 0.05 + r() * 0.3, size: 0.006 + r() * 0.03 })),
     rings,
     water: sea ? c(hue + shift, 50, night ? 8 : 30) : null,
+    river: c(hue + shift + 10, 55, night ? 14 : 42),
     music: {
       root: 36 + Math.floor(r() * 12), // MIDI, C2..B2
       scaleName,

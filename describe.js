@@ -15,6 +15,7 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
 /** `e`: { type: 'thing' | 'walker' | 'flyer' | 'beacon', ...the drawn entity }; `w`: the world;
  *  `known`: { relic(kind), species(id) } — whether the explorer already has it in the atlas. */
 export function describe(e, w, known) {
+  if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };
   if (e.type === 'colonist') return { title: `${e.label}'s people`, lines: [`${e.dna.name}: settlers who follow ${e.label} from planet to planet.`, parts(e.dna)] };
   if (e.type === 'flyer') { const [t, l] = FLYER[e.kind] ?? [cap(e.kind), '']; return { title: t, lines: [l] }; }
@@ -46,6 +47,7 @@ export function boxOf(e, x, y, s) {
     return [x - 0.6 * s, y - 0.5 * s, x + 0.6 * s, y + 1.3 * s];
   }
   if (e.type === 'walker' || e.type === 'colonist') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
+  if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return [x - 0.2 * s, y - 2.3 * s, x + 1 * s, y];
   if (e.kind === 'arch') return [x - 3 * s, y - 3 * s, x + 3 * s, y];
   if (e.kind === 'block' || e.kind === 'tower') return [x - 0.5 * s, y - 2.8 * s, x + 0.5 * s, y];

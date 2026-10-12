@@ -221,3 +221,79 @@ export function drawCreature(g, c, x, y, s, o) {
   }
   g.restore();
 }
+
+// ---- vertical features -------------------------------------------------------------------------
+
+/** A river coming towards the viewer: a ribbon from the ridge at `top` down to `bottom`, widening and
+ *  winding, with ripples flowing downwards. Call with the layer's shape as clip. */
+export function drawRiver(g, x, top, bottom, width, depth, phase, t, color) {
+  const span = bottom - top;
+  if (span <= 0) return;
+  const at = (u) => x + Math.sin(u * 5 + phase) * width * 0.6 * (0.3 + depth);
+  const half = (u) => width * (0.04 + 0.5 * depth) * (0.25 + 0.75 * u);
+  g.save();
+  g.fillStyle = color; g.globalAlpha = 0.9;
+  g.beginPath();
+  for (let u = 0; u <= 1.001; u += 0.05) g.lineTo(at(u) - half(u), top + u * span);
+  for (let u = 1; u >= -0.001; u -= 0.05) g.lineTo(at(u) + half(u), top + u * span);
+  g.fill();
+  // ripples drift down the stream
+  g.strokeStyle = '#fff'; g.globalAlpha = 0.25; g.lineWidth = Math.max(1, width * 0.02 * (0.5 + depth));
+  for (let j = 0; j < 14; j++) {
+    const u = (j / 14 + t * 0.00006 * (1 + depth)) % 1, y = top + u * span, hw = half(u) * (0.2 + 0.5 * ((j * 7) % 5) / 5);
+    g.beginPath(); g.moveTo(at(u) - hw, y); g.lineTo(at(u) + hw * 0.6, y + span * 0.015); g.stroke();
+  }
+  g.restore();
+}
+
+/** A floating island: grassy top, jagged rock hanging below, roots, maybe a tree and a waterfall. */
+export function drawIsland(g, x, y, s, isl, o) {
+  const r = rng(isl.seed);
+  g.save();
+  if (isl.fall) { // the waterfall goes behind the rock, fading as it falls
+    const fx = x + s * (0.4 + r() * 0.4), len = s * (4 + r() * 4);
+    const grad = g.createLinearGradient(0, y, 0, y + len);
+    grad.addColorStop(0, o.water); grad.addColorStop(1, 'transparent');
+    g.fillStyle = grad; g.fillRect(fx - s * 0.06, y, s * 0.12, len);
+    g.strokeStyle = '#fff'; g.globalAlpha = 0.35; g.lineWidth = Math.max(1, s * 0.02);
+    for (let j = 0; j < 6; j++) { const u = (j / 6 + o.t * 0.0004) % 1; g.beginPath(); g.moveTo(fx, y + u * len); g.lineTo(fx, y + u * len + s * 0.3); g.stroke(); }
+    g.globalAlpha = 1;
+  }
+  g.fillStyle = o.rock;
+  g.beginPath(); g.moveTo(x - s, y);
+  for (let k = 0; k <= 8; k++) g.lineTo(x - s + (k / 8) * 2 * s, y + s * (0.15 + r() * 0.35) * Math.sin((k / 8) * Math.PI) * 3);
+  g.lineTo(x + s, y); g.fill();
+  g.strokeStyle = o.rock; g.lineWidth = Math.max(1, s * 0.03);
+  for (let k = 0; k < 4; k++) { const rx = x - s * 0.6 + r() * s * 1.2; g.beginPath(); g.moveTo(rx, y + s * 0.3); g.quadraticCurveTo(rx + s * 0.1, y + s * 1.2, rx - s * 0.05, y + s * (1.3 + r())); g.stroke(); }
+  g.fillStyle = o.top; g.beginPath(); g.ellipse(x, y, s * 1.05, s * 0.18, 0, 0, 7); g.fill();
+  if (isl.tree) { g.fillStyle = o.rock; g.fillRect(x - s * 0.04, y - s * 0.5, s * 0.08, s * 0.5); g.fillStyle = o.top; g.beginPath(); g.arc(x, y - s * 0.6, s * 0.28, 0, 7); g.fill(); }
+  g.restore();
+}
+
+/** Aurora: curtains of light hanging from the top of the sky. */
+export function drawAurora(g, w, h, t, hue) {
+  g.save();
+  for (let k = 0; k < 3; k++) {
+    const grad = g.createLinearGradient(0, 0, 0, h * 0.45);
+    grad.addColorStop(0, 'transparent'); grad.addColorStop(0.3, `hsla(${hue + k * 40} 90% 60% / .16)`); grad.addColorStop(1, 'transparent');
+    g.fillStyle = grad;
+    const step = 6 * devicePixelRatio;
+    for (let x = 0; x < w; x += step) {
+      const top = h * (0.04 + 0.05 * Math.sin(x * 0.003 + t / 4000 + k * 2));
+      const len = h * (0.2 + 0.12 * Math.sin(x * 0.008 + k + t / 2500));
+      g.fillRect(x, top, step + 1, len);
+    }
+  }
+  g.restore();
+}
+
+/** A column of smoke rising from (x, y), drifting with the wind. */
+export function drawSmoke(g, x, y, s, t, phase, color) {
+  g.save(); g.fillStyle = color;
+  for (let j = 0; j < 12; j++) {
+    const u = (j / 12 + t * 0.00004) % 1;
+    g.globalAlpha = 0.18 * (1 - u);
+    g.beginPath(); g.arc(x + Math.sin(u * 4 + phase) * s * 0.3 + u * s * 1.2, y - u * s * 6, s * (0.15 + u * 0.6), 0, 7); g.fill();
+  }
+  g.restore();
+}

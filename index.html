@@ -90,8 +90,8 @@
 <dialog id="lbDlg"><div class="row"><h2>Leaderboard</h2><button id="lbClose">Close</button></div><div id="lbBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, GALAXY } from './world.js';
-import { drawThing, drawCreature } from './draw.js';
+import { makeWorld, randomSeed, rng, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY } from './world.js';
+import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic } from './audio.js';
 import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
@@ -177,6 +177,7 @@ function draw(t) {
   if (fresh) addFuel(st, Math.min(fresh * FUEL.perScreen, FUEL.maxPerSecond * dt / 1000));
   document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
+  hits = [];
   const W = world, sky = g.createLinearGradient(0, 0, 0, h);
   sky.addColorStop(0, W.sky.top); sky.addColorStop(1, W.sky.bottom);
   g.fillStyle = sky; g.fillRect(0, 0, w, h);
@@ -201,6 +202,16 @@ function draw(t) {
     g.beginPath(); g.arc(x, o.y * h, o.size * m, 0, 7); g.fill();
   }
 
+  if (W.aurora) drawAurora(g, w, h, t, (parseInt(W.accent.match(/\d+/)[0]) + 120) % 360);
+  // floating islands, far away: they barely move as you walk
+  const io = { rock: W.layers[0].color, top: W.layers[Math.min(1, W.layers.length - 1)].color, water: W.river, t };
+  const ioff = cam * ISLAND_PARALLAX;
+  for (const isl of islandsNear(W, ioff - 0.3, ioff + 1.3)) {
+    const ix = (isl.x - ioff) * w, iy = isl.y * h + Math.sin(t / 2500 + isl.seed) * h * 0.006, s = isl.size * m;
+    drawIsland(g, ix, iy, s, isl, io);
+    hits.push([[ix - s, iy - s * 0.9, ix + s, iy + s], { type: 'island' }]);
+  }
+
   for (const [x0, y, v, s] of ships) {
     const x = (((x0 + t * v) % 1) + 1) % 1 * w;
     g.fillStyle = '#ccc'; g.beginPath(); g.ellipse(x, y * h, s * m, s * m * 0.25, 0, 0, 7); g.fill();
@@ -211,7 +222,6 @@ function draw(t) {
   const wrap = (c) => ((((c.x - cam * 0.05 + t * c.speed) % 1) + 1) % 1) * 1.2 - 0.1;
   const co = { accent: W.accent, style: W.style, lights: W.lights, t,
     bird: W.night ? '#fff8' : '#0009', whale: W.layers[0].color };
-  hits = [];
   const hit = (e, x, y, s) => hits.push([boxOf(e, x, y, s), e]);
   for (const c of W.flyers) { drawCreature(g, c, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m, co); hit({ type: 'flyer', ...c }, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m); }
 
@@ -226,6 +236,15 @@ function draw(t) {
     if (W.style === 'neon') { g.save(); g.strokeStyle = g.shadowColor = W.accent; g.shadowBlur = 10; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
     // At night a faint rim of sky light keeps ridges (and what stands on them) readable.
     else if (W.night) { g.save(); g.strokeStyle = W.sky.bottom; g.globalAlpha = 0.5; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
+    // rivers come down from the horizon: each layer draws its stretch, clipped to its own ground
+    const depth = i / (W.layers.length - 1), rivers = riversNear(W, off - 0.5, off + 1.5);
+    if (rivers.length) {
+      g.save(); g.clip();
+      for (const rv of rivers) drawRiver(g, X(rv.x), Y(rv.x) - 2, h, rv.width * m * 0.12, depth, rv.phase, t, W.river);
+      g.restore();
+    }
+    // smoke rises from the second range, behind the nearer ones
+    if (i === 1) for (const sm of smokeNear(W, off - 0.3, off + 1.3)) drawSmoke(g, X(sm.x), Y(sm.x), sm.size * m * 0.05, t, sm.phase, W.night ? '#666' : '#444');
     const o = { color: L.color, accent: W.accent, light, night: W.night, lights: W.lights, style: W.style, t };
     const beacon = fn && i === W.layers.length - 2 && fn.beacon(W);
     if (beacon) {

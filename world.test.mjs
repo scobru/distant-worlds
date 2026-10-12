@@ -56,3 +56,24 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   for (const c of b) { const [x] = walkerAt(c, 1e6); assert.ok(x >= c.x && x <= c.x + c.range); }
   console.log('colonists ok:', a[0].dna.name, a.length, '→', b.length);
 }
+
+// Every relief shape stays in [0, 1] and continuous (no cliffs drawn as gaps), far and at negative x.
+{
+  const { riversNear, islandsNear } = await import('./world.js');
+  const shapes = new Set();
+  for (let i = 0; i < 150; i++) {
+    const w = makeWorld('r' + i);
+    for (const L of w.layers) {
+      shapes.add(L.shape);
+      for (let x = -3; x < 3; x += 0.0137) {
+        const h = height(L, x);
+        assert.ok(h >= 0 && h <= 1, `${L.shape} ${h}`);
+        assert.ok(Math.abs(height(L, x + 1e-6) - h) < 1e-2, `${L.shape} jumps at ${x}`);
+      }
+    }
+    for (const r of riversNear(w, -2, 3)) assert.ok(r.width > 0 && Number.isFinite(r.x));
+    for (const s of islandsNear(w, -2, 3)) assert.ok(s.size > 0 && s.y > 0 && s.y < 1);
+  }
+  assert.deepEqual([...shapes].sort(), ['dunes', 'mesas', 'peaks', 'rolling', 'spires']);
+  console.log('relief ok:', [...shapes].join(', '));
+}
