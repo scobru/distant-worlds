@@ -3,8 +3,15 @@ const STRUCT = {
   pyramid: 'Pyramid', temple: 'Temple', obelisk: 'Obelisk', castle: 'Castle', house: 'House', windmill: 'Windmill',
   factory: 'Factory', block: 'Tower block', antenna: 'Antenna', tower: 'Sky tower', dome: 'Dome', arch: 'Megastructure arch',
   spire: 'Alien spire', orb: 'Glowing orb', pods: 'Alien pods',
+  pagoda: 'Pagoda', torii: 'Torii gate', minka: 'Minka house', longhouse: 'Longhouse', stavechurch: 'Stave church', runestone: 'Rune stone',
+  mosque: 'Domed mosque', mudhouse: 'Mud-brick house', steppyramid: 'Step pyramid', stilthut: 'Stilt hut', totem: 'Totem',
+  saloon: 'Saloon', watertower: 'Water tower', igloo: 'Igloo', lighthouse: 'Lighthouse', wreck: 'Car wreck', shack: 'Scrap shack',
+  brokentower: 'Broken skyscraper', bunker: 'Bunker', watchtower: 'Watchtower', tank: 'Tank', searchlight: 'Searchlight',
 };
-const FLORA = { forest: 'Broadleaf tree', conifers: 'Conifer', crystals: 'Crystal cluster', mushrooms: 'Giant mushroom' };
+const FLORA = {
+  forest: 'Broadleaf tree', conifers: 'Conifer', crystals: 'Crystal cluster', mushrooms: 'Giant mushroom',
+  blossoms: 'Blossom tree', bamboo: 'Bamboo grove', palms: 'Palm', cacti: 'Cactus', deadwood: 'Dead tree',
+};
 const RELIC = {
   portal: 'Glows with the light of another world.', monolith: 'Nobody knows who placed it here.', skeleton: 'The bones of something enormous.',
 };
@@ -35,7 +42,7 @@ export function describe(e, w, known) {
   if (FLORA[e.kind]) return { title: FLORA[e.kind], lines: [`Flora of this world (${e.kind}).`] };
   return {
     title: (e.broken ? 'Ruined ' + (STRUCT[e.kind] ?? e.kind).toLowerCase() : STRUCT[e.kind] ?? cap(e.kind)),
-    lines: [w.civ === 'aliens' ? 'Built by aliens.' : e.broken ? `Left from the ${w.era} era. Nobody lives here now.` : `Built by humans, ${w.era} era.`],
+    lines: [w.civ === 'aliens' ? 'Built by aliens.' : e.broken ? `Left from the ${w.era} era. Nobody lives here now.` : `Built by humans, ${w.era} era${w.culture && w.culture !== 'temperate' ? `, ${w.culture} style` : ''}.`],
   };
 }
 

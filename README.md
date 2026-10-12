@@ -4,6 +4,8 @@ Press **New world**: a new planet is born, with its own landscape, creatures and
 Everything comes from a seed in the URL (`…/#v1-8393_2007_4`): share the link and whoever opens it sees and hears the same world, at the same spot (`#seed@12.5`).
 
 - **Endless worlds**: walk forever (arrow keys / A-D, drag, or **Walk**). Terrain, structures, flora, creatures and rare relics are generated chunk by chunk as you go.
+- **Cultures** (One Piece style: real places, reinvented): temperate, japanese, nordic, desert, jungle, western, arctic, apocalyptic, war. Each brings its buildings (pagodas and torii, longhouses and stave churches, domes and minarets, step pyramids, saloons, igloos and lighthouses, broken towers and wrecks, bunkers and searchlights), flora (blossoms, bamboo, palms, cacti, dead trees…), relief, colours, weather (petals, snow, ash) and music.
+- **Relief and depth**: rolling hills, ridged peaks, mesas, dunes, rock spires, floating islands with waterfalls; rivers winding towards the viewer; auroras and smoke columns.
 - **Traits**: era (ancient … far future), civilization (uninhabited, humans, aliens, ruins), fauna (birds, herds, sky jellyfish, giants, flying whales), flora (forest, conifers, crystals, mushrooms) and visual style (classic, neon, pastel, mono, sepia).
 - **Galaxy**: every world is a star on a map (10,000 × 10,000 sectors, `#v1-<x>_<y>_<n>`). Regions such as the Alien Nebula or the Sky Seas change what grows there.
 - **Composable species**: animals are built from parts (legs, neck, head, horns, tail, pattern) and go into your bestiary.

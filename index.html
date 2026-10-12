@@ -91,7 +91,7 @@
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
 import { makeWorld, randomSeed, rng, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY } from './world.js';
-import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke } from './draw.js';
+import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic } from './audio.js';
 import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
@@ -101,7 +101,7 @@ const KEY = 'distant-worlds-v1';
 let st;
 try { st = { ...emptyState(), ...JSON.parse(localStorage.getItem(KEY)) }; } catch { st = emptyState(); }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
-const LABEL = { era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', rarity: 'rarity', relic: 'relics' };
+const LABEL = { culture: 'culture', relief: 'relief', era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', rarity: 'rarity', relic: 'relics' };
 const days = () => { const d = new Date(); const y = new Date(d); y.setDate(d.getDate() - 1); return [isoDay(d), isoDay(y)]; };
 
 let toastTimer;
@@ -131,7 +131,7 @@ function load() {
   document.getElementById('name').textContent = W.name;
   const rb = document.getElementById('rarity');
   rb.textContent = W.rarity; rb.className = 'badge ' + W.rarity;
-  document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.lead} · ${W.music.scaleName} ${W.music.bpm} bpm${W.region ? ' · ' + W.region : ''}`;
+  document.getElementById('meta').textContent = `#${seed} · ${W.culture} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.lead} · ${W.music.scaleName} ${W.music.bpm} bpm${W.region ? ' · ' + W.region : ''}`;
   updateFav(); showClaim(); fn?.onWorld();
 
   if (st.last !== seed) {
@@ -286,6 +286,7 @@ function draw(t) {
         g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
     }
   });
+  if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
   cache = next; interest = Math.min(seen, 12);
   showTip();
   requestAnimationFrame(draw);

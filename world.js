@@ -67,6 +67,10 @@ export const REGIONS = [
   ['Future Frontier', 1, { era: { future: 4, 'far future': 6 } }],
   ['Star Garden', 1, { flora: { forest: 2, mushrooms: 4, crystals: 5 } }],
   ['Sky Seas', 1, { fauna: { whales: 10, jellyfish: 5 } }],
+  ['Sakura Drift', 1, { culture: { japanese: 10 } }],
+  ['Dune Sea', 1, { culture: { desert: 8, western: 3 } }],
+  ['Frozen Rim', 1, { culture: { arctic: 6, nordic: 5 } }],
+  ['Ash Belt', 1, { culture: { apocalyptic: 6, war: 5 } }],
 ];
 export function regionAt(sx, sy) {
   const r = rngFrom(`${VERSION}:regione:${Math.floor(sx / 4)}:${Math.floor(sy / 4)}`);
@@ -76,6 +80,7 @@ export function regionAt(sx, sy) {
 
 const SYL = ['ka', 've', 'lor', 'ny', 'tha', 'ri', 'os', 'mu', 'zen', 'ae', 'quel', 'dra', 'si', 'on', 'xi', 'ul', 'bre', 'ith'];
 const SCALES = {
+  hijaz: [0, 1, 4, 5, 7, 8, 10],
   pentatonic: [0, 2, 4, 7, 9],
   minorPenta: [0, 3, 5, 7, 10],
   dorian: [0, 2, 3, 5, 7, 9, 10],
@@ -172,7 +177,8 @@ export const RELICS = ['portal', 'monolith', 'skeleton'];
 export const TRAITS = {
   era: { ancient: 3, medieval: 3, industrial: 2, present: 2, future: 2, 'far future': 1 },
   civ: { uninhabited: 4, humans: 3, ruins: 2, aliens: 1 },
-  flora: { barren: 3, forest: 3, conifers: 3, mushrooms: 1.5, crystals: 1 },
+  culture: { temperate: 3, japanese: 2, nordic: 2, desert: 2, jungle: 1.5, western: 1.5, arctic: 1, apocalyptic: 1, war: 1 },
+  flora: { barren: 3, forest: 3, conifers: 3, mushrooms: 1.5, crystals: 1, blossoms: 1, bamboo: 1, palms: 1, cacti: 1, deadwood: 1 },
   relief: { rolling: 3, peaks: 3, mesas: 1.5, dunes: 1.5, spires: 1, islands: 1 },
   fauna: { none: 3, birds: 4, herds: 3, giants: 1, jellyfish: 1, whales: 0.5 },
   style: { classic: 5, pastel: 2, sepia: 1.5, mono: 1, neon: 1 },
@@ -183,7 +189,7 @@ const P = { night: 0.35, rings: 0.2, sea: 0.5 };
 
 // Rarity class from the world's improbability, in bits (-log2 p).
 // Thresholds tuned so roughly 60% / 27% / 10% / 3% of worlds land in each class.
-export const RARITY = [['common', 0], ['rare', 14], ['epic', 15.7], ['legendary', 17.3]];
+export const RARITY = [['common', 0], ['rare', 19.4], ['epic', 21.9], ['legendary', 24.1]];
 
 const STRUCTURES = {
   ancient: ['pyramid', 'temple', 'obelisk'],
@@ -194,6 +200,46 @@ const STRUCTURES = {
   'far future': ['tower', 'dome', 'arch'],
 };
 const ALIEN_KINDS = ['spire', 'orb', 'pods', 'spire'];
+
+// Cultures reinvent real places (One Piece style): each biases flora and relief, colours the world,
+// brings its own buildings, weather and music. Bias multiplies the trait weights, like regions do.
+const CULTURE_STYLE = { style: { classic: 4 } };
+export const CULTURES = {
+  temperate: { bias: {} },
+  // (every other culture also gets CULTURE_STYLE: its colours should show)
+  japanese: {
+    bias: { flora: { blossoms: 12, bamboo: 8, conifers: 2 }, relief: { peaks: 3, islands: 2 } },
+    hue: 330, ground: 140, kit: ['pagoda', 'torii', 'minka', 'pagoda'], weather: 'petals', scale: 'hirajoshi', lead: ['pluck', 'flute'],
+  },
+  nordic: {
+    bias: { flora: { conifers: 10, barren: 2 }, relief: { peaks: 4, spires: 2 } },
+    hue: 205, ground: 190, kit: ['longhouse', 'stavechurch', 'runestone'], weather: 'snow', scale: 'minorPenta', lead: ['flute', 'bell'], drone: 'choir',
+  },
+  desert: {
+    bias: { flora: { palms: 10, barren: 5, cacti: 2 }, relief: { dunes: 8, mesas: 2 } },
+    hue: 30, ground: 35, sat: 1.3, kit: ['mosque', 'mudhouse', 'pyramid', 'mudhouse'], weather: null, scale: 'hijaz', lead: ['pluck', 'flute'],
+  },
+  jungle: {
+    bias: { flora: { forest: 8, palms: 4, bamboo: 3, mushrooms: 2 }, relief: { rolling: 2, spires: 3, islands: 2 } },
+    hue: 150, ground: 120, kit: ['steppyramid', 'stilthut', 'totem'], weather: null, scale: 'pentatonic', lead: ['marimba'], perc: true,
+  },
+  western: {
+    bias: { flora: { cacti: 12, barren: 4 }, relief: { mesas: 10 } },
+    hue: 20, ground: 15, sat: 1.2, kit: ['saloon', 'watertower', 'windmill', 'saloon'], weather: null, scale: 'pentatonic', lead: ['pluck'],
+  },
+  arctic: {
+    bias: { flora: { barren: 8, crystals: 4, conifers: 1 }, relief: { peaks: 3, spires: 3 } },
+    hue: 195, ground: 200, light: 1.6, kit: ['igloo', 'lighthouse', 'igloo'], weather: 'snow', scale: 'lydian', lead: ['glass', 'bell'],
+  },
+  apocalyptic: {
+    bias: { flora: { deadwood: 10, barren: 6, mushrooms: 3 }, relief: { rolling: 2, spires: 2 } },
+    hue: 65, ground: 30, sat: 0.6, kit: ['wreck', 'shack', 'brokentower', 'antenna'], weather: 'ash', scale: 'minorPenta', lead: ['glass', 'pluck'], drone: 'wind',
+  },
+  war: {
+    bias: { flora: { deadwood: 8, barren: 6 }, relief: { rolling: 4, mesas: 1 } },
+    hue: 10, ground: 40, sat: 0.5, kit: ['bunker', 'watchtower', 'tank', 'searchlight'], weather: 'ash', scale: 'dorian', lead: ['pluck'], perc: true, drone: 'organ',
+  },
+};
 
 // Visual style is a filter on every colour the world picks.
 function toner(style) {
@@ -210,7 +256,8 @@ export function makeWorld(seedStr) {
   const r = rngFrom(seedStr);
   const sector = sectorOf(seedStr), region = sector && regionAt(...sector);
   // Regional bias multiplies the global weights; rarity is measured against what was used.
-  const T = (k) => Object.fromEntries(Object.entries(TRAITS[k]).map(([v, w]) => [v, w * (region?.[2][k]?.[v] ?? 1)]));
+  let cult = CULTURES.temperate;
+  const T = (k) => Object.fromEntries(Object.entries(TRAITS[k]).map(([v, w]) => [v, w * (region?.[2][k]?.[v] ?? 1) * (cult.bias[k]?.[v] ?? 1)]));
   const pick = (a) => a[Math.floor(r() * a.length)];
   let bits = 0;
   const wpick = (table) => {
@@ -225,18 +272,21 @@ export function makeWorld(seedStr) {
   let name = Array.from({ length: n }, () => pick(SYL)).join('');
   name = name[0].toUpperCase() + name.slice(1) + (r() < 0.3 ? ' ' + pick(['Prime', 'IV', 'b', 'Minor', 'Reach']) : '');
 
+  const culture = wpick(T('culture'));
+  cult = CULTURES[culture];
+  if (culture !== 'temperate') cult = { ...cult, bias: { ...CULTURE_STYLE, ...cult.bias } };
   const era = wpick(T('era')), civ = wpick(T('civ')), flora = wpick(T('flora')), style = wpick(T('style'));
   const eraIdx = ERAS.indexOf(era);
   const c = toner(style);
 
-  const hue = Math.floor(r() * 360);
-  const shift = 40 + r() * 140;
+  const hue = cult.hue === undefined ? Math.floor(r() * 360) : cult.hue + (r() - 0.5) * 50;
+  const shift = cult.hue === undefined ? 40 + r() * 140 : 20 + r() * 60;
   const night = chance(P.night);
   const sky = {
-    top: c(hue, 30 + r() * 40, night ? 4 : 12 + r() * 15),
-    bottom: c(hue + shift, 50 + r() * 40, night ? 15 : 45 + r() * 25),
+    top: c(hue, (30 + r() * 40) * (cult.sat ?? 1), night ? 4 : (12 + r() * 15) * (cult.light ?? 1)),
+    bottom: c(hue + shift, Math.min(100, (50 + r() * 40) * (cult.sat ?? 1)), night ? 15 : Math.min(92, (45 + r() * 25) * (cult.light ?? 1))),
   };
-  const groundHue = hue + 180 + (r() - 0.5) * 80;
+  const groundHue = cult.ground === undefined ? hue + 180 + (r() - 0.5) * 80 : cult.ground + (r() - 0.5) * 30;
   const accent = c(hue + shift + 180, 90, 65);
 
   const relief = wpick(T('relief'));
@@ -254,7 +304,7 @@ export function makeWorld(seedStr) {
       base: 0.5 + depth * 0.32,
       // tall ranges, but their crests stay below the top fifth of the sky
       span: Math.min((0.12 + r() * 0.25 * (1 - depth * 0.5)) * (depth < 0.7 ? tall : 1), 0.3 + depth * 0.32),
-      color: c(groundHue, 20 + r() * 30, night ? 16 - depth * 12 : 30 - depth * 22),
+      color: c(groundHue, (20 + r() * 30) * (cult.sat ?? 1), night ? 16 - depth * 12 : Math.min(85, (30 - depth * 22) * (cult.light ?? 1) ** 2)),
       parallax: 0.15 + depth * 0.85,
     };
   });
@@ -270,7 +320,8 @@ export function makeWorld(seedStr) {
   if (fauna === 'whales') for (let k = 1 + Math.floor(r() * 2); k--;)
     flyers.push({ kind: 'whale', x: r(), y: 0.1 + r() * 0.2, speed: sign() * (2 + r() * 2) * 1e-6, size: 0.08 + r() * 0.07, seed: Math.floor(r() * 2 ** 32) });
   const pop = {
-    structs: civ === 'uninhabited' ? null : civ === 'aliens' ? ALIEN_KINDS : STRUCTURES[era],
+    // temperate worlds and the far future build by era; other cultures with their own kit
+    structs: civ === 'uninhabited' ? null : civ === 'aliens' ? ALIEN_KINDS : cult.kit && eraIdx < 4 ? cult.kit : STRUCTURES[era],
     structDensity: 0.5 + r() * 2.5, // mean per chunk
     floraDensity: flora === 'barren' ? 0 : r() * 20,
     herdLayer: nLayers - 1 - Math.floor(r() * 2),
@@ -279,15 +330,16 @@ export function makeWorld(seedStr) {
     ? Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => makeSpecies(seedStr, k, fauna === 'giants')) : [];
 
   const rings = chance(P.rings), sea = chance(P.sea);
-  const traits = { era, civ, flora, fauna, style, relief, night, rings, sea };
+  const traits = { culture, era, civ, flora, fauna, style, relief, night, rings, sea };
   // Vertical features: rivers towards the viewer, floating islands, auroras, smoke columns.
   const rivers = relief !== 'dunes' && (sea || r() < 0.35), islands = relief === 'islands' || r() < 0.08;
-  const aurora = night && r() < 0.35, smoke = ERAS.indexOf(era) === 2 || civ === 'ruins' ? r() < 0.6 : r() < 0.05;
+  const aurora = night && r() < (culture === 'arctic' || culture === 'nordic' ? 0.8 : 0.25);
+  const smoke = ERAS.indexOf(era) === 2 || civ === 'ruins' || culture === 'war' || culture === 'apocalyptic' ? r() < 0.7 : r() < 0.05;
   const rarity = RARITY.findLast(([, min]) => bits >= min)[0];
 
-  const scaleName = civ === 'aliens' ? pick(['hirajoshi', 'lydian']) : pick(Object.keys(SCALES));
+  const scaleName = civ === 'aliens' ? pick(['hirajoshi', 'lydian']) : cult.scale && r() < 0.75 ? cult.scale : pick(Object.keys(SCALES));
   return {
-    seed: seedStr, sector, region: region?.[0] ?? null, species, relief, rivers, islands, aurora, smoke,
+    seed: seedStr, sector, region: region?.[0] ?? null, species, relief, rivers, islands, aurora, smoke, culture, weather: cult.weather ?? null,
     name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'ruins' && civ !== 'uninhabited' && (eraIdx >= 2 || civ === 'aliens'),
     ships: eraIdx >= 4 || civ === 'aliens' ? Math.floor(r() * 5) : 0,
@@ -307,14 +359,14 @@ export function makeWorld(seedStr) {
       cutoff: 400 + eraIdx * 200 + r() * 1200,
       noteSeed: hashSeed(seedStr + ':music'),
       // Timbre: older eras lean acoustic, future and alien worlds lean synthetic.
-      lead: civ === 'aliens' ? pick(['glass', 'bell']) : pick([
+      lead: civ === 'aliens' ? pick(['glass', 'bell']) : cult.lead && r() < 0.7 ? pick(cult.lead) : pick([
         ['flute', 'pluck', 'marimba', 'bell'], ['flute', 'pluck', 'marimba', 'bell'],
         ['pluck', 'marimba', 'bell', 'flute'], ['pluck', 'marimba', 'bell', 'glass'],
         ['bell', 'glass', 'pluck', 'marimba'], ['glass', 'bell', 'glass', 'pluck']][eraIdx]),
-      drone: pick(['organ', 'wind', 'choir', 'organ', 'wind']),
+      drone: cult.drone ?? pick(['organ', 'wind', 'choir', 'organ', 'wind']),
       pad: r() < 0.5,
       bass: r() < 0.5,
-      perc: r() < (eraIdx >= 2 ? 0.45 : 0.12),
+      perc: cult.perc || r() < (eraIdx >= 2 ? 0.45 : 0.12),
       space: 1.5 + r() * 4.5, // reverb seconds
     },
   };

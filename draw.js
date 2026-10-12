@@ -117,6 +117,107 @@ export function drawThing(g, t, x, y, s, o) {
       g.fill(); g.globalAlpha = 0.5 + 0.5 * Math.sin(o.t / 500);
       g.beginPath(); g.arc(0, -2.05, 0.07, 0, 7); g.fill(); g.restore(); break;
     }
+    // ---- cultures
+    case 'pagoda': // stacked roofs with upturned eaves
+      for (let k = 0; k < 4; k++) {
+        const y = -0.35 - k * 0.42, w = 0.75 - k * 0.13;
+        R(-w * 0.55, y, w * 1.1, 0.35);
+        g.beginPath(); g.moveTo(-w - 0.1, y - 0.02); g.quadraticCurveTo(-w * 0.5, y + 0.02, 0, y - 0.18); g.quadraticCurveTo(w * 0.5, y + 0.02, w + 0.1, y - 0.02); g.lineTo(w * 0.6, y + 0.06); g.lineTo(-w * 0.6, y + 0.06); f();
+      }
+      R(-0.02, -2.25, 0.04, 0.35); windows(-0.3, -0.3, 0.6, 0.2, 3, 1); break;
+    case 'torii':
+      R(-0.55, -1.2, 0.1, 1.2); R(0.45, -1.2, 0.1, 1.2); R(-0.65, -1.0, 1.3, 0.08);
+      g.beginPath(); g.moveTo(-0.85, -1.32); g.quadraticCurveTo(0, -1.18, 0.85, -1.32); g.lineTo(0.75, -1.2); g.lineTo(-0.75, -1.2); f(); break;
+    case 'minka': // house with a heavy curved roof
+      R(-0.5, -0.4, 1, 0.4);
+      g.beginPath(); g.moveTo(-0.7, -0.38); g.quadraticCurveTo(-0.2, -0.5, 0, -0.95); g.quadraticCurveTo(0.2, -0.5, 0.7, -0.38); f();
+      windows(-0.4, -0.35, 0.8, 0.25, 3, 1); break;
+    case 'longhouse': // long hall with a boat-shaped roof
+      R(-0.9, -0.35, 1.8, 0.35);
+      g.beginPath(); g.moveTo(-1.05, -0.33); g.quadraticCurveTo(0, -0.95, 1.05, -0.33); f();
+      P(-1.05, -0.33, -1.15, -0.6, -0.95, -0.4); P(1.05, -0.33, 1.15, -0.6, 0.95, -0.4); windows(-0.2, -0.3, 0.4, 0.2, 1, 1); break;
+    case 'stavechurch': // tiers of steep roofs
+      for (let k = 0; k < 3; k++) { const w = 0.6 - k * 0.15, y = -0.45 - k * 0.45; R(-w * 0.7, y, w * 1.4, 0.45); P(-w, y + 0.05, 0, y - 0.4, w, y + 0.05); }
+      R(-0.02, -2.0, 0.04, 0.3); break;
+    case 'runestone':
+      g.beginPath(); g.moveTo(-0.22, 0); g.quadraticCurveTo(-0.3, -0.8, -0.05, -1.05); g.quadraticCurveTo(0.25, -0.9, 0.22, 0); f(); break;
+    case 'mosque': // dome and minaret
+      R(-0.6, -0.5, 1.2, 0.5); g.beginPath(); g.arc(0, -0.5, 0.42, Math.PI, 0); f(); R(-0.02, -1.1, 0.04, 0.2);
+      R(0.7, -1.7, 0.16, 1.7); g.beginPath(); g.arc(0.78, -1.7, 0.1, Math.PI, 0); f(); P(0.72, -1.78, 0.78, -2.0, 0.84, -1.78);
+      windows(-0.5, -0.4, 1, 0.25, 4, 1); beacon(0.78, -2.02, 0.03, o.accent); break;
+    case 'mudhouse': // flat roof, small windows, beams sticking out
+      R(-0.45, -0.55, 0.9, 0.55); for (let k = 0; k < 4; k++) R(-0.4 + k * 0.25, -0.5, 0.06, 0.04);
+      if (r() < 0.5) R(-0.2, -0.85, 0.5, 0.3); windows(-0.35, -0.4, 0.7, 0.25, 3, 1); break;
+    case 'steppyramid':
+      for (let k = 0; k < 5; k++) R(-0.95 + k * 0.17, -0.25 - k * 0.25, 1.9 - k * 0.34, 0.26);
+      R(-0.15, -1.55, 0.3, 0.3); P(-0.2, -1.55, 0, -1.7, 0.2, -1.55); break;
+    case 'stilthut': // hut on stilts with a thatched cone
+      for (const a of [-0.35, -0.1, 0.15, 0.35]) R(a, -0.6, 0.05, 0.6);
+      R(-0.45, -0.95, 0.9, 0.35); P(-0.6, -0.92, 0, -1.5, 0.6, -0.92); windows(-0.3, -0.9, 0.6, 0.25, 2, 1); break;
+    case 'totem':
+      for (let k = 0; k < 4; k++) { R(-0.15, -0.4 - k * 0.38, 0.3, 0.38); if (k === 3) P(-0.45, -1.42, 0, -1.6, 0.45, -1.42); }
+      break;
+    case 'saloon': // false front
+      R(-0.5, -0.55, 1, 0.55); R(-0.55, -0.95, 1.1, 0.42); R(-0.6, -0.42, 1.2, 0.05);
+      windows(-0.4, -0.85, 0.8, 0.3, 3, 1); windows(-0.4, -0.35, 0.8, 0.25, 2, 1); break;
+    case 'watertower':
+      P(-0.35, 0, -0.2, -1.1, 0.2, -1.1, 0.35, 0); R(-0.32, -1.6, 0.64, 0.5); P(-0.36, -1.6, 0, -1.85, 0.36, -1.6); break;
+    case 'igloo':
+      g.beginPath(); g.arc(0, 0, 0.5, Math.PI, 0); f(); g.beginPath(); g.arc(0.45, 0, 0.18, Math.PI, 0); f();
+      windows(0.38, -0.15, 0.14, 0.15, 1, 1); break;
+    case 'lighthouse':
+      P(-0.22, 0, -0.13, -1.9, 0.13, -1.9, 0.22, 0); R(-0.17, -2.15, 0.34, 0.25); P(-0.2, -2.15, 0, -2.35, 0.2, -2.15);
+      if (lit) { g.save(); g.shadowBlur = 0; g.globalAlpha = 0.18; g.fillStyle = o.light; const a = Math.sin(o.t / 1200 + t.seed) * 0.6;
+        g.beginPath(); g.moveTo(0, -2.02); g.lineTo(6 * Math.cos(a), -2.02 + 6 * Math.sin(a) - 0.5); g.lineTo(6 * Math.cos(a), -2.02 + 6 * Math.sin(a) + 0.5); g.fill(); g.restore(); }
+      beacon(0, -2.02, 0.06, o.light); break;
+    case 'wreck': // a rusted car
+      g.beginPath(); g.moveTo(-0.6, -0.1); g.lineTo(-0.55, -0.35); g.lineTo(-0.25, -0.38); g.lineTo(-0.1, -0.6); g.lineTo(0.3, -0.6); g.lineTo(0.45, -0.38); g.lineTo(0.62, -0.32); g.lineTo(0.6, -0.1); f();
+      C(-0.35, -0.08, 0.1); C(0.38, -0.05, 0.1); break;
+    case 'shack':
+      R(-0.4, -0.45, 0.8, 0.45); P(-0.5, -0.43, 0.5, -0.62, 0.5, -0.45); R(0.2, -0.85, 0.06, 0.3); break;
+    case 'brokentower': { // a skyscraper snapped in half
+      const hh = 1.2 + r() * 0.8;
+      g.beginPath(); g.moveTo(-0.3, 0); g.lineTo(-0.3, -hh); g.lineTo(-0.1, -hh - 0.25); g.lineTo(0.05, -hh + 0.05); g.lineTo(0.3, -hh - 0.4); g.lineTo(0.3, 0); f();
+      windows(-0.25, -hh + 0.1, 0.5, hh - 0.2, 3, Math.round(hh * 4)); break;
+    }
+    case 'bunker':
+      g.beginPath(); g.moveTo(-0.7, 0); g.lineTo(-0.55, -0.4); g.lineTo(0.55, -0.4); g.lineTo(0.7, 0); f();
+      g.save(); g.fillStyle = '#000'; g.fillRect(-0.3, -0.28, 0.6, 0.06); g.restore(); break;
+    case 'watchtower':
+      P(-0.35, 0, -0.2, -1.3, 0.2, -1.3, 0.35, 0); R(-0.3, -1.6, 0.6, 0.3); P(-0.38, -1.6, 0, -1.8, 0.38, -1.6);
+      windows(-0.2, -1.55, 0.4, 0.2, 2, 1); break;
+    case 'tank':
+      g.beginPath(); g.moveTo(-0.7, -0.05); g.lineTo(-0.6, -0.3); g.lineTo(0.6, -0.3); g.lineTo(0.7, -0.05); f();
+      R(-0.3, -0.5, 0.5, 0.2); R(0.15, -0.44, 0.65, 0.06); for (let k = 0; k < 5; k++) C(-0.5 + k * 0.25, -0.08, 0.08); break;
+    case 'searchlight':
+      R(-0.05, -0.8, 0.1, 0.8); R(-0.15, -0.95, 0.3, 0.18);
+      if (o.night) { g.save(); g.shadowBlur = 0; g.globalAlpha = 0.12; g.fillStyle = o.light; const a = -Math.PI / 2 + Math.sin(o.t / 2500 + t.seed) * 0.6;
+        g.beginPath(); g.moveTo(0, -0.9); g.lineTo(12 * Math.cos(a - 0.05), -0.9 + 12 * Math.sin(a - 0.05)); g.lineTo(12 * Math.cos(a + 0.05), -0.9 + 12 * Math.sin(a + 0.05)); g.fill(); g.restore(); }
+      break;
+    // ---- flora of the cultures
+    case 'blossoms': // cherry tree: dark trunk, pink cloud
+      R(-0.05, -0.55, 0.1, 0.55);
+      g.save(); g.fillStyle = o.night ? '#a56' : '#f6b8d0'; g.globalAlpha = 0.9; C(0, -0.75, 0.3); C(-0.25, -0.6, 0.22); C(0.25, -0.62, 0.22); C(0.05, -0.95, 0.2); g.restore(); break;
+    case 'bamboo':
+      for (let k = 0; k < 3; k++) { const a = -0.2 + k * 0.2, hh = 1.2 + r() * 0.8; R(a - 0.03, -hh, 0.06, hh); for (let j = 1; j < 5; j++) R(a - 0.05, -hh * j / 5, 0.1, 0.03); P(a, -hh, a + 0.25, -hh - 0.15, a + 0.05, -hh + 0.1); }
+      break;
+    case 'palms': {
+      g.lineWidth = 0.08; g.strokeStyle = o.color; g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(0.15, -0.6, 0.05, -1.2); g.stroke();
+      for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2 + Math.sin(o.t / 1500 + t.seed) * 0.1; g.beginPath(); g.moveTo(0.05, -1.2); g.quadraticCurveTo(0.05 + Math.cos(a) * 0.3, -1.35, 0.05 + Math.cos(a) * 0.55, -1.1 + Math.abs(Math.sin(a)) * 0.15); g.lineWidth = 0.06; g.stroke(); }
+      break;
+    }
+    case 'cacti': // saguaro
+      R(-0.08, -1.1, 0.16, 1.1); C(0, -1.1, 0.08);
+      R(-0.38, -0.75, 0.1, 0.3); R(-0.38, -0.5, 0.3, 0.08); C(-0.33, -0.75, 0.05);
+      R(0.25, -0.9, 0.1, 0.35); R(0.08, -0.6, 0.27, 0.08); C(0.3, -0.9, 0.05); break;
+    case 'deadwood': // bare, broken branches
+      g.strokeStyle = o.color; g.lineCap = 'round';
+      const br = (x, y, a, len, wdt, d) => {
+        const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+        g.lineWidth = wdt; g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+        if (d > 0) { br(x2, y2, a - 0.5 - r() * 0.3, len * 0.65, wdt * 0.6, d - 1); br(x2, y2, a + 0.4 + r() * 0.3, len * 0.6, wdt * 0.6, d - 1); }
+      };
+      br(0, 0, -Math.PI / 2, 0.55, 0.12, 3); break;
     case 'forest':
       R(-0.05, -0.5, 0.1, 0.5); C(0, -0.75, 0.32); C(-0.22, -0.55, 0.22); C(0.22, -0.55, 0.22); break;
     case 'conifers': P(-0.3, 0, 0, -1.3, 0.3, 0); break;
@@ -294,6 +395,23 @@ export function drawSmoke(g, x, y, s, t, phase, color) {
     const u = (j / 12 + t * 0.00004) % 1;
     g.globalAlpha = 0.18 * (1 - u);
     g.beginPath(); g.arc(x + Math.sin(u * 4 + phase) * s * 0.3 + u * s * 1.2, y - u * s * 6, s * (0.15 + u * 0.6), 0, 7); g.fill();
+  }
+  g.restore();
+}
+
+/** Falling weather in front of everything: snow, cherry petals or ash, drifting with the wind. */
+export function drawWeather(g, kind, w, h, t, cam) {
+  const n = kind === 'snow' ? 120 : 60, r = rng(kind.length * 7919);
+  g.save();
+  g.fillStyle = kind === 'snow' ? '#fff' : kind === 'petals' ? '#f8bbd0' : '#9a9a9a';
+  for (let i = 0; i < n; i++) {
+    const sp = 0.4 + r(), x0 = r(), ph = r() * 7, size = (kind === 'snow' ? 1.5 : 2.5) * (0.5 + r()) * devicePixelRatio;
+    const y = ((r() + t * 0.00004 * sp) % 1) * h;
+    const x = ((((x0 - cam * 0.3 * sp + Math.sin(t / 1500 + ph) * 0.02 + y / h * 0.1) % 1) + 1) % 1) * w;
+    g.globalAlpha = kind === 'ash' ? 0.5 : 0.8;
+    g.beginPath();
+    if (kind === 'petals') g.ellipse(x, y, size, size * 0.55, t / 400 + ph, 0, 7); else g.arc(x, y, size, 0, 7);
+    g.fill();
   }
   g.restore();
 }
