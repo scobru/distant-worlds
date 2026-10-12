@@ -31,7 +31,7 @@ export const ACHIEVEMENTS = [
   ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
 ];
 
-export const emptyState = () => ({ seen: [], combos: [], count: 0, favs: [], species: [], stars: [], daily: { done: null, streak: 0, best: 0 } });
+export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], stars: [], daily: { done: null, streak: 0, best: 0 } });
 
 // Applies `change` to the state; returns the entries, combos and achievements it unlocked.
 function discover(st, keys, combo, change = () => {}) {
@@ -89,4 +89,16 @@ export function checkMission(st, w, day, yesterday) {
   st.daily.best = Math.max(st.daily.best, st.daily.streak);
   st.daily.done = day;
   return true;
+}
+
+// Hyperdrive fuel: earned by exploring the current world, spent to jump to an unvisited one.
+// Revisiting stars, saved worlds, the daily world and shared links are free.
+export const FUEL = { max: 100, perScreen: 4, maxPerSecond: 0.3, entry: 10, combo: 10, species: 15, rareSpecies: 25, relic: 30, mission: 100, random: 100 };
+export const addFuel = (st, n) => (st.fuel = Math.min(FUEL.max, (st.fuel ?? FUEL.max) + n));
+
+// Cost to jump from sector `from` (null: off the map) to the star in sector `to`: near is cheap.
+export function jumpCost(from, to, size) {
+  if (!from) return 60;
+  const d = (a, b) => Math.min(Math.abs(a - b), size - Math.abs(a - b)); // the galaxy wraps around
+  return Math.min(FUEL.random, 20 + 15 * Math.max(d(from[0], to[0]), d(from[1], to[1])));
 }

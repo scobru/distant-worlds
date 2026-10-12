@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { makeWorld, sectorOf } from './world.js';
-import { ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay } from './atlas.js';
+import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay } from './atlas.js';
 
 const st = emptyState();
 let found = 0, missionWorld;
@@ -48,4 +48,13 @@ for (let i = 0; speciesSeen < 10; i++) {
 assert.equal(dailySeed('2026-10-12'), dailySeed('2026-10-12'));
 assert.ok(sectorOf(dailySeed('2026-10-12')), 'daily world is on the map');
 assert.notEqual(dailySeed('2026-10-12'), dailySeed('2026-10-13'));
+// Fuel: clamps, and jumps cost more the farther they go (with wrap-around).
+const f = emptyState();
+assert.equal(f.fuel, 100);
+f.fuel = 95; addFuel(f, 30); assert.equal(f.fuel, FUEL.max);
+assert.equal(jumpCost([5, 5], [5, 5], 10000), 20);
+assert.equal(jumpCost([5, 5], [6, 4], 10000), 35);
+assert.equal(jumpCost([0, 0], [9999, 0], 10000), 35, 'wraps around the galaxy edge');
+assert.equal(jumpCost([0, 0], [500, 500], 10000), FUEL.random);
+assert.equal(jumpCost(null, [1, 1], 10000), 60);
 console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));

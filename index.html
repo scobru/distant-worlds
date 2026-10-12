@@ -56,10 +56,10 @@
   <button data-d="0,1" aria-label="South">↓</button><button data-d="1,0" aria-label="East">→</button><button id="mapHome">Here</button></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, REGIONS } from './world.js';
+import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, GALAXY } from './world.js';
 import { drawThing, drawCreature } from './draw.js';
 import { startAudio as startMusic } from './audio.js';
-import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
+import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -81,13 +81,13 @@ const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let world, stars = [], ships = [];
 // Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
-let cam = 0, vel = 0, walking = false, keys = 0, cache = new Map(), seenNow = new Set(), interest = 0;
+let cam = 0, explored = [0, 0], walking = false, keys = 0, cache = new Map(), seenNow = new Set(), interest = 0;
 
 function load() {
   const [seedPart, pos] = decodeURIComponent(location.hash.slice(1)).split('@');
   const seed = seedPart || randomSeed();
   if (!location.hash) history.replaceState(null, '', '#' + seed);
-  cam = Number(pos) || 0; cache = new Map(); seenNow = new Set();
+  cam = Number(pos) || 0; explored = [cam, cam]; cache = new Map(); seenNow = new Set();
   world = makeWorld(seed);
   const r = rng(world.music.noteSeed ^ 0x5eed);
   stars = Array.from({ length: world.stars }, () => [r(), r() * 0.7, r() * 1.5 + 0.3, r() * 6]);
@@ -103,7 +103,8 @@ function load() {
     st.last = seed;
     const news = visit(st, W), [today, yesterday] = days(), msg = [];
     if (news.entries.length) msg.push('New discovery: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
-    if (checkMission(st, W, today, yesterday)) msg.push(`✓ Daily mission complete! Streak: ${st.daily.streak} days`);
+    addFuel(st, (news.entries.length + news.combos.length) * FUEL.entry);
+    if (checkMission(st, W, today, yesterday)) { addFuel(st, FUEL.mission); msg.push(`✓ Daily mission complete! Streak: ${st.daily.streak} days · hyperdrive refuelled`); }
     for (const c of news.combos) msg.push('New combination: ' + c.replace('@', ' · '));
     for (const a of news.achievements) msg.push(`🏆 Achievement: ${a}`);
     if (W.rarity !== 'common') msg.unshift(`${W.rarity[0].toUpperCase() + W.rarity.slice(1)} world!`);
@@ -115,7 +116,12 @@ function load() {
 
 let last = 0;
 function draw(t) {
-  cam += (keys * 0.3 + (walking ? 0.05 : 0)) * Math.min(t - last, 100) / 1000; last = t;
+  const dt = Math.min(t - last, 100); last = t;
+  cam += (keys * 0.3 + (walking ? 0.05 : 0)) * dt / 1000;
+  // Fuel for new ground only, rate-capped so dragging fast doesn't fill the tank.
+  const fresh = Math.max(0, cam - explored[1]) + Math.max(0, explored[0] - cam);
+  explored = [Math.min(explored[0], cam), Math.max(explored[1], cam)];
+  if (fresh) addFuel(st, Math.min(fresh * FUEL.perScreen, FUEL.maxPerSecond * dt / 1000));
   document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
   const W = world, sky = g.createLinearGradient(0, 0, 0, h);
@@ -196,12 +202,14 @@ function draw(t) {
 function species(sp) {
   const res = findSpecies(st, sp, world);
   if (!res.isNew) return;
+  addFuel(st, sp.rarity === 'common' ? FUEL.species : FUEL.rareSpecies);
   save(); toast([`New species: ${esc(sp.name)} (${sp.rarity})`, ...res.achievements.map((a) => `🏆 Achievement: ${a}`)]);
 }
 
 function relic(kind) {
   const news = findRelic(st, kind);
   if (!news.entries.length) return;
+  addFuel(st, FUEL.relic);
   save(); toast([`Relic found: ${kind}!`, ...news.achievements.map((a) => `🏆 Achievement: ${a}`)]);
 }
 
@@ -224,7 +232,22 @@ const sb = document.getElementById('sound');
 function setBtn(on) { sb.textContent = on ? '■ Mute' : '▶ Sound'; sb.setAttribute('aria-pressed', on); }
 
 sb.onclick = () => (audio ? stopAudio() : startAudio());
-document.getElementById('gen').onclick = () => { location.hash = randomSeed(); };
+// Jumping to an unvisited world spends fuel; the button doubles as the fuel gauge.
+function jump(seed, cost) {
+  if (st.fuel < cost) {
+    toast([`Hyperdrive needs ${cost}⚡, you have ${Math.floor(st.fuel)}⚡.`, 'Walk new ground and discover things to refuel.']);
+    return false;
+  }
+  st.fuel -= cost; save(); location.hash = seed; return true;
+}
+const genBtn = document.getElementById('gen');
+genBtn.onclick = () => jump(randomSeed(), FUEL.random);
+setInterval(() => {
+  const f = Math.floor(st.fuel);
+  genBtn.textContent = f >= FUEL.random ? 'New world' : `New world · ⚡${f}%`;
+  genBtn.style.background = `linear-gradient(90deg, #fff4 ${f}%, #fff1 ${f}%)`;
+  save(); // persists fuel earned while walking
+}, 1000);
 document.getElementById('share').onclick = async (e) => {
   // Link to the exact spot the traveller is standing on.
   const url = location.href.split('#')[0] + '#' + encodeURIComponent(world.seed) + (Math.abs(cam) >= 0.05 ? '@' + cam.toFixed(1) : '');
@@ -259,16 +282,21 @@ function renderMap() {
     for (const s of starsIn(sx, sy)) {
       const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
       const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
-      svg.push(`<a href="#${s.seed}" aria-label="${esc(w.name)}, ${w.rarity}"><title>${esc(w.name)} · ${w.rarity} · ${w.era} · ${w.civ}</title>
-        <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
+      const cost = cur || st.stars.includes(s.seed) ? 0 : jumpCost(here, [sx, sy], GALAXY);
+      svg.push(`<a href="#${s.seed}" data-cost="${cost}" aria-label="${esc(w.name)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(w.name)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
+        <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
     }
   }
   document.getElementById('mapSvg').innerHTML = `<svg viewBox="${cx - 2} ${cy - 2} 5 5" role="img" aria-label="Star map">${svg.join('')}</svg>`;
   document.getElementById('mapTitle').textContent = `Map · ${regionAt(wrapS(cx), wrapS(cy))[0]}`;
   document.getElementById('mapInfo').innerHTML = (here ? `You are in sector ${here.join(', ')}.` : 'This world is off the map (custom seed).')
-    + ` Centre ${wrapS(cx)}, ${wrapS(cy)} · visited stars are circled · bigger = rarer.`;
-  mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', () => mapDlg.close()));
+    + ` Centre ${wrapS(cx)}, ${wrapS(cy)} · fuel ${Math.floor(st.fuel)}⚡ · nearer stars cost less · circled (visited) stars are free · bigger = rarer.`;
+  mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', (e) => {
+    const cost = +a.dataset.cost;
+    if (cost) { e.preventDefault(); if (!jump(a.getAttribute('href').slice(1), cost)) return; }
+    mapDlg.close();
+  }));
 }
 document.getElementById('mapBtn').onclick = () => { mapC = world.sector ? [...world.sector] : [0, 0]; renderMap(); mapDlg.showModal(); };
 document.getElementById('mapClose').onclick = () => mapDlg.close();
