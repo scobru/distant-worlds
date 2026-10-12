@@ -13,19 +13,54 @@
   small { display: block; opacity: .6; letter-spacing: 0; text-transform: none; font-size: 12px; }
   button { background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
   button:hover, button:focus-visible { background: #fff3; }
+  .badge { font-size: 11px; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; margin-left: 8px; }
+  .comune { color: #bbb; } .raro { color: #6cf; } .epico { color: #d9f; } .leggendario { color: #fc5; text-shadow: 0 0 8px #fc58; }
+  #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #000c; border: 1px solid #fff3; border-radius: 12px;
+           padding: 10px 16px; max-width: calc(100% - 32px); box-sizing: border-box; transition: opacity .5s; opacity: 0; pointer-events: none; }
+  dialog { background: #0b0b12ee; color: inherit; border: 1px solid #fff3; border-radius: 16px; width: min(600px, calc(100% - 32px)); max-height: 85vh; padding: 20px; box-sizing: border-box; }
+  dialog::backdrop { background: #0006; }
+  dialog h2, dialog h3 { font-weight: 400; margin: 18px 0 8px; } dialog h2 { margin-top: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+  .chip { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #fff1; } .chip.no { opacity: .35; }
+  dialog ul { list-style: none; padding: 0; margin: 0; } dialog li { padding: 4px 0; }
+  dialog a { color: inherit; } dialog .x { padding: 0 8px; margin-left: 6px; font-size: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; }
 </style>
 </head>
 <body>
 <canvas id="c" aria-label="Paesaggio del mondo generato"></canvas>
 <div class="ui">
-  <h1 id="name">…<small id="meta"></small></h1>
+  <h1><span id="name">…</span><span id="rarity" class="badge"></span><small id="meta"></small></h1>
   <button id="sound" aria-pressed="false">▶ Suono</button>
+  <button id="fav">☆ Salva</button>
   <button id="share">Condividi</button>
+  <button id="atlasBtn">Atlante</button>
+  <button id="day">Mondo del giorno</button>
   <button id="gen">Genera mondo</button>
 </div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="atlas"><div class="row"><h2>Atlante</h2><button id="close">Chiudi</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
 import { makeWorld, randomSeed, rng } from './world.js';
 import { drawThing, drawCreature } from './draw.js';
+import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
+
+// Progress lives only in this browser; the page still works if storage is blocked.
+const KEY = 'distant-worlds';
+let st;
+try { st = { ...emptyState(), ...JSON.parse(localStorage.getItem(KEY)) }; } catch { st = emptyState(); }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
+const LABEL = { era: 'epoca', civ: 'civiltà', flora: 'flora', fauna: 'fauna', style: 'stile', notte: 'notte', anelli: 'anelli', mare: 'mare', 'rarità': 'rarità' };
+const days = () => { const d = new Date(); const y = new Date(d); y.setDate(d.getDate() - 1); return [isoDay(d), isoDay(y)]; };
+
+let toastTimer;
+function toast(lines) {
+  if (!lines.length) return;
+  const el = document.getElementById('toast');
+  el.innerHTML = lines.join('<br>'); el.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.style.opacity = 0), 3500);
+}
+const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let world, stars = [], ships = [];
@@ -37,9 +72,23 @@ function load() {
   const r = rng(world.music.noteSeed ^ 0x5eed);
   stars = Array.from({ length: world.stars }, () => [r(), r() * 0.7, r() * 1.5 + 0.3, r() * 6]);
   ships = Array.from({ length: world.ships }, () => [r(), 0.08 + r() * 0.3, (r() - 0.5) / 3e4, 0.004 + r() * 0.008]);
-  document.getElementById('name').firstChild.textContent = world.name;
   const W = world;
-  document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.style} · ${W.music.scaleName} ${W.music.bpm} bpm`;
+  document.getElementById('name').textContent = W.name;
+  const rb = document.getElementById('rarity');
+  rb.textContent = W.rarity; rb.className = 'badge ' + W.rarity;
+  document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.scaleName} ${W.music.bpm} bpm`;
+  updateFav();
+
+  if (st.last !== seed) {
+    st.last = seed;
+    const news = visit(st, W), [today, yesterday] = days(), msg = [];
+    if (news.entries.length) msg.push('Nuova scoperta: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
+    if (checkMission(st, W, today, yesterday)) msg.push(`✓ Missione del giorno compiuta! Serie: ${st.daily.streak} giorni`);
+    for (const c of news.combos) msg.push('Nuova combinazione: ' + c.replace('@', ' · '));
+    for (const a of news.achievements) msg.push(`🏆 Traguardo: ${a}`);
+    if (W.rarity !== 'comune') msg.unshift(`Mondo ${W.rarity}!`);
+    save(); toast(msg);
+  }
   document.title = `${world.name} — Distant Worlds`;
   if (audio) { stopAudio(); startAudio(); }
 }
@@ -152,6 +201,47 @@ document.getElementById('share').onclick = async (e) => {
   catch { prompt('Copia il link:', location.href); }
   setTimeout(() => (e.target.textContent = 'Condividi'), 1500);
 };
+const favBtn = document.getElementById('fav');
+function updateFav() { favBtn.textContent = st.favs.some((f) => f.seed === world.seed) ? '★ Salvato' : '☆ Salva'; }
+favBtn.onclick = () => {
+  const i = st.favs.findIndex((f) => f.seed === world.seed);
+  if (i >= 0) st.favs.splice(i, 1);
+  else {
+    const name = prompt('Dai un nome a questo mondo:', world.name);
+    if (name === null) return;
+    st.favs.unshift({ seed: world.seed, name: name.trim() || world.name, rarity: world.rarity });
+  }
+  save(); updateFav();
+};
+document.getElementById('day').onclick = () => { location.hash = dailySeed(days()[0]); };
+
+const dlg = document.getElementById('atlas');
+document.getElementById('close').onclick = () => dlg.close();
+document.getElementById('atlasBtn').onclick = () => {
+  const [today] = days(), m = mission(today), done = st.daily.done === today;
+  const groups = Object.groupBy(ENTRIES, (e) => e.split(':')[0]);
+  document.getElementById('atlasBody').innerHTML = `
+    <p>Scoperte ${st.seen.filter((e) => ENTRIES.includes(e)).length + st.combos.length}/${ENTRIES.length + COMBOS.length} · Mondi esplorati ${st.count}</p>
+    ${Object.entries(groups).map(([k, es]) => `<div>${LABEL[k]}</div><div class="chips">${es.map((e) => {
+      const ok = st.seen.includes(e), v = e.split(':')[1] === 'true' ? 'sì' : e.split(':')[1];
+      return `<span class="chip ${ok ? (k === 'rarità' ? v : '') : 'no'}">${ok ? esc(v) : '???'}</span>`; }).join('')}</div>`).join('')}
+    <h3>Civiltà nel tempo <small>${st.combos.length}/${COMBOS.length}</small></h3>
+    ${Object.entries(Object.groupBy(COMBOS, (c) => c.split('@')[0])).map(([civ, cs]) => `<div>${civ}</div><div class="chips">${cs.map((c) =>
+      `<span class="chip ${st.combos.includes(c) ? '' : 'no'}">${st.combos.includes(c) ? esc(c.split('@')[1]) : '???'}</span>`).join('')}</div>`).join('')}
+    <h3>Missione del giorno</h3>
+    <p>${done ? '✓' : '○'} Trova un mondo con ${m.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' e ')}.
+      <br><small>Serie attuale ${st.daily.streak} · migliore ${st.daily.best}${matches(world, m) && done ? ' · questo mondo la soddisfa' : ''}</small></p>
+    <h3>Traguardi</h3>
+    <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
+    <h3>Diario di bordo</h3>
+    ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
+      <span class="badge ${f.rarity}">${f.rarity}</span><button class="x" data-i="${i}" aria-label="Rimuovi ${esc(f.name)}">✕</button></li>`).join('')}</ul>`
+      : '<p><small>Nessun mondo salvato. Usa ☆ Salva.</small></p>'}`;
+  dlg.querySelectorAll('.x').forEach((b) => (b.onclick = () => { st.favs.splice(+b.dataset.i, 1); save(); updateFav(); dlg.close(); document.getElementById('atlasBtn').click(); }));
+  dlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => dlg.close()));
+  dlg.showModal();
+};
+
 addEventListener('hashchange', load);
 load();
 requestAnimationFrame(draw);

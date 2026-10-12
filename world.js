@@ -16,7 +16,10 @@ export function rng(seed) {
   };
 }
 
-export const randomSeed = () => Math.random().toString(36).slice(2, 10);
+// Seeds carry the generator version: a future v2 must keep generating v1 seeds the v1 way,
+// so links people already shared keep showing the same world.
+export const VERSION = 'v1';
+export const randomSeed = () => `${VERSION}-${Math.random().toString(36).slice(2, 10)}`;
 
 const SYL = ['ka', 've', 'lor', 'ny', 'tha', 'ri', 'os', 'mu', 'zen', 'ae', 'quel', 'dra', 'si', 'on', 'xi', 'ul', 'bre', 'ith'];
 const SCALES = {
@@ -44,11 +47,21 @@ function ridge(r, points, octaves, rough) {
   return out;
 }
 
-export const ERE = ['antico', 'medievale', 'industriale', 'presente', 'futuro', 'lontano futuro'];
-export const CIVILTA = ['disabitato', 'umani', 'alieni', 'rovine'];
-export const FLORA = ['brullo', 'foresta', 'conifere', 'cristalli', 'funghi'];
-export const FAUNA = ['nessuna', 'uccelli', 'branchi', 'meduse', 'giganti', 'balene'];
-export const STILI = ['classico', 'neon', 'pastello', 'mono', 'seppia'];
+// Trait tables with relative weights: lower weight = rarer.
+export const TRAITS = {
+  era: { antico: 3, medievale: 3, industriale: 2, presente: 2, futuro: 2, 'lontano futuro': 1 },
+  civ: { disabitato: 4, umani: 3, rovine: 2, alieni: 1 },
+  flora: { brullo: 3, foresta: 3, conifere: 3, funghi: 1.5, cristalli: 1 },
+  fauna: { nessuna: 3, uccelli: 4, branchi: 3, giganti: 1, meduse: 1, balene: 0.5 },
+  style: { classico: 5, pastello: 2, seppia: 1.5, mono: 1, neon: 1 },
+};
+const ERE = Object.keys(TRAITS.era);
+// Chance of the yes/no traits.
+const P = { notte: 0.35, anelli: 0.2, mare: 0.5 };
+
+// Rarity class from the world's improbability, in bits (-log2 p).
+// Thresholds tuned so roughly 60% / 27% / 10% / 3% of worlds land in each class.
+export const RARITA = [['comune', 0], ['raro', 14], ['epico', 15.7], ['leggendario', 17.3]];
 
 const STRUTTURE = {
   antico: ['piramide', 'tempio', 'obelisco'],
@@ -74,18 +87,26 @@ function toner(style) {
 export function makeWorld(seedStr) {
   const r = rng(hashSeed(seedStr));
   const pick = (a) => a[Math.floor(r() * a.length)];
+  let bits = 0;
+  const wpick = (table) => {
+    const total = Object.values(table).reduce((a, b) => a + b);
+    let x = r() * total;
+    for (const [k, w] of Object.entries(table)) if ((x -= w) < 0) { bits -= Math.log2(w / total); return k; }
+    const k = Object.keys(table).at(-1); bits -= Math.log2(table[k] / total); return k;
+  };
+  const chance = (p) => { const yes = r() < p; bits -= Math.log2(yes ? p : 1 - p); return yes; };
 
   const n = 2 + Math.floor(r() * 2);
   let name = Array.from({ length: n }, () => pick(SYL)).join('');
   name = name[0].toUpperCase() + name.slice(1) + (r() < 0.3 ? ' ' + pick(['Prime', 'IV', 'b', 'Minor', 'Reach']) : '');
 
-  const era = pick(ERE), civ = pick(CIVILTA), flora = pick(FLORA), style = pick(STILI);
+  const era = wpick(TRAITS.era), civ = wpick(TRAITS.civ), flora = wpick(TRAITS.flora), style = wpick(TRAITS.style);
   const eraIdx = ERE.indexOf(era);
   const c = toner(style);
 
   const hue = Math.floor(r() * 360);
   const shift = 40 + r() * 140;
-  const night = r() < 0.35;
+  const night = chance(P.notte);
   const sky = {
     top: c(hue, 30 + r() * 40, night ? 4 : 12 + r() * 15),
     bottom: c(hue + shift, 50 + r() * 40, night ? 15 : 45 + r() * 25),
@@ -107,7 +128,7 @@ export function makeWorld(seedStr) {
 
   // Structures sit on the two nearest-but-last layers (far ones are too small to read).
   if (civ !== 'disabitato') {
-    const kinds = civ === 'alieni' ? ALIENE : STRUTTURE[civ === 'rovine' ? ERE[Math.floor(r() * 4)] : era];
+    const kinds = civ === 'alieni' ? ALIENE : STRUTTURE[era];
     for (let k = 2 + Math.floor(r() * 6); k--;) {
       const L = layers[nLayers - 2 - Math.floor(r() * Math.min(2, nLayers - 1))];
       L.things.push({ kind: pick(kinds), x: r(), size: 0.05 + r() * 0.09, seed: Math.floor(r() * 2 ** 32), broken: civ === 'rovine' });
@@ -120,7 +141,7 @@ export function makeWorld(seedStr) {
   for (const L of layers) L.things.sort((a, b) => b.size - a.size);
 
   // Creatures: flyers live in the sky, walkers on a ridge. Speeds are in screen-widths per ms.
-  const fauna = pick(FAUNA), flyers = [];
+  const fauna = wpick(TRAITS.fauna), flyers = [];
   const sign = () => (r() < 0.5 ? -1 : 1);
   const walk = (L, kind, x, speed, size) => L.creatures.push({ kind, x, speed, size, seed: Math.floor(r() * 2 ** 32) });
   for (const L of layers) L.creatures = [];
@@ -140,17 +161,21 @@ export function makeWorld(seedStr) {
   if (civ === 'umani' || civ === 'alieni') for (let k = 2 + Math.floor(r() * 5); k--;)
     walk(mid, civ === 'umani' ? 'abitante' : 'alieno', r(), sign() * (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
 
+  const rings = chance(P.anelli), sea = chance(P.mare);
+  const traits = { era, civ, flora, fauna, style, notte: night, anelli: rings, mare: sea };
+  const rarity = RARITA.findLast(([, min]) => bits >= min)[0];
+
   const scaleName = civ === 'alieni' ? pick(['hirajoshi', 'lydian']) : pick(Object.keys(SCALES));
   return {
     seed: seedStr,
-    name, era, civ, flora, fauna, style, flyers, night, sky, accent, layers,
+    name, era, civ, flora, fauna, style, flyers, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'rovine' && civ !== 'disabitato' && (eraIdx >= 2 || civ === 'alieni'),
     ships: eraIdx >= 4 || civ === 'alieni' ? Math.floor(r() * 5) : 0,
     stars: night ? 300 : Math.floor(r() * 60),
     sun: { x: 0.15 + r() * 0.7, y: 0.15 + r() * 0.3, size: 0.03 + r() * 0.09, color: c(hue + shift + 20, 90, night ? 85 : 75) },
     moons: Array.from({ length: Math.floor(r() * 4) }, () => ({ x: r(), y: 0.05 + r() * 0.3, size: 0.006 + r() * 0.03 })),
-    rings: r() < 0.25,
-    water: r() < 0.5 ? c(hue + shift, 50, night ? 8 : 30) : null,
+    rings,
+    water: sea ? c(hue + shift, 50, night ? 8 : 30) : null,
     music: {
       root: 36 + Math.floor(r() * 12), // MIDI, C2..B2
       scaleName,

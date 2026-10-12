@@ -4,8 +4,13 @@ Premi **Genera mondo**: nasce un pianeta nuovo, con paesaggio e colonna sonora g
 Tutto deriva da un seed nell'URL (`…/#k3x9q2`): condividi il link e chi lo apre vede e sente lo stesso mondo.
 
 - Ogni mondo pesca anche: epoca (antico … lontano futuro), civiltà (disabitato, umani, alieni, rovine) con i suoi abitanti, fauna (uccelli, branchi, meduse del cielo, giganti, balene volanti), flora (foresta, conifere, cristalli, funghi) e stile visivo (classico, neon, pastello, mono, seppia). Epoca e civiltà cambiano anche il suono.
+- Gioco, tutto nel browser (`localStorage`, niente server):
+  - **rarità**: ogni tratto ha un peso, il mondo è comune / raro / epico / leggendario;
+  - **atlante**: tratti e combinazioni civiltà × epoca scoperti, traguardi, diario dei mondi salvati;
+  - **mondo del giorno** (`#v1-giorno-AAAA-MM-GG`) con missione giornaliera e serie di giorni consecutivi.
+- I seed hanno la versione del generatore (`v1-…`): una v2 futura deve continuare a generare i `v1` allo stesso modo.
 - Statico, zero dipendenze, nessun build: `index.html` + `world.js`.
-- Deterministico: `makeWorld(seed)` è una funzione pura (`node world.test.mjs` lo verifica).
+- Deterministico: `makeWorld(seed)` è una funzione pura (`node world.test.mjs && node atlas.test.mjs`).
 - Gira ovunque si servano file statici: GitHub Pages, IPFS, o come web app su Freenet.
 
 Locale: `python3 -m http.server` e apri http://localhost:8000.
