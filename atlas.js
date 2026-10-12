@@ -1,12 +1,13 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
-import { TRAITS, RARITA, VERSION, hashSeed, rng } from './world.js';
+import { TRAITS, RARITA, REPERTI, VERSION, hashSeed, rng } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
   ...Object.entries(TRAITS).flatMap(([k, t]) => Object.keys(t).map((v) => `${k}:${v}`)),
   'notte:true', 'anelli:true', 'mare:true',
   ...RARITA.map(([r]) => `rarità:${r}`),
+  ...REPERTI.map((r) => `reperto:${r}`),
 ];
 
 // Second tier: who lived in which era. Rare pairs (aliens in the far future) take a while.
@@ -22,24 +23,32 @@ export const ACHIEVEMENTS = [
   ['Storico', 'Tutte le civiltà in tutte le epoche', (st) => COMBOS.every((c) => st.combos.includes(c))],
   ['Primo contatto', 'Trova gli alieni', (st) => st.seen.includes('civ:alieni')],
   ['Cacciatore di leggende', 'Trova un mondo leggendario', (st) => st.seen.includes('rarità:leggendario')],
+  ['Cercatore di reperti', 'Trova portale, monolite e scheletro', (st) => has(st, 'reperto', REPERTI) === REPERTI.length],
   ['Esploratore', 'Esplora 100 mondi', (st) => st.count >= 100],
   ['Costante', 'Missione del giorno 7 giorni di fila', (st) => st.daily.best >= 7],
 ];
 
 export const emptyState = () => ({ seen: [], combos: [], count: 0, favs: [], daily: { done: null, streak: 0, best: 0 } });
 
-// Records a visited world; returns what is new (entries, combos and achievement names).
-export function visit(st, w) {
+// Applies `change` to the state; returns the entries, combos and achievements it unlocked.
+function discover(st, keys, combo, change = () => {}) {
   const before = ACHIEVEMENTS.filter(([, , ok]) => ok(st)).map(([n]) => n);
-  const keys = [...Object.entries(w.traits).filter(([, v]) => v !== false).map(([k, v]) => `${k}:${v}`), `rarità:${w.rarity}`];
   const entries = keys.filter((k) => !st.seen.includes(k));
   st.seen.push(...entries);
-  const combo = `${w.civ}@${w.era}`, combos = st.combos.includes(combo) ? [] : [combo];
+  const combos = !combo || st.combos.includes(combo) ? [] : [combo];
   st.combos.push(...combos);
-  st.count++;
+  change();
   const achievements = ACHIEVEMENTS.filter(([n, , ok]) => ok(st) && !before.includes(n)).map(([n]) => n);
   return { entries, combos, achievements };
 }
+
+// Records a visited world.
+export const visit = (st, w) => discover(st,
+  [...Object.entries(w.traits).filter(([, v]) => v !== false).map(([k, v]) => `${k}:${v}`), `rarità:${w.rarity}`],
+  `${w.civ}@${w.era}`, () => st.count++);
+
+// Records a relic seen while walking.
+export const findRelic = (st, kind) => discover(st, [`reperto:${kind}`]);
 
 export const isoDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const dailySeed = (day) => `${VERSION}-giorno-${day}`;

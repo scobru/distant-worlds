@@ -6,7 +6,7 @@
 <title>Distant Worlds</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #eee; font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
-  canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
   .ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
         background: linear-gradient(transparent, #0008); }
   h1 { margin: 0 auto 0 0; font-weight: 300; letter-spacing: .15em; text-transform: uppercase; font-size: 18px; }
@@ -30,7 +30,8 @@
 <body>
 <canvas id="c" aria-label="Paesaggio del mondo generato"></canvas>
 <div class="ui">
-  <h1><span id="name">…</span><span id="rarity" class="badge"></span><small id="meta"></small></h1>
+  <h1><span id="name">…</span><span id="rarity" class="badge"></span><small><span id="meta"></span> · <span id="pos"></span></small></h1>
+  <button id="walk" aria-pressed="false">🚶 Cammina</button>
   <button id="sound" aria-pressed="false">▶ Suono</button>
   <button id="fav">☆ Salva</button>
   <button id="share">Condividi</button>
@@ -41,9 +42,9 @@
 <div id="toast" role="status" aria-live="polite"></div>
 <dialog id="atlas"><div class="row"><h2>Atlante</h2><button id="close">Chiudi</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng } from './world.js';
+import { makeWorld, randomSeed, rng, chunk, height, walkerAt } from './world.js';
 import { drawThing, drawCreature } from './draw.js';
-import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
+import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds';
@@ -64,10 +65,14 @@ const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let world, stars = [], ships = [];
+// Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
+let cam = 0, vel = 0, walking = false, keys = 0, cache = new Map();
 
 function load() {
-  const seed = decodeURIComponent(location.hash.slice(1)) || randomSeed();
+  const [seedPart, pos] = decodeURIComponent(location.hash.slice(1)).split('@');
+  const seed = seedPart || randomSeed();
   if (!location.hash) history.replaceState(null, '', '#' + seed);
+  cam = Number(pos) || 0; cache = new Map();
   world = makeWorld(seed);
   const r = rng(world.music.noteSeed ^ 0x5eed);
   stars = Array.from({ length: world.stars }, () => [r(), r() * 0.7, r() * 1.5 + 0.3, r() * 6]);
@@ -93,7 +98,10 @@ function load() {
   if (audio) { stopAudio(); startAudio(); }
 }
 
+let last = 0;
 function draw(t) {
+  cam += (keys * 0.3 + (walking ? 0.05 : 0)) * Math.min(t - last, 100) / 1000; last = t;
+  document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
   const W = world, sky = g.createLinearGradient(0, 0, 0, h);
   sky.addColorStop(0, W.sky.top); sky.addColorStop(1, W.sky.bottom);
@@ -125,25 +133,35 @@ function draw(t) {
     g.fillStyle = W.accent; g.fillRect(x - 1, y * h + s * m * 0.2, 2 * devicePixelRatio, 2 * devicePixelRatio);
   }
 
-  // Wrap over 1.2 screen widths so creatures leave the frame before reappearing.
-  const wrap = (c) => ((((c.x + t * c.speed) % 1) + 1) % 1) * 1.2 - 0.1;
+  // Flyers wrap over 1.2 screen widths so they leave the frame before reappearing.
+  const wrap = (c) => ((((c.x - cam * 0.05 + t * c.speed) % 1) + 1) % 1) * 1.2 - 0.1;
   const co = { accent: W.accent, style: W.style, lights: W.lights, t,
     bird: W.night ? '#fff8' : '#0009', whale: W.layers[0].color };
   for (const c of W.flyers) drawCreature(g, c, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m, co);
 
   const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
+  const next = new Map(), step = 4 * devicePixelRatio;
   W.layers.forEach((L, i) => {
-    const drift = Math.sin(t / 8000) * (i + 1) * 2 * devicePixelRatio;
-    const X = (x) => x * (w + 40) - 20 + drift, n = L.heights.length - 1;
-    const Y = (x) => { const k = Math.min(Math.floor(x * n), n - 1), f = x * n - k; return (L.base - (L.heights[k] * (1 - f) + L.heights[k + 1] * f) * L.span) * h; };
+    const off = cam * L.parallax, X = (x) => (x - off) * w, Y = (x) => (L.base - height(L, x) * L.span) * h;
     g.fillStyle = L.color; g.beginPath(); g.moveTo(0, h);
-    L.heights.forEach((v, k) => g.lineTo(X(k / n), (L.base - v * L.span) * h));
+    for (let sx = -step; sx < w + step; sx += step) g.lineTo(sx, Y(off + sx / w));
     g.lineTo(w, h); g.fill();
     if (W.style === 'neon') { g.save(); g.strokeStyle = g.shadowColor = W.accent; g.shadowBlur = 10; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
     const o = { color: L.color, accent: W.accent, light, night: W.night, lights: W.lights, style: W.style, t };
-    // Sink things slightly into the ground so slopes don't leave them floating.
-    for (const th of L.things) drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
-    for (const c of L.creatures) { const x = wrap(c); drawCreature(g, c, X(x), Y(Math.min(Math.max(x, 0), 1)) + c.size * m * 0.05, c.size * m, { ...co, color: L.color }); }
+    // Only chunks near the screen exist; the rest are rebuilt identically on return.
+    for (let c = Math.floor(off - 0.5); c <= Math.floor(off + 1.5); c++) {
+      const key = i + ':' + c, ch = cache.get(key) ?? chunk(W, i, c);
+      next.set(key, ch);
+      // Sink things slightly into the ground so slopes don't leave them floating.
+      for (const th of ch.things) {
+        drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
+        if (th.relic && X(th.x) > 0 && X(th.x) < w) relic(th.kind);
+      }
+      for (const cr of ch.creatures) {
+        const [x, dir] = walkerAt(cr, t);
+        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m, { ...co, color: L.color });
+      }
+    }
     if (W.water && i === 0) {
       g.fillStyle = W.water; g.fillRect(0, h * 0.62, w, h);
       g.fillStyle = '#fff2';
@@ -151,8 +169,27 @@ function draw(t) {
         g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
     }
   });
+  cache = next;
   requestAnimationFrame(draw);
 }
+
+function relic(kind) {
+  const news = findRelic(st, kind);
+  if (!news.entries.length) return;
+  save(); toast([`Reperto trovato: ${kind}!`, ...news.achievements.map((a) => `🏆 Traguardo: ${a}`)]);
+}
+
+// Travel: arrow keys / A-D, drag on the landscape, or the walk toggle.
+const held = new Set();
+const keyDir = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
+addEventListener('keydown', (e) => { if (e.code in keyDir && !e.target.closest?.('dialog')) { held.add(e.code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); } });
+addEventListener('keyup', (e) => { held.delete(e.code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); });
+let dragX = null;
+cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', (e) => { if (dragX === null) return; cam -= (e.clientX - dragX) / innerWidth; dragX = e.clientX; });
+cv.addEventListener('pointerup', () => (dragX = null));
+const walkBtn = document.getElementById('walk');
+walkBtn.onclick = () => { walking = !walking; walkBtn.textContent = walking ? '■ Fermati' : '🚶 Cammina'; walkBtn.setAttribute('aria-pressed', walking); };
 
 // Generative ambient: drone on root+fifth, sparse seeded melody through a delay.
 let audio = null;
@@ -197,8 +234,10 @@ function setBtn(on) { sb.textContent = on ? '■ Silenzio' : '▶ Suono'; sb.set
 sb.onclick = () => (audio ? stopAudio() : startAudio());
 document.getElementById('gen').onclick = () => { location.hash = randomSeed(); };
 document.getElementById('share').onclick = async (e) => {
-  try { await navigator.clipboard.writeText(location.href); e.target.textContent = 'Link copiato'; }
-  catch { prompt('Copia il link:', location.href); }
+  // Link to the exact spot the traveller is standing on.
+  const url = location.href.split('#')[0] + '#' + encodeURIComponent(world.seed) + (Math.abs(cam) >= 0.05 ? '@' + cam.toFixed(1) : '');
+  try { await navigator.clipboard.writeText(url); e.target.textContent = 'Link copiato'; }
+  catch { prompt('Copia il link:', url); }
   setTimeout(() => (e.target.textContent = 'Condividi'), 1500);
 };
 const favBtn = document.getElementById('fav');

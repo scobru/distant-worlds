@@ -16,6 +16,30 @@ export function rng(seed) {
   };
 }
 
+// 128-bit hash + sfc32 so distinct seeds give distinct worlds (a 32-bit state collides
+// after ~65k worlds by the birthday bound).
+function cyrb128(str) {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
+  for (const ch of str) {
+    const k = ch.codePointAt(0);
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067); h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213); h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067); h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213); h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  return [(h1 ^ h2 ^ h3 ^ h4) >>> 0, (h2 ^ h1) >>> 0, (h3 ^ h1) >>> 0, (h4 ^ h1) >>> 0];
+}
+export function rngFrom(str) {
+  let [a, b, c, d] = cyrb128(str);
+  return () => {
+    a |= 0; b |= 0; c |= 0; d |= 0;
+    const t = (((a + b) | 0) + d) | 0;
+    d = (d + 1) | 0; a = b ^ (b >>> 9); b = (c + (c << 3)) | 0;
+    c = (c << 21) | (c >>> 11); c = (c + t) | 0;
+    return (t >>> 0) / 4294967296;
+  };
+}
+
 // Seeds carry the generator version: a future v2 must keep generating v1 seeds the v1 way,
 // so links people already shared keep showing the same world.
 export const VERSION = 'v1';
@@ -30,22 +54,24 @@ const SCALES = {
   hirajoshi: [0, 2, 3, 7, 8],
 };
 
-// 1D smooth value noise over x in [0,1], `octaves` layers.
-function ridge(r, points, octaves, rough) {
-  const out = new Float32Array(points);
-  let amp = 1, freq = 2 + Math.floor(r() * 4), total = 0;
-  for (let o = 0; o < octaves; o++) {
-    const knots = Array.from({ length: freq + 1 }, r);
-    for (let i = 0; i < points; i++) {
-      const x = (i / (points - 1)) * freq, k = Math.floor(x), f = x - k;
-      const s = f * f * (3 - 2 * f);
-      out[i] += amp * (knots[k] * (1 - s) + knots[Math.min(k + 1, freq)] * s);
-    }
-    total += amp; amp *= rough; freq *= 2;
-  }
-  for (let i = 0; i < points; i++) out[i] /= total;
-  return out;
+// Terrain is a function of x (in screen widths, any value), not a stored array, so a
+// world can be walked forever. Knots come from an integer hash of (layer, octave, index).
+function knot(seed, o, i) {
+  let h = Math.imul(seed ^ Math.imul(o + 1, 0x9e3779b1) ^ Math.imul(i, 0x85ebca6b), 0xc2b2ae35);
+  h ^= h >>> 15; h = Math.imul(h, 0x27d4eb2f); h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
 }
+export function height(L, x) {
+  let amp = 1, f = L.freq, sum = 0, total = 0;
+  for (let o = 0; o < 4; o++) {
+    const X = x * f, k = Math.floor(X), t = X - k, s = t * t * (3 - 2 * t);
+    sum += amp * (knot(L.seed, o, k) * (1 - s) + knot(L.seed, o, k + 1) * s);
+    total += amp; amp *= L.rough; f *= 2;
+  }
+  return sum / total;
+}
+
+export const REPERTI = ['portale', 'monolite', 'scheletro'];
 
 // Trait tables with relative weights: lower weight = rarer.
 export const TRAITS = {
@@ -85,7 +111,7 @@ function toner(style) {
 }
 
 export function makeWorld(seedStr) {
-  const r = rng(hashSeed(seedStr));
+  const r = rngFrom(seedStr);
   const pick = (a) => a[Math.floor(r() * a.length)];
   let bits = 0;
   const wpick = (table) => {
@@ -118,48 +144,32 @@ export function makeWorld(seedStr) {
   const layers = Array.from({ length: nLayers }, (_, i) => {
     const depth = i / (nLayers - 1); // 0 far, 1 near
     return {
-      heights: ridge(r, 160, 4, 0.35 + r() * 0.3),
+      seed: Math.floor(r() * 2 ** 32),
+      freq: 2 + Math.floor(r() * 4),
+      rough: 0.35 + r() * 0.3,
       base: 0.5 + depth * 0.32,
       span: 0.12 + r() * 0.25 * (1 - depth * 0.5),
       color: c(groundHue, 20 + r() * 30, night ? 4 + depth * 6 : 30 - depth * 22),
-      things: [],
+      parallax: 0.15 + depth * 0.85,
     };
   });
 
-  // Structures sit on the two nearest-but-last layers (far ones are too small to read).
-  if (civ !== 'disabitato') {
-    const kinds = civ === 'alieni' ? ALIENE : STRUTTURE[era];
-    for (let k = 2 + Math.floor(r() * 6); k--;) {
-      const L = layers[nLayers - 2 - Math.floor(r() * Math.min(2, nLayers - 1))];
-      L.things.push({ kind: pick(kinds), x: r(), size: 0.05 + r() * 0.09, seed: Math.floor(r() * 2 ** 32), broken: civ === 'rovine' });
-    }
-  }
-  if (flora !== 'brullo') {
-    for (const L of layers.slice(-2)) for (let k = Math.floor(r() * 25); k--;)
-      L.things.push({ kind: flora, x: r(), size: 0.015 + r() * 0.04, seed: Math.floor(r() * 2 ** 32) });
-  }
-  for (const L of layers) L.things.sort((a, b) => b.size - a.size);
-
-  // Creatures: flyers live in the sky, walkers on a ridge. Speeds are in screen-widths per ms.
+  // Flyers live in the sky and follow the traveller; walkers are placed per chunk (see chunk()).
+  // Speeds are in screen-widths per ms.
   const fauna = wpick(TRAITS.fauna), flyers = [];
   const sign = () => (r() < 0.5 ? -1 : 1);
-  const walk = (L, kind, x, speed, size) => L.creatures.push({ kind, x, speed, size, seed: Math.floor(r() * 2 ** 32) });
-  for (const L of layers) L.creatures = [];
-  const near = layers[nLayers - 1], mid = layers[nLayers - 2];
   if (fauna === 'uccelli') for (let k = 1 + Math.floor(r() * 3); k--;)
     flyers.push({ kind: 'stormo', x: r(), y: 0.1 + r() * 0.3, speed: sign() * (1 + r() * 2) * 1e-5, size: 0.006 + r() * 0.006, seed: Math.floor(r() * 2 ** 32) });
   if (fauna === 'meduse') for (let k = 2 + Math.floor(r() * 5); k--;)
     flyers.push({ kind: 'medusa', x: r(), y: 0.1 + r() * 0.35, speed: sign() * r() * 3e-6, size: 0.015 + r() * 0.02, seed: Math.floor(r() * 2 ** 32) });
   if (fauna === 'balene') for (let k = 1 + Math.floor(r() * 2); k--;)
     flyers.push({ kind: 'balena', x: r(), y: 0.1 + r() * 0.2, speed: sign() * (2 + r() * 2) * 1e-6, size: 0.08 + r() * 0.07, seed: Math.floor(r() * 2 ** 32) });
-  if (fauna === 'branchi') {
-    const L = r() < 0.5 ? near : mid, x = r(), v = sign() * (2 + r() * 3) * 1e-6;
-    for (let k = 3 + Math.floor(r() * 5); k--;) walk(L, 'quadrupede', x + r() * 0.12, v, 0.03 + r() * 0.02);
-  }
-  if (fauna === 'giganti') for (let k = 1 + Math.floor(r() * 3); k--;)
-    walk(layers[Math.min(1, nLayers - 2)], 'gigante', r(), sign() * (1 + r()) * 1e-6, 0.08 + r() * 0.07);
-  if (civ === 'umani' || civ === 'alieni') for (let k = 2 + Math.floor(r() * 5); k--;)
-    walk(mid, civ === 'umani' ? 'abitante' : 'alieno', r(), sign() * (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
+  const pop = {
+    structs: civ === 'disabitato' ? null : civ === 'alieni' ? ALIENE : STRUTTURE[era],
+    structDensity: 0.5 + r() * 2.5, // mean per chunk
+    floraDensity: flora === 'brullo' ? 0 : r() * 20,
+    herdLayer: nLayers - 1 - Math.floor(r() * 2),
+  };
 
   const rings = chance(P.anelli), sea = chance(P.mare);
   const traits = { era, civ, flora, fauna, style, notte: night, anelli: rings, mare: sea };
@@ -168,7 +178,7 @@ export function makeWorld(seedStr) {
   const scaleName = civ === 'alieni' ? pick(['hirajoshi', 'lydian']) : pick(Object.keys(SCALES));
   return {
     seed: seedStr,
-    name, era, civ, flora, fauna, style, flyers, traits, bits, rarity, night, sky, accent, layers,
+    name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'rovine' && civ !== 'disabitato' && (eraIdx >= 2 || civ === 'alieni'),
     ships: eraIdx >= 4 || civ === 'alieni' ? Math.floor(r() * 5) : 0,
     stars: night ? 300 : Math.floor(r() * 60),
@@ -189,4 +199,36 @@ export function makeWorld(seedStr) {
       noteSeed: hashSeed(seedStr + ':music'),
     },
   };
+}
+
+// Everything standing on layer `i` between x = c and c + 1 (one screen width). Pure, so
+// chunks can be dropped when off screen and rebuilt identically when the traveller returns.
+export function chunk(w, i, c) {
+  const r = rngFrom(`${w.seed}:${i}:${c}`), n = w.layers.length, things = [], creatures = [];
+  const pick = (a) => a[Math.floor(r() * a.length)];
+  const count = (mean) => Math.floor(mean * 2 * r());
+  const id = () => Math.floor(r() * 2 ** 32);
+  if (w.pop.structs && (i === n - 2 || i === n - 3)) for (let k = count(w.pop.structDensity / 2); k--;)
+    things.push({ kind: pick(w.pop.structs), x: c + r(), size: 0.05 + r() * 0.09, seed: id(), broken: w.civ === 'rovine' });
+  if (i >= n - 2) for (let k = count(w.pop.floraDensity / 2); k--;)
+    things.push({ kind: w.flora, x: c + r(), size: 0.015 + r() * 0.04, seed: id() });
+  if (i === n - 2 && r() < 0.06) things.push({ kind: pick(REPERTI), x: c + 0.2 + r() * 0.6, size: 0.1, seed: id(), relic: true });
+  things.sort((a, b) => b.size - a.size);
+
+  // Walkers pace back and forth over [x, x + range] (see walkerAt), so they never pop at chunk edges.
+  const walker = (kind, x, range, speed, size) => creatures.push({ kind, x, range, speed, size, phase: r() * 2, seed: id() });
+  if (w.fauna === 'branchi' && i === w.pop.herdLayer && r() < 0.5) {
+    const x = c + 0.1 + r() * 0.5, v = (2 + r() * 3) * 1e-6;
+    for (let k = 3 + Math.floor(r() * 5); k--;) walker('quadrupede', x + r() * 0.12, 0.25, v, 0.03 + r() * 0.02);
+  }
+  if (w.fauna === 'giganti' && i === Math.min(1, n - 2) && r() < 0.5) walker('gigante', c + r() * 0.4, 0.5, (1 + r()) * 1e-6, 0.08 + r() * 0.07);
+  if ((w.civ === 'umani' || w.civ === 'alieni') && i === n - 2) for (let k = count(1.5); k--;)
+    walker(w.civ === 'umani' ? 'abitante' : 'alieno', c + r() * 0.7, 0.3, (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
+  return { things, creatures };
+}
+
+// Position and facing (+1 right, -1 left) of a walker at time t (ms).
+export function walkerAt(cr, t) {
+  const u = (((cr.phase + (t * cr.speed) / cr.range) % 2) + 2) % 2;
+  return [cr.x + cr.range * (1 - Math.abs(u - 1)), u < 1 ? 1 : -1];
 }

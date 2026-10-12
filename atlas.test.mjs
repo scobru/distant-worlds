@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { makeWorld, hashSeed } from './world.js';
-import { ENTRIES, COMBOS, emptyState, visit, mission, matches, checkMission, isoDay } from './atlas.js';
+import { ENTRIES, COMBOS, emptyState, visit, findRelic, mission, matches, checkMission, isoDay } from './atlas.js';
 
 const st = emptyState();
 let found = 0, missionWorld;
@@ -13,8 +13,13 @@ for (let i = 0; i < 3000; i++) {
 }
 assert.equal(st.count, 3000);
 assert.equal(found, st.seen.length);
+found = 0;
 for (const k of st.seen) assert.ok(ENTRIES.includes(k), k);
-assert.equal(st.seen.length, ENTRIES.length, 'every entry is findable');
+assert.equal(st.seen.length, ENTRIES.filter((e) => !e.startsWith('reperto:')).length, 'every trait entry is findable');
+assert.deepEqual(findRelic(st, 'portale').entries, ['reperto:portale']);
+assert.deepEqual(findRelic(st, 'portale').entries, [], 'relic counted once');
+findRelic(st, 'monolite');
+assert.deepEqual(findRelic(st, 'scheletro').achievements, ['Cercatore di reperti']);
 assert.equal(st.combos.length, COMBOS.length, 'every combo is findable');
 assert.ok(missionWorld, 'mission is findable');
 // Streak: yesterday done -> +1, gap -> reset, same day -> no double count.

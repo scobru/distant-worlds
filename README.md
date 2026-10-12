@@ -4,6 +4,7 @@ Premi **Genera mondo**: nasce un pianeta nuovo, con paesaggio e colonna sonora g
 Tutto deriva da un seed nell'URL (`…/#k3x9q2`): condividi il link e chi lo apre vede e sente lo stesso mondo.
 
 - Ogni mondo pesca anche: epoca (antico … lontano futuro), civiltà (disabitato, umani, alieni, rovine) con i suoi abitanti, fauna (uccelli, branchi, meduse del cielo, giganti, balene volanti), flora (foresta, conifere, cristalli, funghi) e stile visivo (classico, neon, pastello, mono, seppia). Epoca e civiltà cambiano anche il suono.
+- Ogni mondo si percorre all'infinito (frecce / A-D, trascinamento o **Cammina**): terreno, strutture, creature e reperti rari sono generati a pezzi man mano che servono. Il link condiviso include la posizione (`#seed@12.5`).
 - Gioco, tutto nel browser (`localStorage`, niente server):
   - **rarità**: ogni tratto ha un peso, il mondo è comune / raro / epico / leggendario;
   - **atlante**: tratti e combinazioni civiltà × epoca scoperti, traguardi, diario dei mondi salvati;

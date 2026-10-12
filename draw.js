@@ -87,6 +87,18 @@ export function drawThing(g, t, x, y, s, o) {
       C(0, -1.2, 0.25); break;
     case 'baccelli':
       for (let i = 0; i < 4; i++) C(-0.5 + r(), -0.15 - r() * 0.3, 0.15 + r() * 0.25); break;
+    case 'portale':
+      R(-0.75, -0.25, 0.25, 0.25); R(0.5, -0.25, 0.25, 0.25);
+      g.save(); g.fillStyle = g.strokeStyle = g.shadowColor = o.accent; g.shadowBlur = 20;
+      g.globalAlpha = 0.2 + 0.1 * Math.sin(o.t / 500); g.beginPath(); g.ellipse(0, -1.1, 0.5, 0.8, 0, 0, 7); g.fill();
+      g.globalAlpha = 1; g.lineWidth = 0.1; g.beginPath(); g.ellipse(0, -1.1, 0.6, 0.9, 0, 0, 7); g.stroke(); g.restore(); break;
+    case 'monolite':
+      g.fillStyle = '#050505'; g.strokeStyle = '#fff3'; g.lineWidth = 0.02; R(-0.18, -1.7, 0.36, 1.7); g.stroke(); break;
+    case 'scheletro':
+      g.strokeStyle = g.fillStyle = '#e8e0d0'; g.globalAlpha = 0.85; g.lineWidth = 0.06;
+      g.beginPath(); g.moveTo(-1.6, -0.05); g.lineTo(0.9, -0.45); g.stroke();
+      for (let i = 0; i < 7; i++) { const x = -1 + i * 0.27; g.beginPath(); g.ellipse(x, -0.05, 0.13, 0.5 - Math.abs(i - 3) * 0.06, 0, Math.PI, 0); g.stroke(); }
+      g.beginPath(); g.ellipse(1.1, -0.45, 0.25, 0.15, -0.3, 0, 7); g.fill(); break;
     case 'foresta':
       R(-0.05, -0.5, 0.1, 0.5); C(0, -0.75, 0.32); C(-0.22, -0.55, 0.22); C(0.22, -0.55, 0.22); break;
     case 'conifere': P(-0.3, 0, 0, -1.3, 0.3, 0); break;
