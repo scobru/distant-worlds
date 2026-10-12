@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distant Worlds</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #eee; font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+  .ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+        background: linear-gradient(transparent, #0008); }
+  h1 { margin: 0 auto 0 0; font-weight: 300; letter-spacing: .15em; text-transform: uppercase; font-size: 18px; }
+  small { display: block; opacity: .6; letter-spacing: 0; text-transform: none; font-size: 12px; }
+  button { background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
+  button:hover, button:focus-visible { background: #fff3; }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Paesaggio del mondo generato"></canvas>
+<div class="ui">
+  <h1 id="name">…<small id="meta"></small></h1>
+  <button id="sound" aria-pressed="false">▶ Suono</button>
+  <button id="share">Condividi</button>
+  <button id="gen">Genera mondo</button>
+</div>
+<script type="module">
+import { makeWorld, randomSeed, rng } from './world.js';
+
+const cv = document.getElementById('c'), g = cv.getContext('2d');
+let world, stars = [];
+
+function load() {
+  const seed = decodeURIComponent(location.hash.slice(1)) || randomSeed();
+  if (!location.hash) history.replaceState(null, '', '#' + seed);
+  world = makeWorld(seed);
+  const r = rng(world.music.noteSeed ^ 0x5eed);
+  stars = Array.from({ length: world.stars }, () => [r(), r() * 0.7, r() * 1.5 + 0.3, r() * 6]);
+  document.getElementById('name').firstChild.textContent = world.name;
+  document.getElementById('meta').textContent = `#${seed} · ${world.music.scaleName} · ${world.music.bpm} bpm`;
+  document.title = `${world.name} — Distant Worlds`;
+  if (audio) { stopAudio(); startAudio(); }
+}
+
+function draw(t) {
+  const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
+  const W = world, sky = g.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, W.sky.top); sky.addColorStop(1, W.sky.bottom);
+  g.fillStyle = sky; g.fillRect(0, 0, w, h);
+
+  for (const [x, y, s, p] of stars) {
+    g.globalAlpha = 0.5 + 0.5 * Math.sin(t / 900 + p);
+    g.fillStyle = '#fff'; g.fillRect(x * w, y * h, s * devicePixelRatio, s * devicePixelRatio);
+  }
+  g.globalAlpha = 1;
+
+  const m = Math.min(w, h), S = W.sun;
+  const glow = g.createRadialGradient(S.x * w, S.y * h, 0, S.x * w, S.y * h, S.size * m * 4);
+  glow.addColorStop(0, S.color); glow.addColorStop(0.25, S.color); glow.addColorStop(1, 'transparent');
+  g.fillStyle = glow; g.beginPath(); g.arc(S.x * w, S.y * h, S.size * m * 4, 0, 7); g.fill();
+  if (W.rings) {
+    g.strokeStyle = S.color; g.globalAlpha = 0.5; g.lineWidth = m * 0.004;
+    g.beginPath(); g.ellipse(S.x * w, S.y * h, S.size * m * 2.2, S.size * m * 0.5, -0.3, 0, 7); g.stroke(); g.globalAlpha = 1;
+  }
+  g.fillStyle = '#ddd';
+  for (const o of W.moons) {
+    const x = ((o.x + t / 4e5) % 1) * w;
+    g.beginPath(); g.arc(x, o.y * h, o.size * m, 0, 7); g.fill();
+  }
+
+  W.layers.forEach((L, i) => {
+    const drift = Math.sin(t / 8000) * (i + 1) * 2 * devicePixelRatio;
+    g.fillStyle = L.color; g.beginPath(); g.moveTo(0, h);
+    L.heights.forEach((v, k) => g.lineTo(k / (L.heights.length - 1) * (w + 40) - 20 + drift, (L.base - v * L.span) * h));
+    g.lineTo(w, h); g.fill();
+    if (W.water && i === 0) {
+      g.fillStyle = W.water; g.fillRect(0, h * 0.62, w, h);
+      g.fillStyle = '#fff2';
+      for (let y = h * 0.63; y < h; y += 6 * devicePixelRatio)
+        g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
+    }
+  });
+  requestAnimationFrame(draw);
+}
+
+// Generative ambient: drone on root+fifth, sparse seeded melody through a delay.
+let audio = null;
+function startAudio() {
+  const M = world.music, ac = new AudioContext(), out = ac.createGain();
+  out.gain.setValueAtTime(0, ac.currentTime); out.gain.linearRampToValueAtTime(0.5, ac.currentTime + 3);
+  const lp = ac.createBiquadFilter(); lp.frequency.value = M.cutoff; lp.connect(out); out.connect(ac.destination);
+  const delay = ac.createDelay(), fb = ac.createGain();
+  delay.delayTime.value = 60 / M.bpm * 0.75; fb.gain.value = 0.45;
+  delay.connect(fb); fb.connect(delay); delay.connect(lp);
+  const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
+
+  for (const [semi, det] of [[0, -4], [7, 4], [12, 0]]) {
+    const o = ac.createOscillator(), gg = ac.createGain();
+    o.type = 'sine'; o.frequency.value = hz(M.root + semi); o.detune.value = det; gg.gain.value = 0.12;
+    o.connect(gg); gg.connect(lp); o.start();
+  }
+
+  const r = rng(M.noteSeed), beat = 60 / M.bpm / 2;
+  let next = ac.currentTime + 1;
+  const tick = () => {
+    while (next < ac.currentTime + 0.5) {
+      if (r() < M.density) {
+        const deg = Math.floor(r() * M.scale.length), oct = 24 + 12 * Math.floor(r() * 2);
+        const o = ac.createOscillator(), e = ac.createGain();
+        o.type = M.wave; o.frequency.value = hz(M.root + oct + M.scale[deg]);
+        e.gain.setValueAtTime(0, next); e.gain.linearRampToValueAtTime(0.15, next + 0.02);
+        e.gain.exponentialRampToValueAtTime(0.001, next + beat * 3);
+        o.connect(e); e.connect(lp); e.connect(delay); o.start(next); o.stop(next + beat * 3);
+      }
+      next += beat;
+    }
+  };
+  audio = { ac, timer: setInterval(tick, 100) };
+  setBtn(true);
+}
+function stopAudio() { clearInterval(audio.timer); audio.ac.close(); audio = null; setBtn(false); }
+const sb = document.getElementById('sound');
+function setBtn(on) { sb.textContent = on ? '■ Silenzio' : '▶ Suono'; sb.setAttribute('aria-pressed', on); }
+
+sb.onclick = () => (audio ? stopAudio() : startAudio());
+document.getElementById('gen').onclick = () => { location.hash = randomSeed(); };
+document.getElementById('share').onclick = async (e) => {
+  try { await navigator.clipboard.writeText(location.href); e.target.textContent = 'Link copiato'; }
+  catch { prompt('Copia il link:', location.href); }
+  setTimeout(() => (e.target.textContent = 'Condividi'), 1500);
+};
+addEventListener('hashchange', load);
+load();
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
