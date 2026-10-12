@@ -25,9 +25,10 @@
 </div>
 <script type="module">
 import { makeWorld, randomSeed, rng } from './world.js';
+import { drawThing } from './draw.js';
 
 const cv = document.getElementById('c'), g = cv.getContext('2d');
-let world, stars = [];
+let world, stars = [], ships = [];
 
 function load() {
   const seed = decodeURIComponent(location.hash.slice(1)) || randomSeed();
@@ -35,8 +36,10 @@ function load() {
   world = makeWorld(seed);
   const r = rng(world.music.noteSeed ^ 0x5eed);
   stars = Array.from({ length: world.stars }, () => [r(), r() * 0.7, r() * 1.5 + 0.3, r() * 6]);
+  ships = Array.from({ length: world.ships }, () => [r(), 0.08 + r() * 0.3, (r() - 0.5) / 3e4, 0.004 + r() * 0.008]);
   document.getElementById('name').firstChild.textContent = world.name;
-  document.getElementById('meta').textContent = `#${seed} · ${world.music.scaleName} · ${world.music.bpm} bpm`;
+  const W = world;
+  document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.style} · ${W.music.scaleName} ${W.music.bpm} bpm`;
   document.title = `${world.name} — Distant Worlds`;
   if (audio) { stopAudio(); startAudio(); }
 }
@@ -67,11 +70,24 @@ function draw(t) {
     g.beginPath(); g.arc(x, o.y * h, o.size * m, 0, 7); g.fill();
   }
 
+  for (const [x0, y, v, s] of ships) {
+    const x = (((x0 + t * v) % 1) + 1) % 1 * w;
+    g.fillStyle = '#ccc'; g.beginPath(); g.ellipse(x, y * h, s * m, s * m * 0.25, 0, 0, 7); g.fill();
+    g.fillStyle = W.accent; g.fillRect(x - 1, y * h + s * m * 0.2, 2 * devicePixelRatio, 2 * devicePixelRatio);
+  }
+
+  const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
   W.layers.forEach((L, i) => {
     const drift = Math.sin(t / 8000) * (i + 1) * 2 * devicePixelRatio;
+    const X = (x) => x * (w + 40) - 20 + drift, n = L.heights.length - 1;
+    const Y = (x) => { const k = Math.min(Math.floor(x * n), n - 1), f = x * n - k; return (L.base - (L.heights[k] * (1 - f) + L.heights[k + 1] * f) * L.span) * h; };
     g.fillStyle = L.color; g.beginPath(); g.moveTo(0, h);
-    L.heights.forEach((v, k) => g.lineTo(k / (L.heights.length - 1) * (w + 40) - 20 + drift, (L.base - v * L.span) * h));
+    L.heights.forEach((v, k) => g.lineTo(X(k / n), (L.base - v * L.span) * h));
     g.lineTo(w, h); g.fill();
+    if (W.style === 'neon') { g.save(); g.strokeStyle = g.shadowColor = W.accent; g.shadowBlur = 10; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
+    const o = { color: L.color, accent: W.accent, light, night: W.night, lights: W.lights, style: W.style, t };
+    // Sink things slightly into the ground so slopes don't leave them floating.
+    for (const th of L.things) drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
     if (W.water && i === 0) {
       g.fillStyle = W.water; g.fillRect(0, h * 0.62, w, h);
       g.fillStyle = '#fff2';
@@ -107,6 +123,7 @@ function startAudio() {
         const deg = Math.floor(r() * M.scale.length), oct = 24 + 12 * Math.floor(r() * 2);
         const o = ac.createOscillator(), e = ac.createGain();
         o.type = M.wave; o.frequency.value = hz(M.root + oct + M.scale[deg]);
+        if (M.microtonal) o.detune.value = (r() - 0.5) * 60;
         e.gain.setValueAtTime(0, next); e.gain.linearRampToValueAtTime(0.15, next + 0.02);
         e.gain.exponentialRampToValueAtTime(0.001, next + beat * 3);
         o.connect(e); e.connect(lp); e.connect(delay); o.start(next); o.stop(next + beat * 3);
