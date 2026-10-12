@@ -1,0 +1,156 @@
+// Freenet game layer: viso sign-in, colonies (time on a planet, measured as proof of work), the
+// leaderboard and progress kept in the node. index.html calls the returned hooks; it never imports
+// this file unless a node serves the page.
+import * as net from './net.js';
+import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, validText } from './colony.js';
+
+const fmt = (s) => (!isFinite(s) ? '—' : s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${(s / 3600).toFixed(1)}h`);
+const hueOf = (persona) => parseInt(persona.slice(0, 4), 16) % 360;
+const storeKey = (seed, persona) => `mine:${seed.replaceAll('_', '-')}:${persona.slice(0, 16)}`;
+
+/** `app`: { world(), st(), setSt(s), toast(lines), esc(s), refresh() } from index.html. */
+export async function start(app) {
+  let galaxy = { colonies: {} }, me = null, nick = '', miner = null, minerSeed = null, lastPublish = 0;
+  const q = new URLSearchParams(location.search);
+  // dev only: a faster honest rate, to test colonies without waiting minutes
+  const rate = q.has('node') && q.get('rate') ? Number(q.get('rate')) : HASHES_PER_SECOND;
+
+  const colonyOf = (seed) => galaxy.colonies?.[seed];
+  const colScore = (seed, c) => score(seed, c.persona, c.nonces);
+  const signBtn = document.getElementById('signBtn'), renameBtn = document.getElementById('renameBtn');
+
+  async function refreshGalaxy() {
+    try { galaxy = await net.loadGalaxy(); update(); app.refresh(); } catch (e) { console.warn('galaxy unavailable:', e); }
+  }
+
+  async function loadMiner() {
+    const w = app.world();
+    if (!me || !w.sector) { miner = null; minerSeed = null; return; }
+    minerSeed = w.seed;
+    const raw = await net.storeGet(storeKey(w.seed, me));
+    if (minerSeed === w.seed) miner = raw ? JSON.parse(raw) : newMiner();
+  }
+  const saveMiner = () => miner && net.storePut(storeKey(minerSeed, me), JSON.stringify(miner));
+
+  async function publish(name) {
+    const w = app.world(), x = app.cam();
+    const c = await net.publishColony(w.seed, { name, nick, x, nonces: [...miner.nonces] });
+    galaxy.colonies[w.seed] = c; lastPublish = Date.now(); update(); app.refresh();
+    return c;
+  }
+
+  // Background "time miner": runs while the planet is on screen; publishes when the work wins the planet.
+  setInterval(() => {
+    if (!miner || document.visibilityState !== 'visible' || minerSeed !== app.world().seed) return;
+    mineSome(miner, minerSeed, me, Math.round(rate / 5));
+  }, 200);
+  setInterval(async () => {
+    if (!miner) return;
+    saveMiner();
+    const seed = minerSeed, mine = minerScore(miner), col = colonyOf(seed);
+    if (mine === null || mine > MAX_SCORE || !nick) return;
+    const theirs = col && colScore(seed, col);
+    try {
+      if (!col) { await publish(colonyOf(seed)?.name ?? app.world().name); app.toast([`🚩 You colonized ${app.esc(app.world().name)}!`]); }
+      else if (col.persona !== me && mine < theirs) {
+        await publish(app.world().name);
+        app.toast([`🚩 You spent more time here than ${app.esc(col.nick)}: ${app.esc(app.world().name)} is now your colony!`]);
+      } else if (col.persona === me && mine * 5n < theirs * 4n && Date.now() - lastPublish > 60_000) await publish(col.name); // defend: 25% more time
+    } catch (e) { console.warn('colony publish failed:', e); }
+  }, 10_000);
+
+  async function signedIn(persona) {
+    me = persona;
+    nick = (await net.storeGet('nick')) || '';
+    while (!nick) {
+      const n = prompt('Your explorer name (shown on your colonies and the leaderboard, 1-24 characters):', '');
+      if (n === null) break;
+      if (validText('x', n.trim())) { nick = n.trim(); await net.storePut('nick', nick); }
+    }
+    await loadMiner(); update();
+  }
+
+  function update() {
+    signBtn.hidden = !!me;
+    const w = app.world(), col = colonyOf(w.seed);
+    renameBtn.hidden = !(me && col && col.persona === me);
+  }
+
+  signBtn.hidden = false;
+  signBtn.onclick = async () => {
+    if (confirm('Sign in with Viso?\n\nOK: pick a Viso persona (recommended).\nCancel: create a local explorer key on this node instead.')) {
+      try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); }
+    } else {
+      try { await signedIn(await net.createLocalIdentity()); app.toast(['Signed in with a local explorer key.']); } catch (e) { app.toast([app.esc(e.message)]); }
+    }
+  };
+  renameBtn.onclick = async () => {
+    const col = colonyOf(app.world().seed), name = prompt('Rename your planet (1-32 characters):', col?.name ?? '');
+    if (!name || !validText(name.trim(), 'x')) return;
+    try { await publish(name.trim()); app.toast([`Renamed to ${app.esc(name.trim())}.`]); } catch (e) { app.toast([app.esc(e.message)]); }
+  };
+
+  // Viso callback
+  if (q.has('viso')) {
+    try { await signedIn(await net.finishSignIn(q)); app.toast(['Signed in with Viso.']); }
+    catch (e) { app.toast([app.esc(e.message)]); }
+    for (const k of ['viso', 'pk', 'sig', 'challenge', 'ts']) q.delete(k);
+    history.replaceState(null, '', location.pathname + (q.size ? '?' + q : '') + location.hash);
+  } else {
+    const s = await net.session();
+    if (s) await signedIn(s.persona);
+  }
+
+  // Game progress lives in the node too, since the sandboxed page may have no localStorage.
+  const saved = await net.storeGet('progress');
+  if (saved) { const p = JSON.parse(saved); if ((p.count ?? 0) > (app.st().count ?? 0)) app.setSt(p); }
+  setInterval(() => net.storePut('progress', JSON.stringify(app.st())), 15_000);
+
+  net.onUpdate(refreshGalaxy);
+  await refreshGalaxy();
+  update();
+
+  return {
+    onWorld: () => { saveMiner(); loadMiner().then(update); update(); },
+    planetName: (w) => colonyOf(w.seed)?.name ?? w.name,
+    status(w) {
+      const col = colonyOf(w.seed), mine = miner && minerSeed === w.seed ? minerScore(miner) : null;
+      const yours = mine === null ? 0 : seconds(mine);
+      let s = col ? `${app.esc(w.name)}, colony of ${app.esc(col.nick)}${col.persona === me ? ' (you)' : ''} · ${fmt(seconds(colScore(w.seed, col)))} here · ` : (w.sector ? 'uncolonized · ' : '');
+      if (me && w.sector && !(col && col.persona === me)) s += `your time ${fmt(yours)} / ${fmt(col ? seconds(colScore(w.seed, col)) : seconds(MAX_SCORE))} to colonize · `;
+      if (!me && w.sector) s += 'sign in to colonize · ';
+      return s;
+    },
+    /** Beacon of the planet's colony: position in layer coordinates, colour, label. */
+    beacon: (w) => { const c = colonyOf(w.seed); return c && { x: c.x / 100, hue: hueOf(c.persona), label: c.nick }; },
+    colonyOf,
+    atlasHtml() {
+      const rows = new Map();
+      for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
+        const r = rows.get(c.persona) ?? { nick: c.nick, n: 0, t: 0, persona: c.persona };
+        r.n++; r.t += seconds(colScore(seed, c)); rows.set(c.persona, r);
+      }
+      const top = [...rows.values()].sort((a, b) => b.n - a.n || b.t - a.t).slice(0, 20);
+      const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);
+      return `<h3>Explorer</h3><p>${me ? `${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}…</small> <button id="signOutBtn">Sign out</button>` : 'Not signed in: use Sign in to colonize planets.'}</p>
+        <h3>Your colonies <small>${mine.length}</small></h3>
+        ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${app.esc(c.name)}</a> <small style="display:inline">${fmt(seconds(colScore(seed, c)))}</small></li>`).join('')}</ul>` : '<p><small>Stay on a planet for a few minutes to colonize it.</small></p>'}
+        <h3>Leaderboard <small>${Object.keys(galaxy.colonies ?? {}).length} colonies</small></h3>
+        ${top.length ? `<ol>${top.map((r) => `<li>${r.persona === me ? '<b>' : ''}${app.esc(r.nick)}${r.persona === me ? '</b>' : ''} — ${r.n} ${r.n === 1 ? 'colony' : 'colonies'}, ${fmt(r.t)}</li>`).join('')}</ol>` : '<p><small>No colonies yet.</small></p>'}
+        ${q.has('admin') ? '<button id="blockBtn">Admin: block stars or personas</button>' : ''}`;
+    },
+    bindAtlas(dlg) {
+      const so = dlg.querySelector('#signOutBtn');
+      if (so) so.onclick = async () => {
+        saveMiner(); me = null; nick = ''; miner = null; minerSeed = null; // stop the miner before the session goes
+        await net.signOut(); await net.storePut('nick', '');
+        update(); app.refresh(); dlg.close(); app.toast(['Signed out.']);
+      };
+      const bb = dlg.querySelector('#blockBtn');
+      if (bb) bb.onclick = async () => {
+        const secret = prompt('Admin secret key (hex):'), list = prompt('Stars or persona keys to hide, comma-separated (replaces the list):', (galaxy.blocked?.list ?? []).join(','));
+        if (secret && list !== null) try { await net.block(secret.trim(), list.split(',').map((x) => x.trim()).filter(Boolean)); app.toast(['Blocklist sent.']); } catch (e) { app.toast([app.esc(e.message)]); }
+      };
+    },
+  };
+}

@@ -43,7 +43,8 @@
   <button id="walk" aria-pressed="false">🚶 Walk</button>
   <button id="sound" aria-pressed="false">▶ Sound</button>
   <button id="fav">☆ Save</button>
-  <button id="nameBtn" hidden>✎ Name star</button>
+  <button id="signBtn" hidden>Sign in</button>
+  <button id="renameBtn" hidden>✎ Rename planet</button>
   <button id="share">Share</button>
   <button id="atlasBtn">Atlas</button>
   <button id="mapBtn">Map</button>
@@ -98,7 +99,7 @@ function load() {
   const rb = document.getElementById('rarity');
   rb.textContent = W.rarity; rb.className = 'badge ' + W.rarity;
   document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.lead} · ${W.music.scaleName} ${W.music.bpm} bpm${W.region ? ' · ' + W.region : ''}`;
-  updateFav(); showClaim();
+  updateFav(); showClaim(); fn?.onWorld();
 
   if (st.last !== seed) {
     st.last = seed;
@@ -173,6 +174,13 @@ function draw(t) {
     // At night a faint rim of sky light keeps ridges (and what stands on them) readable.
     else if (W.night) { g.save(); g.strokeStyle = W.sky.bottom; g.globalAlpha = 0.5; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
     const o = { color: L.color, accent: W.accent, light, night: W.night, lights: W.lights, style: W.style, t };
+    const beacon = fn && i === W.layers.length - 2 && fn.beacon(W);
+    if (beacon) {
+      const bx = X(beacon.x), by = Y(beacon.x);
+      drawThing(g, { kind: 'beacon', seed: 7, size: 0.1 }, bx, by, 0.1 * m, { ...o, accent: `hsl(${beacon.hue} 90% 60%)` });
+      g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
+      g.fillText(`🚩 ${beacon.label}`, bx, by - 0.24 * m); g.restore();
+    }
     // Only chunks near the screen exist; the rest are rebuilt identically on return.
     for (let c = Math.floor(off - 0.5); c <= Math.floor(off + 1.5); c++) {
       const key = i + ':' + c, ch = cache.get(key) ?? chunk(W, i, c);
@@ -256,39 +264,23 @@ document.getElementById('share').onclick = async (e) => {
   catch { prompt('Copy the link:', url); }
   setTimeout(() => (e.target.textContent = 'Share'), 1500);
 };
-// Freenet: shared star names (contract/). Loaded only when a node serves the page (or with
-// ?node=host:port in dev), so the plain static site needs neither a build nor a node.
+// Freenet: sign-in, colonies and leaderboard (freenet/). Loaded only when a node serves the page (or
+// with ?node=host:port in dev), so the plain static site needs neither a build nor a node.
 const onFreenet = location.pathname.includes('/v1/contract/web/') || new URLSearchParams(location.search).has('node');
-const nameBtn = document.getElementById('nameBtn');
-let net = null, names = { claims: {} };
-const claimOf = (seed) => names.claims?.[seed];
+let fn = null;
 function showClaim() {
-  const c = world && claimOf(world.seed);
-  document.getElementById('name').textContent = c ? c.name : world.name;
-  document.getElementById('claim').textContent = c ? `${world.name}, named by ${c.by} · ` : '';
-  nameBtn.hidden = !net || !world.sector;
-  nameBtn.textContent = c ? '✎ Rename star' : '✎ Name star';
+  document.getElementById('name').textContent = fn ? fn.planetName(world) : world.name;
+  document.getElementById('claim').innerHTML = fn ? fn.status(world) : '';
 }
-async function refreshNames() {
-  try { names = await net.loadNames(); showClaim(); } catch (e) { console.warn('star names unavailable:', e); }
-}
-if (onFreenet) import('./freenet/net.js').then((m) => { net = m; net.onUpdate(refreshNames); refreshNames(); });
-nameBtn.onclick = async () => {
-  const cur = claimOf(world.seed);
-  const name = prompt(cur ? `${cur.name} was named by ${cur.by}. To rename it you must out-work them. New name:` : 'Name this star for everyone (1-32 characters):', world.name);
-  if (!name) return;
-  let nick = ''; try { nick = localStorage.getItem('dw-nick') || ''; } catch {}
-  nick = prompt('Your explorer nickname (not verified: anyone can type any nickname):', nick);
-  if (!nick) return;
-  try { localStorage.setItem('dw-nick', nick); } catch {}
-  nameBtn.disabled = true;
-  try {
-    const seed = world.seed, claim = await net.nameStar(seed, name.trim(), nick.trim(), cur, (n) => toast([`Mining proof of work… ${Math.round(n / 1000)}k hashes`]));
-    names.claims[seed] = claim; showClaim();
-    toast([`★ ${esc(claim.name)} is on the star map. It stays yours until someone works harder.`]);
-  } catch (e) { toast([esc(e.message)]); }
-  finally { nameBtn.disabled = false; }
-};
+if (onFreenet) import('./freenet/ui.js')
+  .then((m) => m.start({
+    world: () => world, toast, esc, refresh: showClaim, st: () => st,
+    setSt: (s) => { st = { ...emptyState(), ...s }; save(); },
+    // the beacon goes where the explorer stands: mid-screen on the structures' layer
+    cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
+  }))
+  .then((h) => { fn = h; showClaim(); setInterval(showClaim, 2000); })
+  .catch((e) => console.warn('Freenet features unavailable:', e));
 
 const favBtn = document.getElementById('fav');
 function updateFav() { favBtn.textContent = st.favs.some((f) => f.seed === world.seed) ? '★ Saved' : '☆ Save'; }
@@ -318,17 +310,17 @@ function renderMap() {
       const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
       const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
       const cost = cur || st.stars.includes(s.seed) ? 0 : jumpCost(here, [sx, sy], GALAXY);
-      const nm = claimOf(s.seed) ? `${claimOf(s.seed).name} (${w.name})` : w.name;
+      const col = fn?.colonyOf(s.seed), nm = col ? `${col.name} (${w.name}), colony of ${col.nick}` : w.name;
       svg.push(`<a href="#${s.seed}" data-cost="${cost}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
-        ${claimOf(s.seed) ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}
+        ${col ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
     }
   }
   document.getElementById('mapSvg').innerHTML = `<svg viewBox="${cx - 2} ${cy - 2} 5 5" role="img" aria-label="Star map">${svg.join('')}</svg>`;
   document.getElementById('mapTitle').textContent = `Map · ${regionAt(wrapS(cx), wrapS(cy))[0]}`;
   document.getElementById('mapInfo').innerHTML = (here ? `You are in sector ${here.join(', ')}.` : 'This world is off the map (custom seed).')
-    + ` Centre ${wrapS(cx)}, ${wrapS(cy)}${net ? ' · gold ring = named star' : ''} · fuel ${Math.floor(st.fuel)}⚡ · nearer stars cost less · circled (visited) stars are free · bigger = rarer.`;
+    + ` Centre ${wrapS(cx)}, ${wrapS(cy)}${fn ? ' · gold ring = colony' : ''} · fuel ${Math.floor(st.fuel)}⚡ · nearer stars cost less · circled (visited) stars are free · bigger = rarer.`;
   mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', (e) => {
     const cost = +a.dataset.cost;
     if (cost) { e.preventDefault(); if (!jump(a.getAttribute('href').slice(1), cost)) return; }
@@ -362,25 +354,15 @@ document.getElementById('atlasBtn').onclick = () => {
     ${st.species.length ? `<ul>${st.species.slice(0, 60).map((sp) => `<li><canvas class="portrait" width="72" height="48" data-id="${esc(sp.id)}" aria-hidden="true"></canvas>
       <b>${esc(sp.name)}</b> <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No species yet. Walk through worlds with herds or giants.</small></p>'}
-    ${net ? (() => {
-      let nick = ''; try { nick = localStorage.getItem('dw-nick') || ''; } catch {}
-      const all = Object.entries(names.claims ?? {}), mine = all.filter(([, c]) => nick && c.by === nick);
-      return `<h3>Named stars <small>${all.length} in the galaxy</small></h3>
-        ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${esc(c.name)}</a> <small style="display:inline">${seed}</small></li>`).join('')}</ul>`
-          : '<p><small>You have not named a star yet. Use ✎ Name star.</small></p>'}
-        ${new URLSearchParams(location.search).has('admin') ? '<button id="blockBtn">Admin: block stars</button>' : ''}`;
-    })() : ''}
+    ${fn ? fn.atlasHtml() : ''}
     <h3>Logbook</h3>
     ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
       <span class="badge ${f.rarity}">${f.rarity}</span><button class="x" data-i="${i}" aria-label="Remove ${esc(f.name)}">✕</button></li>`).join('')}</ul>`
       : '<p><small>No saved worlds. Use ☆ Save.</small></p>'}`;
   dlg.querySelectorAll('.x').forEach((b) => (b.onclick = () => { st.favs.splice(+b.dataset.i, 1); save(); updateFav(); dlg.close(); document.getElementById('atlasBtn').click(); }));
   dlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => dlg.close()));
-  const bb = dlg.querySelector('#blockBtn');
-  if (bb) bb.onclick = async () => {
-    const secret = prompt('Admin secret key (hex):'), list = prompt('Stars to hide, comma-separated (replaces the current list):', (names.blocked?.list ?? []).join(','));
-    if (secret && list !== null) try { await net.blockStars(secret.trim(), list.split(',').map((x) => x.trim()).filter(Boolean)); toast(['Blocklist sent.']); } catch (e) { toast([esc(e.message)]); }
-  };
+  fn?.bindAtlas(dlg);
+
   for (const cv2 of dlg.querySelectorAll('.portrait')) {
     const [seed, k] = cv2.dataset.id.split('#'), dna = makeWorld(seed).species[k];
     if (dna) drawCreature(cv2.getContext('2d'), { kind: 'species', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classic', lights: false, t: 0 });

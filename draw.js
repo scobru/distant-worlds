@@ -108,6 +108,15 @@ export function drawThing(g, t, x, y, s, o) {
       g.beginPath(); g.moveTo(-1.6, -0.05); g.lineTo(0.9, -0.45); g.stroke();
       for (let i = 0; i < 7; i++) { const x = -1 + i * 0.27; g.beginPath(); g.ellipse(x, -0.05, 0.13, 0.5 - Math.abs(i - 3) * 0.06, 0, Math.PI, 0); g.stroke(); }
       g.beginPath(); g.ellipse(1.1, -0.45, 0.25, 0.15, -0.3, 0, 7); g.fill(); break;
+    case 'beacon': { // a colonist's flag: pole, waving pennant, light
+      R(-0.03, -2, 0.06, 2);
+      g.save(); g.fillStyle = g.shadowColor = o.accent; g.shadowBlur = 12;
+      g.beginPath(); g.moveTo(0.03, -2);
+      for (let k = 0; k <= 10; k++) g.lineTo(0.03 + k * 0.08, -1.95 + Math.sin(o.t / 300 + k * 0.7) * 0.05 * k / 10 + k * 0.012);
+      for (let k = 10; k >= 0; k--) g.lineTo(0.03 + k * 0.08, -1.6 + Math.sin(o.t / 300 + k * 0.7) * 0.05 * k / 10);
+      g.fill(); g.globalAlpha = 0.5 + 0.5 * Math.sin(o.t / 500);
+      g.beginPath(); g.arc(0, -2.05, 0.07, 0, 7); g.fill(); g.restore(); break;
+    }
     case 'forest':
       R(-0.05, -0.5, 0.1, 0.5); C(0, -0.75, 0.32); C(-0.22, -0.55, 0.22); C(0.22, -0.55, 0.22); break;
     case 'conifers': P(-0.3, 0, 0, -1.3, 0.3, 0); break;

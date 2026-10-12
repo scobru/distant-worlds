@@ -1,80 +1,103 @@
-//! Distant Worlds star names. One shared instance; parameters = admin ed25519 pubkey (32 bytes).
+//! Distant Worlds galaxy: one colonist per planet. Shared instance; parameters = admin ed25519
+//! pubkey (32 bytes) || app path (the delegations' scope, as in FreeNames).
 //!
-//! Anyone can name a star (a world seed `v1-<x>_<y>_<n>`) by attaching a proof-of-work over
-//! `dw1|<seed>|<name>|<by>`. Freenet has no global clock, so "first to arrive" cannot be decided:
-//! the strongest proof (lowest sha256) holds the name, and anyone can take it by working harder.
-//! Keeping the minimum per star under a total order makes every merge order converge.
-//! The admin can hide stars with a signed blocklist (`dwb1|<ts>|<seeds joined by ,>`).
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+//! Time spent on a planet is measured as proof of work: while a player stays on a planet the UI
+//! mines in the background, keeping, for each of LANES lanes, the nonce with the lowest
+//! `sha256("dwc1|<seed>|<persona>|<lane>|<nonce>")`. The sum of the lanes' top 64 bits (the score)
+//! shrinks as work accumulates, so a lower score means more time spent. The colony goes to the
+//! lowest score: spend more time than the colonist and the planet is yours. Lanes are bound to the
+//! seed and the persona, so work cannot be moved to another planet or player.
+//! The colonist (a whoiam/viso persona) signs the colony with a delegated app key; the colonist
+//! names the planet and plants a beacon at `x`. Admin-signed blocklist hides stars or personas.
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use whoiam_delegation::{check, key, verify, Cert};
 
-pub const POW_BITS: u32 = 18;
-pub const MAX_CLAIMS: usize = 20_000;
-const MAX_NAME: usize = 32;
-const MAX_BY: usize = 24;
+pub const LANES: usize = 8;
+/// Minimum work for a colony. Work ≈ LANES² / (score / 2^64); 2^21 hashes give a mean score of 2^49,
+/// so this bound (twice that) lets about 2^21 hashes (a few minutes on a planet) through almost always.
+pub const MAX_SCORE: u128 = 1 << 50;
+pub const MAX_COLONIES: usize = 20_000;
 const GALAXY: u32 = 10_000;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Claim {
-    pub name: String,
-    pub by: String, // free-form nickname: not authenticated
-    pub nonce: u64,
+pub struct Colony {
+    pub persona: String, // hex ed25519 pubkey
+    pub name: String,    // the planet's name, chosen by the colonist
+    pub nick: String,    // the colonist's display name (signed by them, not unique)
+    pub x: i64,          // beacon position in hundredths of a screen
+    pub ts: u64,         // self-declared (ms); only orders a colonist's own updates
+    pub nonces: Vec<u64>,
+    pub sig: String, // hex, by the delegated app key over `msg()`
+    pub cert: Cert,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Blocklist {
     pub ts: u64,
-    pub list: Vec<String>,
-    pub sig: String,
+    pub list: Vec<String>, // star seeds or persona keys
+    pub sig: String,       // hex, by admin over `dwb1|<ts>|<list joined by ,>`
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-pub struct NamesState {
-    pub claims: BTreeMap<String, Claim>, // seed -> strongest claim
+pub struct GalaxyState {
+    pub colonies: BTreeMap<String, Colony>, // seed -> colony
     pub blocked: Blocklist,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Summary {
-    pub claims: BTreeMap<String, String>, // seed -> hex strength
+    pub colonies: BTreeMap<String, (String, u64)>, // seed -> (score as decimal string, ts)
     pub blocked_ts: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Delta {
     #[serde(default)]
-    pub claims: BTreeMap<String, Claim>,
+    pub colonies: BTreeMap<String, Colony>,
     #[serde(default)]
     pub blocked: Option<Blocklist>,
 }
 
 type R<T> = Result<T, String>;
 
-/// sha256 of the claim; lower is stronger.
-pub fn strength(seed: &str, c: &Claim) -> [u8; 32] {
-    Sha256::digest(format!("dw1|{seed}|{}|{}|{}", c.name, c.by, c.nonce).as_bytes()).into()
+pub fn lane_hash(seed: &str, persona: &str, lane: usize, nonce: u64) -> [u8; 32] {
+    Sha256::digest(format!("dwc1|{seed}|{persona}|{lane}|{nonce}").as_bytes()).into()
 }
 
-fn zero_bits(h: &[u8]) -> u32 {
-    let mut n = 0;
-    for b in h {
-        n += b.leading_zeros();
-        if *b != 0 {
-            break;
-        }
-    }
-    n
+/// Sum of the lanes' top 64 bits: lower = more work.
+pub fn score(seed: &str, c: &Colony) -> u128 {
+    c.nonces
+        .iter()
+        .enumerate()
+        .map(|(i, n)| u64::from_be_bytes(lane_hash(seed, &c.persona, i, *n)[..8].try_into().unwrap()) as u128)
+        .sum()
+}
+
+pub fn msg(seed: &str, c: &Colony) -> String {
+    let n: Vec<String> = c.nonces.iter().map(u64::to_string).collect();
+    format!("dwc1|{seed}|{}|{}|{}|{}|{}|{}", c.persona, c.name, c.nick, c.x, c.ts, n.join(","))
+}
+
+/// Total order: lower score first; for equal score, the newer update; then the signature.
+fn rank(seed: &str, c: &Colony) -> (u128, std::cmp::Reverse<u64>, String) {
+    (score(seed, c), std::cmp::Reverse(c.ts), c.sig.clone())
 }
 
 /// `v1-<x>_<y>_<n>` with x, y < GALAXY and n a single digit (sectors hold at most 9 stars).
 pub fn is_star(seed: &str) -> bool {
     let Some(rest) = seed.strip_prefix("v1-") else { return false };
     let p: Vec<&str> = rest.split('_').collect();
-    let num = |s: &str, max: u32| !s.is_empty() && s.len() <= 4 && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0')) && s.parse::<u32>().is_ok_and(|v| v < max);
+    let num = |s: &str, max: u32| {
+        !s.is_empty() && s.len() <= 4 && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0')) && s.parse::<u32>().is_ok_and(|v| v < max)
+    };
     p.len() == 3 && num(p[0], GALAXY) && num(p[1], GALAXY) && num(p[2], 10)
+}
+
+fn is_persona(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 fn text_ok(s: &str, max: usize) -> bool {
@@ -82,88 +105,100 @@ fn text_ok(s: &str, max: usize) -> bool {
     n > 0 && n <= max && s.trim() == s && !s.chars().any(|c| c.is_control() || c == '|')
 }
 
-pub fn check_claim(seed: &str, c: &Claim) -> R<()> {
-    if !is_star(seed) {
-        return Err("not a star seed".into());
+pub fn check_colony(app: &str, seed: &str, c: &Colony) -> R<()> {
+    if !is_star(seed) || !is_persona(&c.persona) {
+        return Err("bad star or persona".into());
     }
-    if !text_ok(&c.name, MAX_NAME) || !text_ok(&c.by, MAX_BY) {
-        return Err("bad name or nickname".into());
+    if !text_ok(&c.name, 32) || !text_ok(&c.nick, 24) || c.nonces.len() != LANES || c.x.abs() > 1_000_000_000 {
+        return Err("bad colony fields".into());
     }
-    if zero_bits(&strength(seed, c)) < POW_BITS {
-        return Err("insufficient proof of work".into());
+    if score(seed, c) > MAX_SCORE {
+        return Err("not enough time spent on this planet".into());
     }
-    Ok(())
+    let app_key = check(&c.persona, app, &c.cert)?;
+    verify(&app_key, msg(seed, c).as_bytes(), &c.sig)
 }
 
-fn check_blocklist(admin: &[u8], b: &Blocklist) -> R<()> {
+fn check_blocklist(admin: &str, b: &Blocklist) -> R<()> {
     if b.ts == 0 && b.list.is_empty() && b.sig.is_empty() {
         return Ok(()); // initial empty state
     }
-    if b.list.len() > 10_000 || !b.list.iter().all(|s| is_star(s)) {
+    if b.list.len() > 10_000 || !b.list.iter().all(|s| is_star(s) || is_persona(s)) {
         return Err("bad blocklist".into());
     }
-    let key = VerifyingKey::from_bytes(admin.try_into().map_err(|_| "admin key must be 32 bytes")?).map_err(|e| e.to_string())?;
-    let sig = Signature::from_slice(&hex::decode(&b.sig).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    key.verify(format!("dwb1|{}|{}", b.ts, b.list.join(",")).as_bytes(), &sig).map_err(|_| "bad signature".into())
+    verify(&key(admin)?, format!("dwb1|{}|{}", b.ts, b.list.join(",")).as_bytes(), &b.sig)
 }
 
-/// Keep the MAX_CLAIMS strongest claims; deterministic, so merge order does not matter.
-fn prune(claims: &mut BTreeMap<String, Claim>) {
-    if claims.len() <= MAX_CLAIMS {
+fn blocked(b: &Blocklist, seed: &str, c: &Colony) -> bool {
+    b.list.iter().any(|x| x == seed || *x == c.persona)
+}
+
+/// Keep the MAX_COLONIES most-worked colonies; deterministic, so merge order does not matter.
+fn prune(colonies: &mut BTreeMap<String, Colony>) {
+    if colonies.len() <= MAX_COLONIES {
         return;
     }
-    let mut order: Vec<_> = claims.iter().map(|(s, c)| (strength(s, c), s.clone())).collect();
+    let mut order: Vec<_> = colonies.iter().map(|(s, c)| (rank(s, c), s.clone())).collect();
     order.sort();
-    for (_, s) in order.into_iter().skip(MAX_CLAIMS) {
-        claims.remove(&s);
+    for (_, s) in order.into_iter().skip(MAX_COLONIES) {
+        colonies.remove(&s);
     }
 }
 
-pub fn validate(admin: &[u8], s: &NamesState) -> R<()> {
+pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
     check_blocklist(admin, &s.blocked)?;
-    if s.claims.len() > MAX_CLAIMS || s.claims.keys().any(|k| s.blocked.list.contains(k)) {
+    if s.colonies.len() > MAX_COLONIES || s.colonies.iter().any(|(k, c)| blocked(&s.blocked, k, c)) {
         return Err("state out of bounds".into());
     }
-    s.claims.iter().try_for_each(|(k, c)| check_claim(k, c))
+    s.colonies.iter().try_for_each(|(k, c)| check_colony(app, k, c))
 }
 
-pub fn apply(admin: &[u8], s: &mut NamesState, d: Delta) -> R<()> {
+pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
     if let Some(b) = d.blocked {
         if b.ts > s.blocked.ts {
             check_blocklist(admin, &b)?;
             s.blocked = b;
         }
     }
-    for (seed, c) in d.claims {
-        if s.blocked.list.contains(&seed) || s.claims.get(&seed).is_some_and(|old| strength(&seed, old) <= strength(&seed, &c)) {
-            continue; // blocked or not stronger: ignore, so every merge order converges
+    for (seed, c) in d.colonies {
+        if blocked(&s.blocked, &seed, &c) || s.colonies.get(&seed).is_some_and(|old| rank(&seed, old) <= rank(&seed, &c)) {
+            continue; // blocked or not better: ignore, so every merge order converges
         }
-        check_claim(&seed, &c)?;
-        s.claims.insert(seed, c);
+        check_colony(app, &seed, &c)?;
+        s.colonies.insert(seed, c);
     }
-    let blocked = s.blocked.list.clone();
-    s.claims.retain(|k, _| !blocked.contains(k));
-    prune(&mut s.claims);
+    let b = s.blocked.clone();
+    s.colonies.retain(|k, c| !blocked(&b, k, c));
+    prune(&mut s.colonies);
     Ok(())
 }
 
-pub fn summarize(s: &NamesState) -> Summary {
-    Summary { claims: s.claims.iter().map(|(k, c)| (k.clone(), hex::encode(strength(k, c)))).collect(), blocked_ts: s.blocked.ts }
+pub fn summarize(s: &GalaxyState) -> Summary {
+    Summary { colonies: s.colonies.iter().map(|(k, c)| (k.clone(), (score(k, c).to_string(), c.ts))).collect(), blocked_ts: s.blocked.ts }
 }
 
-pub fn delta(s: &NamesState, sum: &Summary) -> Delta {
+pub fn delta(s: &GalaxyState, sum: &Summary) -> Delta {
+    let better = |k: &String, c: &Colony| match sum.colonies.get(k) {
+        None => true,
+        Some((sc, ts)) => (score(k, c), std::cmp::Reverse(c.ts)) < (sc.parse().unwrap_or(u128::MAX), std::cmp::Reverse(*ts)),
+    };
     Delta {
-        claims: s
-            .claims
-            .iter()
-            .filter(|(k, c)| sum.claims.get(*k).is_none_or(|h| hex::encode(strength(k, c)) < *h))
-            .map(|(k, c)| (k.clone(), c.clone()))
-            .collect(),
+        colonies: s.colonies.iter().filter(|(k, c)| better(k, c)).map(|(k, c)| (k.clone(), c.clone())).collect(),
         blocked: (s.blocked.ts > sum.blocked_ts).then(|| s.blocked.clone()),
     }
 }
 
 // ---- Freenet glue ----
+
+/// Parameters: admin key (32 bytes) || app path.
+fn params(p: &Parameters) -> Result<(String, String), ContractError> {
+    let b = p.as_ref();
+    if b.len() < 33 {
+        return Err(ContractError::Other("bad parameters".into()));
+    }
+    let app = std::str::from_utf8(&b[32..]).map_err(|e| ContractError::Other(e.to_string()))?;
+    Ok((hex::encode(&b[..32]), app.to_string()))
+}
 
 fn de<T: for<'a> Deserialize<'a>>(b: &[u8]) -> Result<T, ContractError> {
     serde_json::from_slice(b).map_err(|e| ContractError::Deser(e.to_string()))
@@ -187,8 +222,9 @@ impl ContractInterface for Contract {
         state: State<'static>,
         _related: RelatedContracts<'static>,
     ) -> Result<ValidateResult, ContractError> {
-        let s: NamesState = de_or_default(state.as_ref())?;
-        Ok(match validate(parameters.as_ref(), &s) {
+        let (admin, app) = params(&parameters)?;
+        let s: GalaxyState = de_or_default(state.as_ref())?;
+        Ok(match validate(&admin, &app, &s) {
             Ok(()) => ValidateResult::Valid,
             Err(_) => ValidateResult::Invalid,
         })
@@ -199,18 +235,19 @@ impl ContractInterface for Contract {
         state: State<'static>,
         data: Vec<UpdateData<'static>>,
     ) -> Result<UpdateModification<'static>, ContractError> {
-        let mut s: NamesState = de_or_default(state.as_ref())?;
+        let (admin, app) = params(&parameters)?;
+        let mut s: GalaxyState = de_or_default(state.as_ref())?;
         for u in data {
             let d: Delta = match u {
                 UpdateData::State(st) => {
-                    let o: NamesState = de(st.as_ref())?;
-                    Delta { claims: o.claims, blocked: Some(o.blocked) }
+                    let o: GalaxyState = de(st.as_ref())?;
+                    Delta { colonies: o.colonies, blocked: Some(o.blocked) }
                 }
                 UpdateData::Delta(d) => de(d.as_ref())?,
                 UpdateData::StateAndDelta { delta, .. } => de(delta.as_ref())?,
                 _ => return Err(ContractError::InvalidUpdate),
             };
-            apply(parameters.as_ref(), &mut s, d).map_err(|_| ContractError::InvalidUpdate)?;
+            apply(&admin, &app, &mut s, d).map_err(|_| ContractError::InvalidUpdate)?;
         }
         Ok(UpdateModification::valid(State::from(ser(&s)?)))
     }
@@ -235,29 +272,104 @@ impl ContractInterface for Contract {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+    use whoiam_delegation::connect_message;
 
-    /// Mine a claim at least `bits` strong.
-    fn claim(seed: &str, name: &str, by: &str, bits: u32) -> Claim {
-        let mut c = Claim { name: name.into(), by: by.into(), nonce: 0 };
-        while zero_bits(&strength(seed, &c)) < bits {
-            c.nonce += 1;
-        }
+    const APP: &str = "/v1/contract/web/Worlds1/";
+
+    fn sk(n: u8) -> SigningKey {
+        SigningKey::from_bytes(&[n; 32])
+    }
+    fn pk(k: &SigningKey) -> String {
+        hex::encode(k.verifying_key().to_bytes())
+    }
+
+    /// Mine each lane for `per_lane` nonces, keeping the best; then sign as the persona's app key.
+    fn colony(seed: &str, persona: &SigningKey, name: &str, per_lane: u64, ts: u64) -> Colony {
+        let p = pk(persona);
+        let nonces = (0..LANES)
+            .map(|i| (0..per_lane).min_by_key(|n| u64::from_be_bytes(lane_hash(seed, &p, i, *n)[..8].try_into().unwrap())).unwrap())
+            .collect();
+        let app_key = sk(100);
+        let (base, challenge) = (format!("http://127.0.0.1:7509{APP}"), format!("wd1.{}.n1", pk(&app_key)));
+        let csig = persona.sign(&connect_message(persona.verifying_key().as_bytes(), &base, &challenge, 1));
+        let cert = Cert { base, challenge, ts: 1, sig: hex::encode(csig.to_bytes()) };
+        let mut c = Colony { persona: p, name: name.into(), nick: "nick".into(), x: 150, ts, nonces, sig: String::new(), cert };
+        c.sig = hex::encode(app_key.sign(msg(seed, &c).as_bytes()).to_bytes());
         c
     }
-    fn one(seed: &str, c: Claim) -> Delta {
-        Delta { claims: [(seed.into(), c)].into(), blocked: None }
-    }
-    fn block(admin: &SigningKey, ts: u64, list: &[&str]) -> Blocklist {
-        let list: Vec<String> = list.iter().map(|s| s.to_string()).collect();
-        let sig = hex::encode(admin.sign(format!("dwb1|{ts}|{}", list.join(",")).as_bytes()).to_bytes());
-        Blocklist { ts, list, sig }
+    fn one(seed: &str, c: Colony) -> Delta {
+        Delta { colonies: [(seed.into(), c)].into(), blocked: None }
     }
 
     #[test]
-    fn strength_matches_ui() {
+    fn lane_hash_matches_ui() {
         // same vector as freenet/net.test.mjs
-        let c = Claim { name: "Vega".into(), by: "eve".into(), nonce: 42 };
-        assert_eq!(hex::encode(strength("v1-1_2_3", &c)), "8e798aba81f332e1ab872bcf809f173bd3289bb90b73ac1b601236283494fa37");
+        assert_eq!(hex::encode(lane_hash("v1-1_2_3", &"ab".repeat(32), 5, 42)), "c156661a5b0f0186153c7c20a30288ae1cff31fb5817d58a79ab886e09f0d997");
+    }
+
+    #[test]
+    fn more_time_takes_the_planet_in_any_order() {
+        let admin = pk(&sk(1));
+        let seed = "v1-12_34_5";
+        let a = colony(seed, &sk(2), "Aurora", 1 << 18, 10); // 2^21 hashes in total
+        let b = colony(seed, &sk(3), "Bellatrix", 1 << 21, 5); // 8x the time
+        assert!(score(seed, &b) < score(seed, &a));
+
+        let mut s1 = GalaxyState::default();
+        validate(&admin, APP, &s1).unwrap();
+        apply(&admin, APP, &mut s1, one(seed, a.clone())).unwrap();
+        assert_eq!(s1.colonies[seed].name, "Aurora");
+        apply(&admin, APP, &mut s1, one(seed, b.clone())).unwrap();
+        let mut s2 = GalaxyState::default();
+        apply(&admin, APP, &mut s2, one(seed, b.clone())).unwrap();
+        apply(&admin, APP, &mut s2, one(seed, a.clone())).unwrap();
+        assert_eq!(s1, s2);
+        assert_eq!(s1.colonies[seed].name, "Bellatrix");
+        validate(&admin, APP, &s1).unwrap();
+
+        // the colonist renames with the same work and a newer ts
+        let mut renamed = b.clone();
+        renamed.name = "Bella".into();
+        renamed.ts = 6;
+        renamed.sig = hex::encode(sk(100).sign(msg(seed, &renamed).as_bytes()).to_bytes());
+        apply(&admin, APP, &mut s1, one(seed, renamed)).unwrap();
+        assert_eq!(s1.colonies[seed].name, "Bella");
+
+        assert!(delta(&s1, &summarize(&s1)).colonies.is_empty());
+        assert!(delta(&s1, &Summary::default()).colonies.contains_key(seed));
+    }
+
+    #[test]
+    fn rejects_cheats() {
+        let admin = pk(&sk(1));
+        let mut s = GalaxyState::default();
+        let seed = "v1-1_1_1";
+        // too little time
+        assert!(apply(&admin, APP, &mut s, one(seed, colony(seed, &sk(2), "Quick", 1 << 10, 1))).is_err());
+        let good = colony(seed, &sk(2), "Vega", 1 << 18, 1);
+        // work moved to another planet or another persona
+        assert!(check_colony(APP, "v1-1_1_2", &good).is_err());
+        let mut stolen = good.clone();
+        stolen.persona = pk(&sk(3));
+        assert!(check_colony(APP, seed, &stolen).is_err());
+        // a field changed after signing
+        let mut forged = good.clone();
+        forged.name = "Mine now".into();
+        assert!(check_colony(APP, seed, &forged).is_err());
+        // a delegation made for another app
+        assert!(check_colony("/v1/contract/web/Other/", seed, &good).is_err());
+
+        apply(&admin, APP, &mut s, one(seed, good.clone())).unwrap();
+        let block = |k: &SigningKey, list: Vec<String>| {
+            let sig = hex::encode(k.sign(format!("dwb1|1|{}", list.join(",")).as_bytes()).to_bytes());
+            Blocklist { ts: 1, list, sig }
+        };
+        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
+        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
+        assert!(s.colonies.is_empty());
+        apply(&admin, APP, &mut s, one(seed, good)).unwrap(); // a blocked persona cannot come back
+        assert!(s.colonies.is_empty());
+        validate(&admin, APP, &s).unwrap();
     }
 
     #[test]
@@ -268,64 +380,5 @@ mod tests {
         for bad in ["v1-10000_0_0", "v1-01_0_0", "v1-1_2_10", "v1-1_2", "v2-1_2_3", "v1-abc", "v1--1_2_3", "v1-1_2_3_4", ""] {
             assert!(!is_star(bad), "{bad}");
         }
-    }
-
-    #[test]
-    fn strongest_claim_wins_in_any_order() {
-        let admin = SigningKey::from_bytes(&[1; 32]);
-        let a = admin.verifying_key().to_bytes();
-        let seed = "v1-12_34_5";
-        let weak = claim(seed, "Aurora", "ann", POW_BITS);
-        let strong = claim(seed, "Bellatrix", "bob", POW_BITS + 3);
-        let (ws, ss) = (strength(seed, &weak), strength(seed, &strong));
-        let (lo, hi) = if ws < ss { (weak.clone(), strong.clone()) } else { (strong.clone(), weak.clone()) };
-
-        let mut s1 = NamesState::default();
-        validate(&a, &s1).unwrap(); // empty initial state
-        apply(&a, &mut s1, one(seed, weak.clone())).unwrap();
-        apply(&a, &mut s1, one(seed, strong.clone())).unwrap();
-        let mut s2 = NamesState::default();
-        apply(&a, &mut s2, one(seed, strong)).unwrap();
-        apply(&a, &mut s2, one(seed, weak)).unwrap();
-        assert_eq!(s1, s2);
-        assert_eq!(s1.claims[seed], lo);
-        // the weaker one is ignored, not an error
-        apply(&a, &mut s1, one(seed, hi)).unwrap();
-        assert_eq!(s1.claims[seed], lo);
-        validate(&a, &s1).unwrap();
-
-        // delta vs summary
-        let d = delta(&s1, &Summary::default());
-        assert!(d.claims.contains_key(seed));
-        assert!(delta(&s1, &summarize(&s1)).claims.is_empty());
-    }
-
-    #[test]
-    fn rejects_bad_claims_and_honours_blocklist() {
-        let admin = SigningKey::from_bytes(&[1; 32]);
-        let a = admin.verifying_key().to_bytes();
-        let mut s = NamesState::default();
-        let seed = "v1-1_1_1";
-        let good = claim(seed, "Vega", "eve", POW_BITS);
-
-        let mut forged = good.clone();
-        forged.name = "Not mined".into(); // proof no longer matches (fails with probability 2^-18)
-        assert!(apply(&a, &mut s, one(seed, forged)).is_err());
-        assert!(apply(&a, &mut s, one("v1-abc", claim("v1-abc", "X", "x", POW_BITS))).is_err());
-        assert!(apply(&a, &mut s, one(seed, claim(seed, "bad|name", "eve", POW_BITS))).is_err());
-        assert!(apply(&a, &mut s, one(seed, claim(seed, " padded", "eve", POW_BITS))).is_err());
-
-        apply(&a, &mut s, one(seed, good.clone())).unwrap();
-        let fake = block(&SigningKey::from_bytes(&[9; 32]), 1, &[seed]);
-        assert!(apply(&a, &mut s, Delta { claims: Default::default(), blocked: Some(fake) }).is_err());
-        apply(&a, &mut s, Delta { claims: Default::default(), blocked: Some(block(&admin, 1, &[seed])) }).unwrap();
-        assert!(s.claims.is_empty());
-        apply(&a, &mut s, one(seed, good)).unwrap(); // a blocked star cannot be named again
-        assert!(s.claims.is_empty());
-        validate(&a, &s).unwrap();
-
-        // a blocklist signed by the UI (freenet/net.js, @noble/ed25519) verifies here
-        let ui = Blocklist { ts: 1, list: vec!["v1-1_1_1".into()], sig: "b2c9c54659618481fdcc5ff7ffd6f860c9f8f6127b2d59ea4602d2d6fe187bc398514a0de165809004da472162a1267719019c4cacf5d6584d63649f9c005406".into() };
-        check_blocklist(&a, &ui).unwrap();
     }
 }

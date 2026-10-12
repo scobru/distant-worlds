@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict';
-import { strength, mine, validText, POW_BITS } from './names.js';
+import { laneHash, score, newMiner, mineSome, minerScore, work, seconds, validText, MAX_SCORE, HASHES_PER_SECOND } from './colony.js';
 
-// Same vector as python: sha256("dw1|v1-1_2_3|Vega|eve|42"); the contract hashes the same string.
+// Same vector as contract/src/lib.rs (lane_hash_matches_ui).
 const hex = (b) => Buffer.from(b).toString('hex');
-assert.equal(hex(strength('v1-1_2_3', { name: 'Vega', by: 'eve', nonce: 42 })), '8e798aba81f332e1ab872bcf809f173bd3289bb90b73ac1b601236283494fa37');
+assert.equal(hex(laneHash('v1-1_2_3', 'ab'.repeat(32), 5, 42)), 'c156661a5b0f0186153c7c20a30288ae1cff31fb5817d58a79ab886e09f0d997');
 
-const c = await mine('v1-1_2_3', 'Vega', 'eve');
-const h = strength('v1-1_2_3', c);
-assert.ok(h[0] === 0 && h[1] === 0 && h[2] < 64, `${POW_BITS} leading zero bits`);
-const c2 = await mine('v1-1_2_3', 'Altair', 'bob', c);
-assert.ok(Buffer.compare(Buffer.from(strength('v1-1_2_3', c2)), Buffer.from(h)) < 0, 'outbids the holder');
+// Mining accumulates: the score only goes down, matches the contract's formula, and its work estimate
+// tracks the hashes really spent.
+const seed = 'v1-1_2_3', p = 'cd'.repeat(32), m = newMiner();
+mineSome(m, seed, p, 8000);
+const s1 = minerScore(m);
+assert.equal(s1, score(seed, p, m.nonces));
+mineSome(m, seed, p, 80000);
+const s2 = minerScore(m);
+assert.ok(s2 <= s1);
+assert.ok(work(s2) > 88000 / 4 && work(s2) < 88000 * 4, `estimate ${work(s2)} vs 88000 real`);
+assert.ok(s2 > MAX_SCORE, 'a few seconds of work is not a colony yet');
+assert.ok(Math.abs(seconds(s2) - work(s2) / HASHES_PER_SECOND) < 1e-9);
+// persisted miners survive JSON (BigInts are kept as strings)
+const back = JSON.parse(JSON.stringify(m));
+assert.equal(minerScore(mineSome(back, seed, p, 0)), s2);
 assert.ok(!validText('a|b', 'x') && !validText(' a', 'x') && !validText('a', '') && validText('Nova Prime', 'scobru'));
-console.log('names ok, nonces', c.nonce, c2.nonce);
+console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');

@@ -20,22 +20,30 @@ Local: `python3 -m http.server` and open http://localhost:8000.
 
 ## Freenet version
 
-The same app can be published on [Freenet](https://freenet.org). There it adds one shared thing: **star names**. Any explorer can name the star they are on (✎ Name star); the name appears for everyone, on the map (gold ring) and on the world itself.
+The same app can be published on [Freenet](https://freenet.org). There it becomes multiplayer:
 
-Freenet has no global clock, so "first to discover" cannot be decided fairly. As in FreeNames, a name is held by the **strongest proof of work**: naming a free star takes a moment of mining (2^18 hashes on average), and taking a named star means out-working its holder. The contract keeps the strongest claim per star (the 20,000 strongest overall), so every merge order converges.
+- **Sign in with Viso**: your [Viso](https://github.com/scobru/viso) persona delegates a key kept by your node (as in FreeNames), and every colony is signed for that persona. Without Viso, you can create a local explorer key. Your progress (atlas, fuel, logbook) is also kept in the node, since the page runs in a sandbox that may have no `localStorage`.
+- **Colonies**: one colonist per planet. Stay on a planet and your browser measures the time as proof of work, mined in the background at a fixed honest rate (5000 hashes/s). After a few minutes the planet is yours: your flag stands where you were, you name the planet, and everyone sees it in the world and on the map (gold ring). **Spend more time there than its colonist and the planet becomes yours**; they can come back and take it again.
+- **Leaderboard**: explorers ranked by colonies held and time invested, read straight from the contract.
+
+How time is measured: for each of 8 lanes the miner keeps the lowest `sha256("dwc1|seed|persona|lane|nonce")`. The sum of their top 64 bits shrinks as work accumulates, so it estimates the hashes spent (about 64·2⁶⁴ / sum). Lanes are bound to the planet and the persona, so time cannot be moved elsewhere. The contract keeps the lowest sum per planet; equal sums fall back to the colonist's newer update, so every merge order converges.
 
 | Part | What it is |
 | --- | --- |
-| `contract/` | Rust contract: `seed → {name, by, nonce}` with `sha256("dw1\|seed\|name\|by\|nonce")` ≥ 18 leading zero bits; lower hash wins. Admin-signed blocklist (`dwb1\|ts\|seeds`) hides stars. Parameters = admin ed25519 key (the FreeNames / FreeTunes admin key, `ADMIN` in `freenet/net.js`). |
-| `freenet/names.js` | The same claim rules in JS, and the miner. Shares a test vector with the contract. |
-| `freenet/net.js` | Node connection (`@freenetorg/freenet-stdlib`): load / subscribe / publish names. Only imported when a node serves the page or with `?node=host:port`, so the static site stays build-free. |
+| `contract/` | Rust galaxy contract: `seed → colony {persona, name, nick, x, ts, nonces, sig, cert}`. Checks the Viso delegation (`whoiam-delegation`, from FreeNames), the signature and the minimum work. Admin-signed blocklist (`dwb1\|ts\|list`) hides stars or personas. Parameters = admin ed25519 key (`ADMIN` in `freenet/net.js`, the FreeNames / FreeTunes admin key) ‖ app path. |
+| `freenet/colony.js` | Colony rules in JS and the time miner. Shares a test vector with the contract. |
+| `freenet/connect.js` | Viso sign-in proof and key display, checked against whoiam's golden vector. |
+| `freenet/net.js` | Node connection (`@freenetorg/freenet-stdlib`), identity delegate (FreeNames' `identity.wasm`), sign-in, galaxy contract. |
+| `freenet/ui.js` | Game layer: miner loop, auto-colonize / take-over, status line, atlas sections. Only imported when a node serves the page or with `?node=host:port`, so the static site stays build-free. |
 
 Known limits:
 
-- **Nicknames are not authenticated**: anyone can type any nickname. A whoiam/viso sign-in (as in FreeNames) would fix that.
-- **Progress is per browser, and may not persist on Freenet**: the node serves apps in a sandboxed iframe where `localStorage` can be unavailable; then atlas, fuel and logbook last only for the session. A storage delegate (as in FreeNames) would fix that.
-- The admin can hide a star's name; changing the admin key or the contract creates a new, empty registry.
-- Names are public and permanent on the network (no global delete).
+- **The time rate is honest, not enforced.** Freenet has no trusted clock: a modified client can mine faster and take planets sooner. Viso persona levels (`ante`) or a minimum level per colony would raise the cost of that; not done yet.
+- One node = one explorer: the app key lives in the node, so every browser on the same node shares the sign-in (use Sign out to switch persona).
+- Nicknames are chosen by each explorer (signed, but not unique). Viso profile names and avatars are not fetched yet.
+- The admin can hide stars or personas; changing the admin key, the app path or the contract creates a new, empty galaxy.
+- Colonies are public and permanent on the network (no global delete).
+- Not yet: the global chat.
 
 ### Build and publish
 
@@ -43,10 +51,13 @@ Requirements: `rustup` with the `wasm32-unknown-unknown` target, `freenet` and `
 
 ```bash
 cd contract && cargo test --release && cargo build --release --target wasm32-unknown-unknown && cd ..
-cp contract/target/wasm32-unknown-unknown/release/distant_worlds_names.wasm freenet/names.wasm
+cp contract/target/wasm32-unknown-unknown/release/distant_worlds_galaxy.wasm freenet/galaxy.wasm
 npm install && npm test && npm run build          # -> dist/
 
-# dev against a local node: npm run dev, then open http://localhost:5173/?node=127.0.0.1:7509
+# dev against a local node (no IPv6? add --ws-api-address 127.0.0.1)
+freenet local --ws-api-port 7510 --config-dir .devnode/config --data-dir .devnode/data --log-dir .devnode/log
+npm run dev   # open http://localhost:5173/?node=127.0.0.1:7510  (add &rate=150000 to colonize in seconds)
+
 fdev website init distant-worlds                  # once: creates the signing key. Back it up!
 fdev website publish dist --key distant-worlds    # later: fdev website update dist --key distant-worlds
 ```
