@@ -9,12 +9,15 @@
   #c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
   .ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
         background: linear-gradient(transparent, #0008); }
-  h1 { margin: 0 auto 0 0; font-weight: 300; letter-spacing: .15em; text-transform: uppercase; font-size: 18px; }
+  h1 { flex: 1 1 360px; min-width: 0; margin: 0; font-weight: 300; letter-spacing: .15em; text-transform: uppercase; font-size: 18px; }
   small { display: block; opacity: .6; letter-spacing: 0; text-transform: none; font-size: 12px; }
   button { background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
   button:hover, button:focus-visible { background: #fff3; }
   .badge { font-size: 11px; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; margin-left: 8px; }
   .common { color: #bbb; } .rare { color: #6cf; } .epic { color: #d9f; } .legendary { color: #fc5; text-shadow: 0 0 8px #fc58; }
+  #tip { position: fixed; z-index: 5; pointer-events: none; max-width: 260px; background: #000d; border: 1px solid #fff3; border-radius: 10px;
+         padding: 8px 10px; font-size: 13px; line-height: 1.35; }
+  #tip[hidden] { display: none; } #tip b { font-size: 14px; } #tip small { display: block; opacity: .75; margin-top: 2px; }
   #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #000c; border: 1px solid #fff3; border-radius: 12px;
            padding: 10px 16px; max-width: calc(100% - 32px); box-sizing: border-box; transition: opacity .5s; opacity: 0; pointer-events: none; }
   dialog { background: #0b0b12ee; color: inherit; border: 1px solid #fff3; border-radius: 16px; width: min(600px, calc(100% - 32px)); max-height: 85vh; padding: 20px; box-sizing: border-box; }
@@ -58,7 +61,7 @@
   <button id="sound" aria-pressed="false">▶ Sound</button>
   <button id="fav">☆ Save</button>
   <button id="signBtn" hidden>Sign in</button>
-  <button id="renameBtn" hidden>✎ Rename planet</button>
+  <button id="plantBtn" hidden>🚩 Plant flag</button>
   <button id="lbBtn" hidden>🏆 Leaderboard</button>
   <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
   <button id="share">Share</button>
@@ -68,6 +71,7 @@
   <button id="gen">New world</button>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="tip" hidden></div>
 <aside id="chat" hidden aria-label="Galaxy chat">
   <div class="row"><b>Galaxy chat</b><button id="chatHide" aria-label="Hide chat">Hide</button></div>
   <ol id="chatLog" aria-live="polite"></ol>
@@ -88,6 +92,7 @@
 <script type="module">
 import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, GALAXY } from './world.js';
 import { drawThing, drawCreature } from './draw.js';
+import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic } from './audio.js';
 import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
 
@@ -145,6 +150,24 @@ function load() {
 }
 
 let last = 0;
+// Hover cards: what was drawn where this frame, and the pointer.
+let hits = [], pointer = null, tapUntil = 0;
+const tip = document.getElementById('tip');
+function showTip() {
+  const touchOver = pointer && matchMedia('(hover: none)').matches && performance.now() > tapUntil;
+  if (!pointer || touchOver || dragX !== null && dragged) { tip.hidden = true; return; }
+  const [px, py] = pointer.map((v) => v * devicePixelRatio);
+  const found = hits.findLast(([[x0, y0, x1, y1]]) => px >= x0 && px <= x1 && py >= y0 && py <= y1);
+  if (!found) { tip.hidden = true; return; }
+  const d = describe(found[1], world, { relic: (k) => st.seen.includes(`relic:${k}`), species: (id) => st.species.some((x) => x.id === id) });
+  const html = `<b>${esc(d.title)}</b>${d.rarity ? ` <span class="badge ${d.rarity}">${d.rarity}</span>` : ''}${d.lines.filter(Boolean).map((l) => `<small>${esc(l)}</small>`).join('')}`;
+  if (tip.innerHTML !== html) tip.innerHTML = html;
+  tip.hidden = false;
+  const [cx, cy] = pointer, r = tip.getBoundingClientRect();
+  tip.style.left = Math.min(cx + 14, innerWidth - r.width - 8) + 'px';
+  tip.style.top = Math.max(8, cy - r.height - 14) + 'px';
+}
+
 function draw(t) {
   const dt = Math.min(t - last, 100); last = t;
   cam += (keys * 0.3 + (walking ? 0.05 : 0)) * dt / 1000;
@@ -188,7 +211,9 @@ function draw(t) {
   const wrap = (c) => ((((c.x - cam * 0.05 + t * c.speed) % 1) + 1) % 1) * 1.2 - 0.1;
   const co = { accent: W.accent, style: W.style, lights: W.lights, t,
     bird: W.night ? '#fff8' : '#0009', whale: W.layers[0].color };
-  for (const c of W.flyers) drawCreature(g, c, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m, co);
+  hits = [];
+  const hit = (e, x, y, s) => hits.push([boxOf(e, x, y, s), e]);
+  for (const c of W.flyers) { drawCreature(g, c, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m, co); hit({ type: 'flyer', ...c }, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m); }
 
   const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
   const next = new Map(), step = 4 * devicePixelRatio;
@@ -206,6 +231,7 @@ function draw(t) {
     if (beacon) {
       const bx = X(beacon.x), by = Y(beacon.x);
       drawThing(g, { kind: 'beacon', seed: 7, size: 0.1 }, bx, by, 0.1 * m, { ...o, accent: `hsl(${beacon.hue} 90% 60%)` });
+      hit({ type: 'beacon', label: beacon.label }, bx, by, 0.1 * m);
       g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
       g.fillText(`🚩 ${beacon.label}`, bx, by - 0.24 * m); g.restore();
     }
@@ -216,6 +242,7 @@ function draw(t) {
       // Sink things slightly into the ground so slopes don't leave them floating.
       for (const th of ch.things) {
         drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
+        hit({ type: 'thing', ...th }, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m);
         const vis = X(th.x) > 0 && X(th.x) < w;
         if (vis && th.relic) { relic(th.kind); seen += 6; } else if (vis && !th.kind.match(/forest|conifers|crystals|mushrooms/)) seen++;
       }
@@ -223,6 +250,7 @@ function draw(t) {
         const [x, dir] = walkerAt(cr, t);
         if (X(x) > 0 && X(x) < w) { seen++; if (cr.dna && !seenNow.has(cr.dna.id)) { seenNow.add(cr.dna.id); species(cr.dna); } }
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m, { ...co, color: L.color });
+        hit({ type: 'walker', ...cr }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m);
       }
     }
     if (W.water && i === 0) {
@@ -233,6 +261,7 @@ function draw(t) {
     }
   });
   cache = next; interest = Math.min(seen, 12);
+  showTip();
   requestAnimationFrame(draw);
 }
 
@@ -256,9 +285,17 @@ const keyDir = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
 addEventListener('keydown', (e) => { if (e.code in keyDir && !e.target.closest?.('dialog')) { held.add(e.code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); } });
 addEventListener('keyup', (e) => { held.delete(e.code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); });
 let dragX = null;
-cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; cv.setPointerCapture(e.pointerId); });
-cv.addEventListener('pointermove', (e) => { if (dragX === null) return; cam -= (e.clientX - dragX) / innerWidth; dragX = e.clientX; });
-cv.addEventListener('pointerup', () => (dragX = null));
+let dragged = false;
+cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; dragged = false; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', (e) => {
+  pointer = [e.clientX, e.clientY];
+  if (dragX === null) return;
+  if (Math.abs(e.clientX - dragX) > 2) dragged = true;
+  cam -= (e.clientX - dragX) / innerWidth; dragX = e.clientX;
+});
+// a tap (no drag) points at what is under the finger for a few seconds, as hovering does with a mouse
+cv.addEventListener('pointerup', (e) => { dragX = null; if (!dragged) { pointer = [e.clientX, e.clientY]; tapUntil = performance.now() + 4000; } });
+cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') pointer = null; });
 const walkBtn = document.getElementById('walk');
 walkBtn.onclick = () => { walking = !walking; walkBtn.textContent = walking ? '■ Stop' : '🚶 Walk'; walkBtn.setAttribute('aria-pressed', walking); };
 
@@ -297,7 +334,7 @@ document.getElementById('share').onclick = async (e) => {
 const onFreenet = location.pathname.includes('/v1/contract/web/') || new URLSearchParams(location.search).has('node');
 let fn = null;
 function showClaim() {
-  document.getElementById('name').textContent = fn ? fn.planetName(world) : world.name;
+  document.getElementById('name').textContent = world.name;
   document.getElementById('claim').innerHTML = fn ? fn.status(world) : '';
 }
 if (onFreenet) import('./freenet/ui.js')
@@ -338,7 +375,7 @@ function renderMap() {
       const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
       const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
       const cost = cur || st.stars.includes(s.seed) ? 0 : jumpCost(here, [sx, sy], GALAXY);
-      const col = fn?.colonyOf(s.seed), nm = col ? `${col.name} (${w.name}), colony of ${col.nick}` : w.name;
+      const col = fn?.colonyOf(s.seed), nm = col ? `${w.name}, colony of ${col.nick}` : w.name;
       svg.push(`<a href="#${s.seed}" data-cost="${cost}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${col ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}

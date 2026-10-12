@@ -31,7 +31,7 @@ export async function start(app) {
 
   const colonyOf = (seed) => galaxy.colonies?.[seed];
   const colScore = (seed, c) => score(seed, c.persona, c.nonces);
-  const signBtn = document.getElementById('signBtn'), renameBtn = document.getElementById('renameBtn');
+  const signBtn = document.getElementById('signBtn'), plantBtn = document.getElementById('plantBtn');
 
   async function refreshGalaxy() {
     try { galaxy = await net.loadGalaxy(); update(); app.refresh(); } catch (e) { console.warn('galaxy unavailable:', e); }
@@ -46,14 +46,16 @@ export async function start(app) {
   }
   const saveMiner = () => miner && net.storePut(storeKey(minerSeed, me), JSON.stringify(miner));
 
-  async function publish(name) {
-    const w = app.world(), x = app.cam();
-    const c = await net.publishColony(w.seed, { name, nick, x, nonces: [...miner.nonces], ante: anteHex() });
+  // Planets keep their generated name; the flag goes where the explorer stands (or stays put when defending).
+  async function publish(x = app.cam()) {
+    const w = app.world();
+    const c = await net.publishColony(w.seed, { name: w.name, nick, x, nonces: [...miner.nonces], ante: anteHex() });
     galaxy.colonies[w.seed] = c; lastPublish = Date.now(); update(); app.refresh();
     return c;
   }
 
-  // Background "time miner": runs while the planet is on screen; publishes when the work wins the planet.
+  // Background "time miner": runs while the planet is on screen. When the work wins the planet, the
+  // Plant flag button appears; a colonist's own extra time is published quietly to defend the planet.
   setInterval(() => {
     if (!miner || document.visibilityState !== 'visible' || minerSeed !== app.world().seed) return;
     mineSome(miner, minerSeed, me, Math.round(rate / 5));
@@ -63,15 +65,31 @@ export async function start(app) {
     saveMiner();
     const seed = minerSeed, mine = minerScore(miner), col = colonyOf(seed);
     if (mine === null || mine > MAX_SCORE || !nick || level() < COLONY_BITS) return;
-    const theirs = col && colScore(seed, col);
     try {
-      if (!col) { await publish(colonyOf(seed)?.name ?? app.world().name); app.toast([`🚩 You colonized ${app.esc(app.world().name)}!`]); }
-      else if (col.persona !== me && mine < theirs) {
-        await publish(app.world().name);
-        app.toast([`🚩 You spent more time here than ${app.esc(col.nick)}: ${app.esc(app.world().name)} is now your colony!`]);
-      } else if (col.persona === me && mine * 5n < theirs * 4n && Date.now() - lastPublish > 60_000) await publish(col.name); // defend: 25% more time
+      if (col?.persona === me && mine * 5n < colScore(seed, col) * 4n && Date.now() - lastPublish > 60_000) await publish(col.x / 100); // 25% more time
     } catch (e) { console.warn('colony publish failed:', e); }
   }, 10_000);
+
+  /** Can the signed-in explorer plant a flag here now (enough time, level, and more time than the colonist)? */
+  function canPlant() {
+    const w = app.world(), col = colonyOf(w.seed), mine = miner && minerSeed === w.seed ? minerScore(miner) : null;
+    return !!(me && nick && mine !== null && mine <= MAX_SCORE && level() >= COLONY_BITS && (!col || (col.persona !== me && mine < colScore(w.seed, col))));
+  }
+  setInterval(() => {
+    const ready = canPlant();
+    plantBtn.hidden = !ready;
+    if (ready) plantBtn.textContent = colonyOf(app.world().seed) ? '🚩 Take this planet' : '🚩 Plant flag';
+  }, 1000);
+  plantBtn.onclick = async () => {
+    if (!canPlant()) return;
+    const w = app.world(), col = colonyOf(w.seed);
+    plantBtn.disabled = true;
+    try {
+      await publish();
+      app.toast([col ? `🚩 You spent more time here than ${app.esc(col.nick)}: ${app.esc(w.name)} is now your colony!` : `🚩 Your flag flies on ${app.esc(w.name)}!`]);
+    } catch (e) { app.toast([app.esc(e.message)]); }
+    finally { plantBtn.disabled = false; }
+  };
 
   async function signedIn(persona) {
     me = persona;
@@ -102,8 +120,6 @@ export async function start(app) {
 
   function update() {
     signBtn.hidden = !!me;
-    const w = app.world(), col = colonyOf(w.seed);
-    renameBtn.hidden = !(me && col && col.persona === me);
   }
 
   signBtn.hidden = false;
@@ -121,11 +137,6 @@ export async function start(app) {
     if (k === undefined) return;
     if (!/^[0-9a-f]{64}$/.test(k)) return app.toast(['A key is 64 hexadecimal characters.']);
     withKey(k);
-  };
-  renameBtn.onclick = async () => {
-    const col = colonyOf(app.world().seed), name = prompt('Rename your planet (1-32 characters):', col?.name ?? '');
-    if (!name || !validText(name.trim(), 'x')) return;
-    try { await publish(name.trim()); app.toast([`Renamed to ${app.esc(name.trim())}.`]); } catch (e) { app.toast([app.esc(e.message)]); }
   };
 
   // Viso callback
@@ -155,7 +166,7 @@ export async function start(app) {
     for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
       const r = rows.get(c.persona) ?? { nick: c.nick, persona: c.persona, t: 0, planets: [] };
       const t = seconds(colScore(seed, c));
-      r.t += t; r.planets.push({ seed, name: c.name, t }); rows.set(c.persona, r);
+      r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t }); rows.set(c.persona, r);
     }
     const all = [...rows.values()].sort((a, b) => b.planets.length - a.planets.length || b.t - a.t);
     const av = (p) => { const u = avatar(p, renderLeaderboard); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
@@ -184,7 +195,7 @@ export async function start(app) {
   const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   function card(world) {
     const [seed, pos] = world.split('@'), w = makeWorld(seed), col = colonyOf(seed);
-    return `<a class="card" href="#${seed}${pos ? '@' + pos : ''}">🌍 <b>${app.esc(col?.name ?? w.name)}</b> <span class="badge ${w.rarity}">${w.rarity}</span><br><small>${w.era} · ${w.civ} · ${w.fauna}${w.region ? ' · ' + w.region : ''}${col ? ' · colony of ' + app.esc(col.nick) : ''}</small></a>`;
+    return `<a class="card" href="#${seed}${pos ? '@' + pos : ''}">🌍 <b>${app.esc(w.name)}</b> <span class="badge ${w.rarity}">${w.rarity}</span><br><small>${w.era} · ${w.civ} · ${w.fauna}${w.region ? ' · ' + w.region : ''}${col ? ' · colony of ' + app.esc(col.nick) : ''}</small></a>`;
   }
   function renderChat() {
     const msgs = visible(), atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
@@ -220,7 +231,7 @@ export async function start(app) {
   document.getElementById('chatShare').onclick = () => {
     const w = app.world();
     if (!w.sector) return app.toast(['Only worlds on the star map can be shared.']);
-    post(input.value.trim() || `Look at ${colonyOf(w.seed)?.name ?? w.name}!`, `${w.seed}@${app.cam().toFixed(1)}`);
+    post(input.value.trim() || `Look at ${w.name}!`, `${w.seed}@${app.cam().toFixed(1)}`);
   };
   log.addEventListener('click', (e) => { if (e.target.closest('a.card') && innerWidth < 640) setOpen(false); });
   net.onUpdate(refreshChat);
@@ -229,12 +240,12 @@ export async function start(app) {
 
   return {
     onWorld: () => { saveMiner(); loadMiner().then(update); update(); },
-    planetName: (w) => colonyOf(w.seed)?.name ?? w.name,
     status(w) {
       const col = colonyOf(w.seed), mine = miner && minerSeed === w.seed ? minerScore(miner) : null;
       const yours = mine === null ? 0 : seconds(mine);
       let s = col ? `${app.esc(w.name)}, colony of ${app.esc(col.nick)}${col.persona === me ? ' (you)' : ''} · ${fmt(seconds(colScore(w.seed, col)))} here · ` : (w.sector ? 'uncolonized · ' : '');
       if (me && w.sector && !(col && col.persona === me)) s += `your time ${fmt(yours)} / ${fmt(col ? seconds(colScore(w.seed, col)) : seconds(MAX_SCORE))} to colonize · `;
+      if (canPlant()) s += '🚩 you can plant your flag · ';
       if (me && w.sector && level() < COLONY_BITS) s += `Viso level ${level()}/${COLONY_BITS}: raise it in Viso to colonize · `;
       if (!me && w.sector) s += 'sign in to colonize · ';
       return s;
@@ -247,7 +258,7 @@ export async function start(app) {
       const av = (p) => { const u = avatar(p, () => {}); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
       return `<h3>Explorer</h3><p>${me ? `${av(me)}${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}… · Viso level ${level()} (colonies need ${COLONY_BITS}, chat ${CHAT_BITS})</small> <button id="signOutBtn">Sign out</button> <button id="backupBtn" hidden>Back up key</button>` : 'Not signed in: sign in to colonize planets and chat.'}</p>
         <h3>Your colonies <small>${mine.length}</small></h3>
-        ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${app.esc(c.name)}</a> <small style="display:inline">${fmt(seconds(colScore(seed, c)))}</small></li>`).join('')}</ul>` : '<p><small>Stay on a planet for a few minutes to colonize it.</small></p>'}
+        ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${app.esc(makeWorld(seed).name)}</a> <small style="display:inline">${fmt(seconds(colScore(seed, c)))}</small></li>`).join('')}</ul>` : '<p><small>Stay on a planet for a few minutes to colonize it.</small></p>'}
         ${q.has('admin') ? '<button id="blockBtn">Admin: block stars or personas</button>' : ''}`;
     },
     bindAtlas(dlg) {

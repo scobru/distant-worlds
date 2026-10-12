@@ -58,3 +58,23 @@ assert.equal(jumpCost([0, 0], [9999, 0], 10000), 35, 'wraps around the galaxy ed
 assert.equal(jumpCost([0, 0], [500, 500], 10000), FUEL.random);
 assert.equal(jumpCost(null, [1, 1], 10000), 60);
 console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
+
+// Hover cards: every drawable kind gets a title.
+{
+  const { describe, boxOf } = await import('./describe.js');
+  const { makeWorld, chunk } = await import('./world.js');
+  const known = { relic: () => false, species: () => false };
+  let n = 0;
+  for (let i = 0; i < 200; i++) {
+    const w = makeWorld('h' + i);
+    for (const f of w.flyers) { assert.ok(describe({ type: 'flyer', ...f }, w, known).title); n++; }
+    for (let L = 0; L < w.layers.length; L++) {
+      const ch = chunk(w, L, 0);
+      for (const t of ch.things) { const d = describe({ type: 'thing', ...t }, w, known); assert.ok(d.title && !d.title.includes('undefined'), JSON.stringify(t)); n++; }
+      for (const c of ch.creatures) { const d = describe({ type: 'walker', ...c }, w, known); assert.ok(d.title && d.lines.every((l) => !l.includes('undefined')), JSON.stringify(c.kind)); n++; }
+    }
+  }
+  const [x0, y0, x1, y1] = boxOf({ type: 'thing', kind: 'house' }, 100, 200, 10);
+  assert.ok(x0 < 100 && x1 > 100 && y0 < 200 && y1 === 200);
+  console.log('describe ok,', n, 'entities');
+}
