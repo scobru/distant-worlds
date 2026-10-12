@@ -15,11 +15,11 @@ assert.equal(st.count, 3000);
 assert.equal(found, st.seen.length);
 found = 0;
 for (const k of st.seen) assert.ok(ENTRIES.includes(k), k);
-assert.equal(st.seen.length, ENTRIES.filter((e) => !e.startsWith('reperto:')).length, 'every trait entry is findable');
-assert.deepEqual(findRelic(st, 'portale').entries, ['reperto:portale']);
-assert.deepEqual(findRelic(st, 'portale').entries, [], 'relic counted once');
-findRelic(st, 'monolite');
-assert.deepEqual(findRelic(st, 'scheletro').achievements, ['Cercatore di reperti']);
+assert.equal(st.seen.length, ENTRIES.filter((e) => !e.startsWith('relic:')).length, 'every trait entry is findable');
+assert.deepEqual(findRelic(st, 'portal').entries, ['relic:portal']);
+assert.deepEqual(findRelic(st, 'portal').entries, [], 'relic counted once');
+findRelic(st, 'monolith');
+assert.deepEqual(findRelic(st, 'skeleton').achievements, ['Relic seeker']);
 assert.equal(st.combos.length, COMBOS.length, 'every combo is findable');
 assert.ok(missionWorld, 'mission is findable');
 // Streak: yesterday done -> +1, gap -> reset, same day -> no double count.
@@ -41,7 +41,7 @@ for (let i = 0; speciesSeen < 10; i++) {
     const res = findSpecies(st2, sp, w);
     assert.ok(res.isNew);
     assert.ok(!findSpecies(st2, sp, w).isNew, 'species counted once');
-    if (++speciesSeen === 10) assert.ok(res.achievements.includes('Naturalista'));
+    if (++speciesSeen === 10) assert.ok(res.achievements.includes('Naturalist'));
     if (speciesSeen === 10) break;
   }
 }

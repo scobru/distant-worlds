@@ -1,13 +1,13 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
-import { TRAITS, RARITA, REPERTI, hashSeed, rng, rngFrom, randomSeed } from './world.js';
+import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
   ...Object.entries(TRAITS).flatMap(([k, t]) => Object.keys(t).map((v) => `${k}:${v}`)),
-  'notte:true', 'anelli:true', 'mare:true',
-  ...RARITA.map(([r]) => `rarità:${r}`),
-  ...REPERTI.map((r) => `reperto:${r}`),
+  'night:true', 'rings:true', 'sea:true',
+  ...RARITY.map(([r]) => `rarity:${r}`),
+  ...RELICS.map((r) => `relic:${r}`),
 ];
 
 // Second tier: who lived in which era. Rare pairs (aliens in the far future) take a while.
@@ -15,20 +15,20 @@ export const COMBOS = Object.keys(TRAITS.civ).flatMap((c) => Object.keys(TRAITS.
 
 const has = (st, k, vals) => vals.filter((v) => st.seen.includes(`${k}:${v}`)).length;
 export const ACHIEVEMENTS = [
-  ['Viaggiatore del tempo', 'Visita tutte le epoche', (st) => has(st, 'era', Object.keys(TRAITS.era)) === 6],
-  ['Zoologo', 'Incontra ogni fauna', (st) => has(st, 'fauna', Object.keys(TRAITS.fauna)) === 6],
-  ['Botanico', 'Trova ogni flora', (st) => has(st, 'flora', Object.keys(TRAITS.flora)) === 5],
-  ['Esteta', 'Vedi tutti gli stili', (st) => has(st, 'style', Object.keys(TRAITS.style)) === 5],
-  ['Archeologo', 'Rovine di 4 epoche diverse', (st) => st.combos.filter((c) => c.startsWith('rovine@')).length >= 4],
-  ['Storico', 'Tutte le civiltà in tutte le epoche', (st) => COMBOS.every((c) => st.combos.includes(c))],
-  ['Primo contatto', 'Trova gli alieni', (st) => st.seen.includes('civ:alieni')],
-  ['Cacciatore di leggende', 'Trova un mondo leggendario', (st) => st.seen.includes('rarità:leggendario')],
-  ['Cercatore di reperti', 'Trova portale, monolite e scheletro', (st) => has(st, 'reperto', REPERTI) === REPERTI.length],
-  ['Naturalista', 'Cataloga 10 specie', (st) => st.species.length >= 10],
-  ['Tassonomo', 'Cataloga 50 specie', (st) => st.species.length >= 50],
-  ['Criptozoologo', 'Trova una specie leggendaria', (st) => st.species.some((s) => s.rarity === 'leggendario')],
-  ['Esploratore', 'Esplora 100 mondi', (st) => st.count >= 100],
-  ['Costante', 'Missione del giorno 7 giorni di fila', (st) => st.daily.best >= 7],
+  ['Time traveller', 'Visit every era', (st) => has(st, 'era', Object.keys(TRAITS.era)) === 6],
+  ['Zoologist', 'Meet every fauna', (st) => has(st, 'fauna', Object.keys(TRAITS.fauna)) === 6],
+  ['Botanist', 'Find every flora', (st) => has(st, 'flora', Object.keys(TRAITS.flora)) === 5],
+  ['Aesthete', 'See every style', (st) => has(st, 'style', Object.keys(TRAITS.style)) === 5],
+  ['Archaeologist', 'Ruins from 4 different eras', (st) => st.combos.filter((c) => c.startsWith('ruins@')).length >= 4],
+  ['Historian', 'Every civilization in every era', (st) => COMBOS.every((c) => st.combos.includes(c))],
+  ['First contact', 'Find the aliens', (st) => st.seen.includes('civ:aliens')],
+  ['Legend hunter', 'Find a legendary world', (st) => st.seen.includes('rarity:legendary')],
+  ['Relic seeker', 'Find a portal, a monolith and a skeleton', (st) => has(st, 'relic', RELICS) === RELICS.length],
+  ['Naturalist', 'Catalogue 10 species', (st) => st.species.length >= 10],
+  ['Taxonomist', 'Catalogue 50 species', (st) => st.species.length >= 50],
+  ['Cryptozoologist', 'Find a legendary species', (st) => st.species.some((s) => s.rarity === 'legendary')],
+  ['Explorer', 'Explore 100 worlds', (st) => st.count >= 100],
+  ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
 ];
 
 export const emptyState = () => ({ seen: [], combos: [], count: 0, favs: [], species: [], stars: [], daily: { done: null, streak: 0, best: 0 } });
@@ -47,7 +47,7 @@ function discover(st, keys, combo, change = () => {}) {
 
 // Records a visited world.
 export const visit = (st, w) => discover(st,
-  [...Object.entries(w.traits).filter(([, v]) => v !== false).map(([k, v]) => `${k}:${v}`), `rarità:${w.rarity}`],
+  [...Object.entries(w.traits).filter(([, v]) => v !== false).map(([k, v]) => `${k}:${v}`), `rarity:${w.rarity}`],
   `${w.civ}@${w.era}`, () => {
     st.count++;
     // Visited stars, for the map. shortcut: capped list, switch to a Set-like index if it grows a lot.
@@ -62,7 +62,7 @@ export function findSpecies(st, sp, w) {
 }
 
 // Records a relic seen while walking.
-export const findRelic = (st, kind) => discover(st, [`reperto:${kind}`]);
+export const findRelic = (st, kind) => discover(st, [`relic:${kind}`]);
 
 export const isoDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 // The daily world is a star on the map, the same for everyone that day.

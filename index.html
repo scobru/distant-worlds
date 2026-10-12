@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,7 +14,7 @@
   button { background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
   button:hover, button:focus-visible { background: #fff3; }
   .badge { font-size: 11px; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; margin-left: 8px; }
-  .comune { color: #bbb; } .raro { color: #6cf; } .epico { color: #d9f; } .leggendario { color: #fc5; text-shadow: 0 0 8px #fc58; }
+  .common { color: #bbb; } .rare { color: #6cf; } .epic { color: #d9f; } .legendary { color: #fc5; text-shadow: 0 0 8px #fc58; }
   #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #000c; border: 1px solid #fff3; border-radius: 12px;
            padding: 10px 16px; max-width: calc(100% - 32px); box-sizing: border-box; transition: opacity .5s; opacity: 0; pointer-events: none; }
   dialog { background: #0b0b12ee; color: inherit; border: 1px solid #fff3; border-radius: 16px; width: min(600px, calc(100% - 32px)); max-height: 85vh; padding: 20px; box-sizing: border-box; }
@@ -37,36 +37,36 @@
 </style>
 </head>
 <body>
-<canvas id="c" aria-label="Paesaggio del mondo generato"></canvas>
+<canvas id="c" aria-label="Landscape of the generated world"></canvas>
 <div class="ui">
   <h1><span id="name">…</span><span id="rarity" class="badge"></span><small><span id="meta"></span> · <span id="pos"></span></small></h1>
-  <button id="walk" aria-pressed="false">🚶 Cammina</button>
-  <button id="sound" aria-pressed="false">▶ Suono</button>
-  <button id="fav">☆ Salva</button>
-  <button id="share">Condividi</button>
-  <button id="atlasBtn">Atlante</button>
-  <button id="mapBtn">Mappa</button>
-  <button id="day">Mondo del giorno</button>
-  <button id="gen">Genera mondo</button>
+  <button id="walk" aria-pressed="false">🚶 Walk</button>
+  <button id="sound" aria-pressed="false">▶ Sound</button>
+  <button id="fav">☆ Save</button>
+  <button id="share">Share</button>
+  <button id="atlasBtn">Atlas</button>
+  <button id="mapBtn">Map</button>
+  <button id="day">World of the day</button>
+  <button id="gen">New world</button>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
-<dialog id="map"><div class="row"><h2 id="mapTitle">Mappa</h2><button id="mapClose">Chiudi</button></div>
+<dialog id="map"><div class="row"><h2 id="mapTitle">Map</h2><button id="mapClose">Close</button></div>
   <p id="mapInfo"></p><div id="mapSvg"></div>
-  <div class="pan"><button data-d="-1,0" aria-label="Ovest">←</button><button data-d="0,-1" aria-label="Nord">↑</button>
-  <button data-d="0,1" aria-label="Sud">↓</button><button data-d="1,0" aria-label="Est">→</button><button id="mapHome">Qui</button></div></dialog>
-<dialog id="atlas"><div class="row"><h2>Atlante</h2><button id="close">Chiudi</button></div><div id="atlasBody"></div></dialog>
+  <div class="pan"><button data-d="-1,0" aria-label="West">←</button><button data-d="0,-1" aria-label="North">↑</button>
+  <button data-d="0,1" aria-label="South">↓</button><button data-d="1,0" aria-label="East">→</button><button id="mapHome">Here</button></div></dialog>
+<dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, REGIONI } from './world.js';
+import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, REGIONS } from './world.js';
 import { drawThing, drawCreature } from './draw.js';
 import { startAudio as startMusic } from './audio.js';
 import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
-const KEY = 'distant-worlds';
+const KEY = 'distant-worlds-v1';
 let st;
 try { st = { ...emptyState(), ...JSON.parse(localStorage.getItem(KEY)) }; } catch { st = emptyState(); }
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
-const LABEL = { era: 'epoca', civ: 'civiltà', flora: 'flora', fauna: 'fauna', style: 'stile', notte: 'notte', anelli: 'anelli', mare: 'mare', 'rarità': 'rarità' };
+const LABEL = { era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', rarity: 'rarity', relic: 'relics' };
 const days = () => { const d = new Date(); const y = new Date(d); y.setDate(d.getDate() - 1); return [isoDay(d), isoDay(y)]; };
 
 let toastTimer;
@@ -102,11 +102,11 @@ function load() {
   if (st.last !== seed) {
     st.last = seed;
     const news = visit(st, W), [today, yesterday] = days(), msg = [];
-    if (news.entries.length) msg.push('Nuova scoperta: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
-    if (checkMission(st, W, today, yesterday)) msg.push(`✓ Missione del giorno compiuta! Serie: ${st.daily.streak} giorni`);
-    for (const c of news.combos) msg.push('Nuova combinazione: ' + c.replace('@', ' · '));
-    for (const a of news.achievements) msg.push(`🏆 Traguardo: ${a}`);
-    if (W.rarity !== 'comune') msg.unshift(`Mondo ${W.rarity}!`);
+    if (news.entries.length) msg.push('New discovery: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
+    if (checkMission(st, W, today, yesterday)) msg.push(`✓ Daily mission complete! Streak: ${st.daily.streak} days`);
+    for (const c of news.combos) msg.push('New combination: ' + c.replace('@', ' · '));
+    for (const a of news.achievements) msg.push(`🏆 Achievement: ${a}`);
+    if (W.rarity !== 'common') msg.unshift(`${W.rarity[0].toUpperCase() + W.rarity.slice(1)} world!`);
     save(); toast(msg);
   }
   document.title = `${world.name} — Distant Worlds`;
@@ -174,7 +174,7 @@ function draw(t) {
       for (const th of ch.things) {
         drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
         const vis = X(th.x) > 0 && X(th.x) < w;
-        if (vis && th.relic) { relic(th.kind); seen += 6; } else if (vis && !th.kind.match(/foresta|conifere|cristalli|funghi/)) seen++;
+        if (vis && th.relic) { relic(th.kind); seen += 6; } else if (vis && !th.kind.match(/forest|conifers|crystals|mushrooms/)) seen++;
       }
       for (const cr of ch.creatures) {
         const [x, dir] = walkerAt(cr, t);
@@ -196,13 +196,13 @@ function draw(t) {
 function species(sp) {
   const res = findSpecies(st, sp, world);
   if (!res.isNew) return;
-  save(); toast([`Nuova specie: ${esc(sp.name)} (${sp.rarity})`, ...res.achievements.map((a) => `🏆 Traguardo: ${a}`)]);
+  save(); toast([`New species: ${esc(sp.name)} (${sp.rarity})`, ...res.achievements.map((a) => `🏆 Achievement: ${a}`)]);
 }
 
 function relic(kind) {
   const news = findRelic(st, kind);
   if (!news.entries.length) return;
-  save(); toast([`Reperto trovato: ${kind}!`, ...news.achievements.map((a) => `🏆 Traguardo: ${a}`)]);
+  save(); toast([`Relic found: ${kind}!`, ...news.achievements.map((a) => `🏆 Achievement: ${a}`)]);
 }
 
 // Travel: arrow keys / A-D, drag on the landscape, or the walk toggle.
@@ -215,30 +215,30 @@ cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; cv.setPointerCapt
 cv.addEventListener('pointermove', (e) => { if (dragX === null) return; cam -= (e.clientX - dragX) / innerWidth; dragX = e.clientX; });
 cv.addEventListener('pointerup', () => (dragX = null));
 const walkBtn = document.getElementById('walk');
-walkBtn.onclick = () => { walking = !walking; walkBtn.textContent = walking ? '■ Fermati' : '🚶 Cammina'; walkBtn.setAttribute('aria-pressed', walking); };
+walkBtn.onclick = () => { walking = !walking; walkBtn.textContent = walking ? '■ Stop' : '🚶 Walk'; walkBtn.setAttribute('aria-pressed', walking); };
 
 let audio = null;
 function startAudio() { audio = startMusic(world.music, () => interest); setBtn(true); }
 function stopAudio() { audio(); audio = null; setBtn(false); }
 const sb = document.getElementById('sound');
-function setBtn(on) { sb.textContent = on ? '■ Silenzio' : '▶ Suono'; sb.setAttribute('aria-pressed', on); }
+function setBtn(on) { sb.textContent = on ? '■ Mute' : '▶ Sound'; sb.setAttribute('aria-pressed', on); }
 
 sb.onclick = () => (audio ? stopAudio() : startAudio());
 document.getElementById('gen').onclick = () => { location.hash = randomSeed(); };
 document.getElementById('share').onclick = async (e) => {
   // Link to the exact spot the traveller is standing on.
   const url = location.href.split('#')[0] + '#' + encodeURIComponent(world.seed) + (Math.abs(cam) >= 0.05 ? '@' + cam.toFixed(1) : '');
-  try { await navigator.clipboard.writeText(url); e.target.textContent = 'Link copiato'; }
-  catch { prompt('Copia il link:', url); }
-  setTimeout(() => (e.target.textContent = 'Condividi'), 1500);
+  try { await navigator.clipboard.writeText(url); e.target.textContent = 'Link copied'; }
+  catch { prompt('Copy the link:', url); }
+  setTimeout(() => (e.target.textContent = 'Share'), 1500);
 };
 const favBtn = document.getElementById('fav');
-function updateFav() { favBtn.textContent = st.favs.some((f) => f.seed === world.seed) ? '★ Salvato' : '☆ Salva'; }
+function updateFav() { favBtn.textContent = st.favs.some((f) => f.seed === world.seed) ? '★ Saved' : '☆ Save'; }
 favBtn.onclick = () => {
   const i = st.favs.findIndex((f) => f.seed === world.seed);
   if (i >= 0) st.favs.splice(i, 1);
   else {
-    const name = prompt('Dai un nome a questo mondo:', world.name);
+    const name = prompt('Name this world:', world.name);
     if (name === null) return;
     st.favs.unshift({ seed: world.seed, name: name.trim() || world.name, rarity: world.rarity });
   }
@@ -249,8 +249,8 @@ document.getElementById('day').onclick = () => { location.hash = dailySeed(days(
 // Star map: 5x5 sectors around a centre; each star is a link to its world.
 const mapDlg = document.getElementById('map');
 let mapC = [0, 0];
-const REGION_COLOR = { 'Spazio profondo': 'transparent', 'Nebulosa aliena': '#3f6', 'Settore delle rovine': '#c96', 'Ammasso antico': '#fc6',
-  'Frontiera del futuro': '#6cf', 'Giardino stellare': '#9f6', 'Mari del cielo': '#69f' };
+const REGION_COLOR = { 'Deep Space': 'transparent', 'Alien Nebula': '#3f6', 'Ruins Sector': '#c96', 'Ancient Cluster': '#fc6',
+  'Future Frontier': '#6cf', 'Star Garden': '#9f6', 'Sky Seas': '#69f' };
 function renderMap() {
   const [cx, cy] = mapC, here = world.sector, svg = [];
   for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
@@ -258,16 +258,16 @@ function renderMap() {
     svg.push(`<rect x="${cx + dx}" y="${cy + dy}" width="1" height="1" fill="${REGION_COLOR[rn]}" opacity=".12"><title>${rn}</title></rect>`);
     for (const s of starsIn(sx, sy)) {
       const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
-      const rad = 0.05 + ['comune', 'raro', 'epico', 'leggendario'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
+      const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
       svg.push(`<a href="#${s.seed}" aria-label="${esc(w.name)}, ${w.rarity}"><title>${esc(w.name)} · ${w.rarity} · ${w.era} · ${w.civ}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
     }
   }
-  document.getElementById('mapSvg').innerHTML = `<svg viewBox="${cx - 2} ${cy - 2} 5 5" role="img" aria-label="Mappa stellare">${svg.join('')}</svg>`;
-  document.getElementById('mapTitle').textContent = `Mappa · ${regionAt(wrapS(cx), wrapS(cy))[0]}`;
-  document.getElementById('mapInfo').innerHTML = (here ? `Sei nel settore ${here.join(', ')}.` : 'Questo mondo è fuori mappa (seed personalizzato).')
-    + ` Centro ${wrapS(cx)}, ${wrapS(cy)} · stelle visitate cerchiate · più grande = più raro.`;
+  document.getElementById('mapSvg').innerHTML = `<svg viewBox="${cx - 2} ${cy - 2} 5 5" role="img" aria-label="Star map">${svg.join('')}</svg>`;
+  document.getElementById('mapTitle').textContent = `Map · ${regionAt(wrapS(cx), wrapS(cy))[0]}`;
+  document.getElementById('mapInfo').innerHTML = (here ? `You are in sector ${here.join(', ')}.` : 'This world is off the map (custom seed).')
+    + ` Centre ${wrapS(cx)}, ${wrapS(cy)} · visited stars are circled · bigger = rarer.`;
   mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', () => mapDlg.close()));
 }
 document.getElementById('mapBtn').onclick = () => { mapC = world.sector ? [...world.sector] : [0, 0]; renderMap(); mapDlg.showModal(); };
@@ -281,31 +281,31 @@ document.getElementById('atlasBtn').onclick = () => {
   const [today] = days(), m = mission(today), done = st.daily.done === today;
   const groups = Object.groupBy(ENTRIES, (e) => e.split(':')[0]);
   document.getElementById('atlasBody').innerHTML = `
-    <p>Scoperte ${st.seen.filter((e) => ENTRIES.includes(e)).length + st.combos.length}/${ENTRIES.length + COMBOS.length} · Mondi esplorati ${st.count}</p>
+    <p>Discoveries ${st.seen.filter((e) => ENTRIES.includes(e)).length + st.combos.length}/${ENTRIES.length + COMBOS.length} · Worlds explored ${st.count}</p>
     ${Object.entries(groups).map(([k, es]) => `<div>${LABEL[k]}</div><div class="chips">${es.map((e) => {
-      const ok = st.seen.includes(e), v = e.split(':')[1] === 'true' ? 'sì' : e.split(':')[1];
-      return `<span class="chip ${ok ? (k === 'rarità' ? v : '') : 'no'}">${ok ? esc(v) : '???'}</span>`; }).join('')}</div>`).join('')}
-    <h3>Civiltà nel tempo <small>${st.combos.length}/${COMBOS.length}</small></h3>
+      const ok = st.seen.includes(e), v = e.split(':')[1] === 'true' ? 'yes' : e.split(':')[1];
+      return `<span class="chip ${ok ? (k === 'rarity' ? v : '') : 'no'}">${ok ? esc(v) : '???'}</span>`; }).join('')}</div>`).join('')}
+    <h3>Civilizations through time <small>${st.combos.length}/${COMBOS.length}</small></h3>
     ${Object.entries(Object.groupBy(COMBOS, (c) => c.split('@')[0])).map(([civ, cs]) => `<div>${civ}</div><div class="chips">${cs.map((c) =>
       `<span class="chip ${st.combos.includes(c) ? '' : 'no'}">${st.combos.includes(c) ? esc(c.split('@')[1]) : '???'}</span>`).join('')}</div>`).join('')}
-    <h3>Missione del giorno</h3>
-    <p>${done ? '✓' : '○'} Trova un mondo con ${m.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' e ')}.
-      <br><small>Serie attuale ${st.daily.streak} · migliore ${st.daily.best}${matches(world, m) && done ? ' · questo mondo la soddisfa' : ''}</small></p>
-    <h3>Traguardi</h3>
+    <h3>Daily mission</h3>
+    <p>${done ? '✓' : '○'} Find a world with ${m.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}.
+      <br><small>Current streak ${st.daily.streak} · best ${st.daily.best}${matches(world, m) && done ? ' · this world fits' : ''}</small></p>
+    <h3>Achievements</h3>
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
-    <h3>Bestiario <small>${st.species.length} specie</small></h3>
+    <h3>Bestiary <small>${st.species.length} species</small></h3>
     ${st.species.length ? `<ul>${st.species.slice(0, 60).map((sp) => `<li><canvas class="portrait" width="72" height="48" data-id="${esc(sp.id)}" aria-hidden="true"></canvas>
-      <b>${esc(sp.name)}</b> <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">da <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
-      : '<p><small>Nessuna specie ancora. Cammina nei mondi con branchi o giganti.</small></p>'}
-    <h3>Diario di bordo</h3>
+      <b>${esc(sp.name)}</b> <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
+      : '<p><small>No species yet. Walk through worlds with herds or giants.</small></p>'}
+    <h3>Logbook</h3>
     ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
-      <span class="badge ${f.rarity}">${f.rarity}</span><button class="x" data-i="${i}" aria-label="Rimuovi ${esc(f.name)}">✕</button></li>`).join('')}</ul>`
-      : '<p><small>Nessun mondo salvato. Usa ☆ Salva.</small></p>'}`;
+      <span class="badge ${f.rarity}">${f.rarity}</span><button class="x" data-i="${i}" aria-label="Remove ${esc(f.name)}">✕</button></li>`).join('')}</ul>`
+      : '<p><small>No saved worlds. Use ☆ Save.</small></p>'}`;
   dlg.querySelectorAll('.x').forEach((b) => (b.onclick = () => { st.favs.splice(+b.dataset.i, 1); save(); updateFav(); dlg.close(); document.getElementById('atlasBtn').click(); }));
   dlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => dlg.close()));
   for (const cv2 of dlg.querySelectorAll('.portrait')) {
     const [seed, k] = cv2.dataset.id.split('#'), dna = makeWorld(seed).species[k];
-    if (dna) drawCreature(cv2.getContext('2d'), { kind: 'specie', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classico', lights: false, t: 0 });
+    if (dna) drawCreature(cv2.getContext('2d'), { kind: 'species', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classic', lights: false, t: 0 });
   }
   dlg.showModal();
 };

@@ -30,17 +30,17 @@ export function startAudio(M, getInterest) {
   };
 
   const INSTR = {
-    campana(f, t) { // FM bell
+    bell(f, t) { // FM bell
       const e = amp(t, 0.12, 0.005, 2.5), m = ac.createGain(), car = osc('sine', f, t, t + 3, e);
       m.gain.setValueAtTime(f * 3, t); m.gain.exponentialRampToValueAtTime(1, t + 1.5);
       osc('sine', f * 3.5, t, t + 3, m).connect(m); m.connect(car.frequency); e.connect(echo);
     },
-    vetro(f, t) { // glassy FM, near-harmonic ratio + octave shimmer
+    glass(f, t) { // glassy FM, near-harmonic ratio + octave shimmer
       const e = amp(t, 0.08, 0.01, 1.8), m = ac.createGain(), car = osc('triangle', f * 2, t, t + 2.5, e);
       m.gain.setValueAtTime(f * 1.5, t); m.gain.exponentialRampToValueAtTime(1, t + 1);
       osc('sine', f * 2.01, t, t + 2.5, m).connect(m); m.connect(car.frequency); e.connect(echo);
     },
-    pizzico(f, t) { // plucked: sawtooth through a closing low-pass
+    pluck(f, t) { // plucked: sawtooth through a closing low-pass
       const e = amp(t, 0.12, 0.003, 0.7), lp = ac.createBiquadFilter();
       lp.frequency.setValueAtTime(f * 10, t); lp.frequency.exponentialRampToValueAtTime(f * 1.2, t + 0.25); lp.connect(e);
       osc('sawtooth', f, t, t + 1, lp); e.connect(echo);
@@ -49,7 +49,7 @@ export function startAudio(M, getInterest) {
       const e = amp(t, 0.16, 0.002, 0.6), e2 = amp(t, 0.05, 0.002, 0.12);
       osc('sine', f, t, t + 0.8, e); osc('sine', f * 4, t, t + 0.3, e2);
     },
-    flauto(f, t, dur) { // breathy: triangle + vibrato + band-passed noise
+    flute(f, t, dur) { // breathy: triangle + vibrato + band-passed noise
       const e = amp(t, 0.1, 0.08, dur), o = osc('triangle', f, t, t + dur + 0.2, e);
       const vib = ac.createGain(); vib.gain.setValueAtTime(0, t); vib.gain.linearRampToValueAtTime(f * 0.006, t + 0.4);
       osc('sine', 5, t, t + dur + 0.2, vib); vib.connect(o.frequency);
@@ -65,16 +65,16 @@ export function startAudio(M, getInterest) {
 
   // Drone underneath everything.
   const drone = [];
-  if (M.drone === 'organo') for (const [s, d] of [[0, -4], [7, 4], [12, 0]]) {
+  if (M.drone === 'organ') for (const [s, d] of [[0, -4], [7, 4], [12, 0]]) {
     const g = ac.createGain(); g.gain.value = 0.09; g.connect(bus); drone.push(osc('sine', hz(M.root + s), t0, 0, g)); drone.at(-1).detune.value = d;
   }
-  if (M.drone === 'vento') {
+  if (M.drone === 'wind') {
     const n = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(), lfo = ac.createGain();
     n.buffer = noise; n.loop = true; bp.type = 'bandpass'; bp.Q.value = 1.5; bp.frequency.value = 600; g.gain.value = 0.12;
     lfo.gain.value = 350; drone.push(osc('sine', 0.05, t0, 0, lfo)); lfo.connect(bp.frequency);
     n.connect(bp); bp.connect(g); g.connect(bus); n.start(t0); drone.push(n);
   }
-  if (M.drone === 'coro') { // sawtooth through two vowel formants
+  if (M.drone === 'choir') { // sawtooth through two vowel formants
     const g = ac.createGain(); g.gain.value = 0.05; g.connect(bus);
     for (const fq of [700, 1150]) {
       const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = 6; bp.connect(g);

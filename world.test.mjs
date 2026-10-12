@@ -37,8 +37,8 @@ for (const st of starsIn(12, 34)) assert.deepEqual(sectorOf(st.seed), [12, 34]);
 for (let i = 0; i < 200; i++) { const s = randomSeed(); const [x, y] = sectorOf(s); assert.ok(x >= 0 && x < GALAXY && y >= 0 && y < GALAXY && starsIn(x, y).some((st) => st.seed === s)); }
 assert.equal(sectorOf('v1-abc'), null);
 let alien = null;
-for (let x = 0; !alien; x += 4) if (regionAt(x, 0)[0] === 'Nebulosa aliena') alien = x;
-const aliens = starsIn(alien, 0).concat(starsIn(alien + 1, 0), starsIn(alien, 1)).filter((st) => makeWorld(st.seed).civ === 'alieni').length;
+for (let x = 0; !alien; x += 4) if (regionAt(x, 0)[0] === 'Alien Nebula') alien = x;
+const aliens = starsIn(alien, 0).concat(starsIn(alien + 1, 0), starsIn(alien, 1)).filter((st) => makeWorld(st.seed).civ === 'aliens').length;
 assert.ok(aliens >= 5, `alien nebula should be full of aliens, got ${aliens}`);
 // Species: deterministic, valid parts.
 assert.deepEqual(makeSpecies('w', 0, false), makeSpecies('w', 0, false));
