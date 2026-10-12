@@ -232,6 +232,13 @@ function draw(t) {
       const bx = X(beacon.x), by = Y(beacon.x);
       drawThing(g, { kind: 'beacon', seed: 7, size: 0.1 }, bx, by, 0.1 * m, { ...o, accent: `hsl(${beacon.hue} 90% 60%)` });
       hit({ type: 'beacon', label: beacon.label }, bx, by, 0.1 * m);
+      // the colonist's people wander (some hop) around the flag, in the colonist's colour
+      const po = { ...co, color: `hsl(${beacon.hue} 45% ${W.night ? 30 : 35}%)`, accent: `hsl(${beacon.hue} 90% 65%)`, lights: true };
+      for (const cr of beacon.people) {
+        const [x, dir] = walkerAt(cr, t), s = cr.size * m, hop = cr.hop ? Math.abs(Math.sin(t / 260 + cr.phase * 3)) * s * 0.35 : 0;
+        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05 - hop, s, po);
+        hit({ type: 'colonist', label: beacon.label, ...cr }, X(x), Y(x) + s * 0.05 - hop, s);
+      }
       g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
       g.fillText(`🚩 ${beacon.label}`, bx, by - 0.24 * m); g.restore();
     }
@@ -428,7 +435,7 @@ document.getElementById('atlasBtn').onclick = () => {
   dlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => dlg.close()));
   fn?.bindAtlas(dlg);
 
-  for (const cv2 of dlg.querySelectorAll('.portrait')) {
+  for (const cv2 of dlg.querySelectorAll('.portrait[data-id]')) {
     const [seed, k] = cv2.dataset.id.split('#'), dna = makeWorld(seed).species[k];
     if (dna) drawCreature(cv2.getContext('2d'), { kind: 'species', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classic', lights: false, t: 0 });
   }

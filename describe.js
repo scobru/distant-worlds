@@ -9,12 +9,14 @@ const RELIC = {
   portal: 'Glows with the light of another world.', monolith: 'Nobody knows who placed it here.', skeleton: 'The bones of something enormous.',
 };
 const FLYER = { flock: ['Flock of birds', 'They never land.'], jellyfish: ['Sky jellyfish', 'Drifts on warm currents.'], whale: ['Flying whale', 'Sings below the clouds.'] };
+const parts = (d) => [`${d.legs} legs`, d.neck === 'none' ? 'no neck' : `${d.neck} neck`, `${d.head} head`, d.extra === 'none' ? '' : d.extra, d.tail === 'none' ? 'no tail' : `${d.tail} tail`, d.pattern].filter(Boolean).join(' · ');
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
 /** `e`: { type: 'thing' | 'walker' | 'flyer' | 'beacon', ...the drawn entity }; `w`: the world;
  *  `known`: { relic(kind), species(id) } — whether the explorer already has it in the atlas. */
 export function describe(e, w, known) {
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };
+  if (e.type === 'colonist') return { title: `${e.label}'s people`, lines: [`${e.dna.name}: settlers who follow ${e.label} from planet to planet.`, parts(e.dna)] };
   if (e.type === 'flyer') { const [t, l] = FLYER[e.kind] ?? [cap(e.kind), '']; return { title: t, lines: [l] }; }
   if (e.type === 'walker') {
     if (e.kind === 'human') return { title: 'Inhabitant', lines: [`Human of the ${w.era} era.`] };
@@ -23,7 +25,7 @@ export function describe(e, w, known) {
     return {
       title: d.name, rarity: d.rarity,
       lines: [
-        [`${d.legs} legs`, d.neck === 'none' ? 'no neck' : `${d.neck} neck`, `${d.head} head`, d.extra === 'none' ? '' : d.extra, d.tail === 'none' ? 'no tail' : `${d.tail} tail`, d.pattern].filter(Boolean).join(' · '),
+        parts(d),
         known.species(d.id) ? '✓ In your bestiary' : 'New species',
       ],
     };
@@ -43,7 +45,7 @@ export function boxOf(e, x, y, s) {
     if (e.kind === 'whale') return [x - 1.4 * s, y - 0.4 * s, x + 1.4 * s, y + 0.4 * s];
     return [x - 0.6 * s, y - 0.5 * s, x + 0.6 * s, y + 1.3 * s];
   }
-  if (e.type === 'walker') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
+  if (e.type === 'walker' || e.type === 'colonist') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
   if (e.type === 'beacon') return [x - 0.2 * s, y - 2.3 * s, x + 1 * s, y];
   if (e.kind === 'arch') return [x - 3 * s, y - 3 * s, x + 3 * s, y];
   if (e.kind === 'block' || e.kind === 'tower') return [x - 0.5 * s, y - 2.8 * s, x + 0.5 * s, y];

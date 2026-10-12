@@ -316,3 +316,15 @@ export function makeSpecies(worldSeed, k, giant) {
     bits,
   };
 }
+
+// A colonist's people: one species per explorer (random from their key, the same on every colony),
+// living around their flag. How many, where and how they move is random per planet; more time
+// invested on the planet means more of them (2 to 8).
+export function colonists(persona, seed, flagX, minutes) {
+  const r = rngFrom(`colony:${seed}:${persona}`), dna = makeSpecies(`people:${persona}`, 0, false);
+  const n = Math.min(8, 2 + Math.floor(Math.log2(1 + minutes / 3)));
+  return Array.from({ length: n }, () => ({
+    kind: 'species', dna, x: flagX - 0.3 + r() * 0.35, range: 0.1 + r() * 0.3, speed: (2 + r() * 5) * 1e-6,
+    size: 0.028 + r() * 0.018, phase: r() * 2, seed: Math.floor(r() * 2 ** 32), hop: r() < 0.35,
+  }));
+}

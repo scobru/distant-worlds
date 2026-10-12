@@ -44,3 +44,15 @@ assert.ok(aliens >= 5, `alien nebula should be full of aliens, got ${aliens}`);
 assert.deepEqual(makeSpecies('w', 0, false), makeSpecies('w', 0, false));
 for (let i = 0; i < 500; i++) { const sp = makeSpecies('w' + i, 0, i % 2); assert.ok([2, 4, 6].includes(sp.legs) && sp.name && sp.rarity); }
 console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics,', walkers, 'walkers');
+
+// Colonists: the same species for one explorer everywhere, different explorers differ, more time = more.
+{
+  const { colonists } = await import('./world.js');
+  const a = colonists('aa'.repeat(32), 'v1-1_1_1', 5, 4), b = colonists('aa'.repeat(32), 'v1-2_2_2', 5, 600);
+  assert.deepEqual(a[0].dna, b[0].dna, 'one people per explorer');
+  assert.notDeepEqual(colonists('bb'.repeat(32), 'v1-1_1_1', 5, 4)[0].dna, a[0].dna);
+  assert.deepEqual(a, colonists('aa'.repeat(32), 'v1-1_1_1', 5, 4));
+  assert.ok(a.length >= 2 && b.length > a.length && b.length <= 8);
+  for (const c of b) { const [x] = walkerAt(c, 1e6); assert.ok(x >= c.x && x <= c.x + c.range); }
+  console.log('colonists ok:', a[0].dna.name, a.length, '→', b.length);
+}

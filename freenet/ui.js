@@ -2,7 +2,8 @@
 // leaderboard and progress kept in the node. index.html calls the returned hooks; it never imports
 // this file unless a node serves the page.
 import * as net from './net.js';
-import { makeWorld } from '../world.js';
+import { makeWorld, colonists, makeSpecies } from '../world.js';
+import { drawCreature } from '../draw.js';
 import { textOk, CHAT_BITS } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText } from './colony.js';
@@ -30,6 +31,7 @@ export async function start(app) {
   const rate = q.has('node') && q.get('rate') ? Number(q.get('rate')) : HASHES_PER_SECOND;
 
   const colonyOf = (seed) => galaxy.colonies?.[seed];
+  let peopleCache = {};
   const colScore = (seed, c) => score(seed, c.persona, c.nonces);
   const signBtn = document.getElementById('signBtn'), plantBtn = document.getElementById('plantBtn');
 
@@ -251,17 +253,28 @@ export async function start(app) {
       return s;
     },
     /** Beacon of the planet's colony: position in layer coordinates, colour, label. */
-    beacon: (w) => { const c = colonyOf(w.seed); return c && { x: c.x / 100, hue: hueOf(c.persona), label: c.nick }; },
+    /** The planet's colony as drawn: flag position, colour, label and the colonist's people around it. */
+    beacon(w) {
+      const c = colonyOf(w.seed);
+      if (!c) return null;
+      const key = `${w.seed}|${c.persona}|${c.x}|${c.nonces}`;
+      if (peopleCache.key !== key) peopleCache = { key, people: colonists(c.persona, w.seed, c.x / 100, seconds(colScore(w.seed, c)) / 60) };
+      return { x: c.x / 100, hue: hueOf(c.persona), label: c.nick, people: peopleCache.people };
+    },
     colonyOf,
     atlasHtml() {
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);
       const av = (p) => { const u = avatar(p, () => {}); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
       return `<h3>Explorer</h3><p>${me ? `${av(me)}${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}… · Viso level ${level()} (colonies need ${COLONY_BITS}, chat ${CHAT_BITS})</small> <button id="signOutBtn">Sign out</button> <button id="backupBtn" hidden>Back up key</button>` : 'Not signed in: sign in to colonize planets and chat.'}</p>
+        ${me ? `<p><canvas id="peoplePortrait" class="portrait" width="72" height="48" aria-hidden="true"></canvas>Your people: <b>${app.esc(makeSpecies(`people:${me}`, 0, false).name)}</b> <small style="display:inline">they settle around every flag you plant</small></p>` : ''}
         <h3>Your colonies <small>${mine.length}</small></h3>
         ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${app.esc(makeWorld(seed).name)}</a> <small style="display:inline">${fmt(seconds(colScore(seed, c)))}</small></li>`).join('')}</ul>` : '<p><small>Stay on a planet for a few minutes to colonize it.</small></p>'}
         ${q.has('admin') ? '<button id="blockBtn">Admin: block stars or personas</button>' : ''}`;
     },
     bindAtlas(dlg) {
+      const pc = dlg.querySelector('#peoplePortrait');
+      if (pc && me) drawCreature(pc.getContext('2d'), { kind: 'species', dna: makeSpecies(`people:${me}`, 0, false), speed: 1, seed: 1 }, 36, 44, 38,
+        { color: `hsl(${hueOf(me)} 45% 45%)`, accent: `hsl(${hueOf(me)} 90% 70%)`, style: 'classic', lights: false, t: 0 });
       const bk = dlg.querySelector('#backupBtn');
       net.localKey(me ?? '').then((k) => { if (bk && k) { bk.hidden = false; bk.onclick = () => prompt('Your explorer key. Keep it somewhere safe: whoever has it plays as you, and without it you cannot get this explorer back.', k); } });
       const so = dlg.querySelector('#signOutBtn');
