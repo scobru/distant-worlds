@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 whoiam-delegation = { git = "https://github.com/scobru/freenames", rev = "d6dc35f8d0d85c0d95430c5da3c3eeb8e9ee9120" } # the colonist is a whoiam/viso persona
+viso-ante = { git = "https://github.com/scobru/viso", rev = "0e8605374b05628ab0e788844f8e8493a9f566bf" } # the persona level (ante slot)
 freenet-stdlib = { version = "0.8", features = ["contract"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

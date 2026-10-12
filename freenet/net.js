@@ -16,7 +16,8 @@ import {
 } from '@freenetorg/freenet-stdlib/client-request';
 import galaxyWasm from './galaxy.wasm?url';
 import chatWasm from './chat.wasm?url';
-import { chatMsg, mineMessage } from './chat.js';
+import { chatMsg } from './chat.js';
+import { identityInstance, IDENTITY_CODE_HASH, readPersona } from './viso.js';
 import identityWasm from './identity.wasm?url';
 import { msg as colonyMsg } from './colony.js';
 import { connectMessage } from './connect.js';
@@ -101,21 +102,34 @@ export const loadGalaxy = () => galaxy.load();
 export const loadChat = () => chat.load();
 const send = (d) => galaxy.send(d);
 
-/** Post a chat message (optionally sharing a world), signed for the signed-in persona. */
-export async function postMessage(text, world, nick) {
+/** Post a chat message (optionally sharing a world), signed for the signed-in persona. `ante` is the
+ *  persona's Viso level proof (hex), which the chat contract requires instead of a per-message proof. */
+export async function postMessage(text, world, nick, ante) {
   const s = await session();
   if (!s) throw new Error('Sign in first.');
-  const m = await mineMessage({ persona: s.persona, nick, text, world, ts: Date.now(), nonce: 0, sig: '', cert: s.cert });
+  const m = { persona: s.persona, nick, text, world, ts: Date.now(), ante, sig: '', cert: s.cert };
   m.sig = await s.sign(chatMsg(m));
   await chat.send({ messages: [m] });
   return m;
 }
 
+// ---------------------------------------------------------------- Viso personas (read only)
+const personas = new Map();
+/** A persona's profile, avatar and level from its Viso contract; null if this node cannot find it. */
+export function loadPersona(pkHex) {
+  if (!personas.has(pkHex)) personas.set(pkHex, serial(async () => {
+    const k = new ContractKey(identityInstance(unhex(pkHex)), unhex(IDENTITY_CODE_HASH));
+    const r = await within((await api()).get(new GetRequest(k, false, false)), 8000);
+    return readPersona(pkHex, new Uint8Array(r.state));
+  }).catch((e) => { console.warn('viso persona unavailable:', e); personas.delete(pkHex); return null; }));
+  return personas.get(pkHex);
+}
+
 /** Publish (or update) our colony on `seed`: the miner's nonces, signed for the signed-in persona. */
-export async function publishColony(seed, { name, nick, x, nonces }) {
+export async function publishColony(seed, { name, nick, x, nonces, ante }) {
   const s = await session();
   if (!s) throw new Error('Sign in first.');
-  const c = { persona: s.persona, name, nick, x: Math.round(x * 100), ts: Date.now(), nonces, sig: '', cert: s.cert };
+  const c = { persona: s.persona, name, nick, x: Math.round(x * 100), ts: Date.now(), nonces, ante, sig: '', cert: s.cert };
   c.sig = await s.sign(colonyMsg(seed, c));
   await send({ colonies: { [seed]: c } });
   return c;
@@ -237,9 +251,10 @@ export async function finishSignIn(q) {
   return persona;
 }
 
-/** Without Viso: a new persona key made here signs the same proof Viso would. */
-export async function createLocalIdentity() {
-  const sk = ed.utils.randomPrivateKey(), persona = hex(ed.getPublicKey(sk));
+/** Dev and tests only: sign in as the persona of this secret key (hex), making the proof Viso would.
+ *  Colonies and chat still need the persona's Viso contract with an `ante` level. */
+export async function createLocalIdentity(secretHex) {
+  const sk = secretHex ? unhex(secretHex) : ed.utils.randomPrivateKey(), persona = hex(ed.getPublicKey(sk));
   const cert = { base: linkBase(), challenge: `wd1.${await appKey()}.${hex(crypto.getRandomValues(new Uint8Array(16)))}`, ts: Date.now(), sig: '' };
   cert.sig = hex(ed.sign(connectMessage(unhex(persona), cert.base, cert.challenge, cert.ts), sk));
   await storePut('session', JSON.stringify({ persona, cert }));

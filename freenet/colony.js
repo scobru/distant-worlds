@@ -3,6 +3,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
 
 export const LANES = 8;
 export const MAX_SCORE = 1n << 50n;
+/** Viso persona level needed to hold a colony (contract/src/lib.rs MIN_ANTE_BITS). */
+export const COLONY_BITS = 20;
 // The miner is throttled to this rate so that work measures time on the planet, not CPU speed.
 // shortcut: an honest cap only; a modified client can mine faster. A trusted clock would be needed to stop that.
 export const HASHES_PER_SECOND = 5000;

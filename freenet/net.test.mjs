@@ -30,10 +30,29 @@ assert.equal(hex(ed.sign(connectMessage(ed.getPublicKey(gsk), 'https://example.c
   '122b675bdbc8772f52631524ac2b500dec76721bff7c0b299025df04e18e8e8ddf2b8d0a232a5785e68d5738be4f5111ae7b58106f5458b966b9b365fff5ac09');
 assert.equal(personaName('2a76f1666f3aac4f859a1f35300050b69275202d3b880d9f165083c92818b0b5'), '3rmKPdMLRKZPKpEc2UThti8k4EdxzsAH3j7eWx8GhqYY');
 
-// Chat: same proof-of-work vector as chat/src/lib.rs (pow_matches_ui); mining reaches the difficulty.
-const { chatPow, mineMessage, textOk, POW_BITS: CHAT_BITS } = await import('./chat.js');
-assert.equal(hex(chatPow({ persona: 'ab'.repeat(32), nick: 'eve', text: 'hi', world: 'v1-1_2_3@4.5', ts: 7, nonce: 42 })), '88c8eb07c01c6d3f95dc267e1134dd5b2ffd45820bc6ea64ec0f9bb2cfffb428');
-const cm = await mineMessage({ persona: 'ab'.repeat(32), nick: 'eve', text: 'hello', world: '', ts: 1 });
-assert.ok(chatPow(cm)[0] === 0 && chatPow(cm)[1] === 0, `${CHAT_BITS} zero bits`);
+// Chat: message text rules.
+const { textOk } = await import('./chat.js');
 assert.ok(textOk('hi\nthere') && !textOk('') && !textOk('x'.repeat(281)) && !textOk('bell\u0007'));
 console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
+
+// Viso: vectors made with viso-core / viso-ante (freenet/viso.vector.json, see the README).
+{
+  const fs = await import('node:fs');
+  const v = JSON.parse(fs.readFileSync(new URL('./viso.vector.json', import.meta.url)));
+  const { identityParams, identityInstance, readPersona, anteBits, slotOk, cborDecode } = await import('./viso.js');
+  const pk = Buffer.from(v.pk, 'hex');
+  assert.equal(hex(identityParams(pk)), v.params);
+  // the contract id freenet-stdlib derives from viso's wasm and these params
+  const { personaName } = await import('./connect.js');
+  assert.equal(personaName(hex(identityInstance(pk))), v.instance);
+  const p = readPersona(v.pk, Buffer.from(v.state, 'hex'));
+  assert.equal(p.name, 'Vega'); assert.equal(p.bio, 'explorer');
+  assert.equal(p.avatar.length, 11);
+  assert.equal(p.bits, v.bits);
+  assert.equal(anteBits(pk, Buffer.from(v.ante, 'hex')), v.bits);
+  // a tampered slot is dropped
+  const st = cborDecode(Buffer.from(v.state, 'hex'));
+  assert.ok(slotOk(pk, 'profile', st.slots.profile) && !slotOk(pk, 'avatar', st.slots.profile));
+  assert.equal(anteBits(Buffer.alloc(32, 1), Buffer.from(v.ante, 'hex')), 0, 'another persona\'s proof counts for nothing');
+  console.log('viso ok, level', p.bits, 'bits');
+}

@@ -8,7 +8,9 @@
 //! lowest score: spend more time than the colonist and the planet is yours. Lanes are bound to the
 //! seed and the persona, so work cannot be moved to another planet or player.
 //! The colonist (a whoiam/viso persona) signs the colony with a delegated app key; the colonist
-//! names the planet and plants a beacon at `x`. Admin-signed blocklist hides stars or personas.
+//! names the planet and plants a beacon at `x`. A colonist must also show a Viso persona level: the
+//! persona's own `ante` slot (a self-signed proof of work, see viso-ante), at least MIN_ANTE_BITS.
+//! Admin-signed blocklist hides stars or personas.
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,6 +18,8 @@ use std::collections::BTreeMap;
 use whoiam_delegation::{check, key, verify, Cert};
 
 pub const LANES: usize = 8;
+/// Viso persona level needed to hold a colony (each persona costs about 2^20 hashes to make).
+pub const MIN_ANTE_BITS: u32 = 20;
 /// Minimum work for a colony. Work ≈ LANES² / (score / 2^64); 2^21 hashes give a mean score of 2^49,
 /// so this bound (twice that) lets about 2^21 hashes (a few minutes on a planet) through almost always.
 pub const MAX_SCORE: u128 = 1 << 50;
@@ -30,7 +34,8 @@ pub struct Colony {
     pub x: i64,          // beacon position in hundredths of a screen
     pub ts: u64,         // self-declared (ms); only orders a colonist's own updates
     pub nonces: Vec<u64>,
-    pub sig: String, // hex, by the delegated app key over `msg()`
+    pub ante: String, // hex: the persona's Viso `ante` slot content
+    pub sig: String,  // hex, by the delegated app key over `msg()`
     pub cert: Cert,
 }
 
@@ -114,6 +119,10 @@ pub fn check_colony(app: &str, seed: &str, c: &Colony) -> R<()> {
     }
     if score(seed, c) > MAX_SCORE {
         return Err("not enough time spent on this planet".into());
+    }
+    let ante = hex::decode(&c.ante).map_err(|e| e.to_string())?;
+    if viso_ante::verify_slot(&key(&c.persona)?, &ante)? < MIN_ANTE_BITS {
+        return Err("persona level too low".into());
     }
     let app_key = check(&c.persona, app, &c.cert)?;
     verify(&app_key, msg(seed, c).as_bytes(), &c.sig)
@@ -293,9 +302,14 @@ mod tests {
         let (base, challenge) = (format!("http://127.0.0.1:7509{APP}"), format!("wd1.{}.n1", pk(&app_key)));
         let csig = persona.sign(&connect_message(persona.verifying_key().as_bytes(), &base, &challenge, 1));
         let cert = Cert { base, challenge, ts: 1, sig: hex::encode(csig.to_bytes()) };
-        let mut c = Colony { persona: p, name: name.into(), nick: "nick".into(), x: 150, ts, nonces, sig: String::new(), cert };
+        let mut c = Colony { persona: p, name: name.into(), nick: "nick".into(), x: 150, ts, nonces, ante: ante(persona, MIN_ANTE_BITS), sig: String::new(), cert };
         c.sig = hex::encode(app_key.sign(msg(seed, &c).as_bytes()).to_bytes());
         c
+    }
+    /// The persona's Viso level proof, at least `bits`.
+    fn ante(k: &SigningKey, bits: u32) -> String {
+        let n = viso_ante::grind_step(&k.verifying_key(), 0, u64::MAX, bits).unwrap();
+        hex::encode(viso_ante::make_slot(k, n, 1))
     }
     fn one(seed: &str, c: Colony) -> Delta {
         Delta { colonies: [(seed.into(), c)].into(), blocked: None }
@@ -358,6 +372,13 @@ mod tests {
         assert!(check_colony(APP, seed, &forged).is_err());
         // a delegation made for another app
         assert!(check_colony("/v1/contract/web/Other/", seed, &good).is_err());
+        // persona level: too low, or another persona's proof
+        let mut weak = good.clone();
+        weak.ante = hex::encode(viso_ante::make_slot(&sk(2), 0, 1)); // nonce 0: almost surely < 20 bits
+        assert!(check_colony(APP, seed, &weak).is_err());
+        let mut borrowed = good.clone();
+        borrowed.ante = ante(&sk(5), MIN_ANTE_BITS);
+        assert!(check_colony(APP, seed, &borrowed).is_err());
 
         apply(&admin, APP, &mut s, one(seed, good.clone())).unwrap();
         let block = |k: &SigningKey, list: Vec<String>| {

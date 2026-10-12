@@ -22,18 +22,20 @@ Local: `python3 -m http.server` and open http://localhost:8000.
 
 The same app can be published on [Freenet](https://freenet.org). There it becomes multiplayer:
 
-- **Sign in with Viso**: your [Viso](https://github.com/scobru/viso) persona delegates a key kept by your node (as in FreeNames), and every colony is signed for that persona. Without Viso, you can create a local explorer key. Your progress (atlas, fuel, logbook) is also kept in the node, since the page runs in a sandbox that may have no `localStorage`.
+- **Sign in with Viso**: your [Viso](https://github.com/scobru/viso) persona delegates a key kept by your node (as in FreeNames), and every colony and message is signed for that persona. Your **name and avatar come from your Viso profile** and show on your flag, in the chat and on the leaderboard. Your progress (atlas, fuel, logbook) is also kept in the node, since the page runs in a sandbox that may have no `localStorage`.
+- **Viso level**: colonizing needs a persona level (`ante`) of at least **20 bits**, chatting at least **16**. The level is the persona's own proof of work, made once in Viso; colonies and messages carry it and the contracts verify it, so throwaway personas cost something. Raise it in Viso if it is too low.
 - **Colonies**: one colonist per planet. Stay on a planet and your browser measures the time as proof of work, mined in the background at a fixed honest rate (5000 hashes/s). After a few minutes the planet is yours: your flag stands where you were, you name the planet, and everyone sees it in the world and on the map (gold ring). **Spend more time there than its colonist and the planet becomes yours**; they can come back and take it again.
 - **Leaderboard**: explorers ranked by colonies held and time invested, read straight from the contract.
-- **Galaxy chat**: a hideable side panel (💬 Chat, with an unread count). Messages are signed for your persona and carry a small proof of work against spam. **🌍 Share world** posts the world you are on as a card (name, rarity, era, colonist) that takes whoever clicks it to the same spot, for free.
+- **Galaxy chat**: a hideable side panel (💬 Chat, with an unread count). Messages are signed for your persona; the Viso level is the anti-spam, so sending is instant. **🌍 Share world** posts the world you are on as a card (name, rarity, era, colonist) that takes whoever clicks it to the same spot, for free.
 
 How time is measured: for each of 8 lanes the miner keeps the lowest `sha256("dwc1|seed|persona|lane|nonce")`. The sum of their top 64 bits shrinks as work accumulates, so it estimates the hashes spent (about 64·2⁶⁴ / sum). Lanes are bound to the planet and the persona, so time cannot be moved elsewhere. The contract keeps the lowest sum per planet; equal sums fall back to the colonist's newer update, so every merge order converges.
 
 | Part | What it is |
 | --- | --- |
-| `contract/` | Rust galaxy contract: `seed → colony {persona, name, nick, x, ts, nonces, sig, cert}`. Checks the Viso delegation (`whoiam-delegation`, from FreeNames), the signature and the minimum work. Admin-signed blocklist (`dwb1\|ts\|list`) hides stars or personas. Parameters = admin ed25519 key (`ADMIN` in `freenet/net.js`, the FreeNames / FreeTunes admin key) ‖ app path. |
-| `chat/` | Rust chat contract: messages signed like colonies, 16-bit proof of work, newest 20 per persona and 500 overall; the admin blocklist removes personas. |
-| `freenet/chat.js` | Chat rules in JS; shares a test vector with the contract. |
+| `contract/` | Rust galaxy contract: `seed → colony {persona, name, nick, x, ts, nonces, ante, sig, cert}`. Checks the Viso delegation (`whoiam-delegation`, from FreeNames), the signature, the minimum work and the persona level (`viso-ante`, ≥ 20 bits). Admin-signed blocklist (`dwb1\|ts\|list`) hides stars or personas. Parameters = admin ed25519 key (`ADMIN` in `freenet/net.js`, the FreeNames / FreeTunes admin key) ‖ app path. |
+| `chat/` | Rust chat contract: messages signed like colonies, persona level ≥ 16 bits, newest 20 per persona and 500 overall; the admin blocklist removes personas. |
+| `freenet/chat.js` | Chat rules in JS. |
+| `freenet/viso.js` | Reads a Viso persona: contract address, signed slots, profile, avatar, `ante` level. Checked against vectors made with viso-core / viso-ante (`freenet/viso.vector.json`). |
 | `freenet/colony.js` | Colony rules in JS and the time miner. Shares a test vector with the contract. |
 | `freenet/connect.js` | Viso sign-in proof and key display, checked against whoiam's golden vector. |
 | `freenet/net.js` | Node connection (`@freenetorg/freenet-stdlib`), identity delegate (FreeNames' `identity.wasm`), sign-in, galaxy contract. |
@@ -41,9 +43,11 @@ How time is measured: for each of 8 lanes the miner keeps the lowest `sha256("dw
 
 Known limits:
 
-- **The time rate is honest, not enforced.** Freenet has no trusted clock: a modified client can mine faster and take planets sooner. Viso persona levels (`ante`) or a minimum level per colony would raise the cost of that; not done yet.
+- **The time rate is honest, not enforced.** Freenet has no trusted clock: a modified client can mine faster and take planets sooner. The Viso level only makes each persona cost something; it does not slow down a fast miner.
+- A level shows a persona cost something, not that it is unique or human: someone can still grind many personas.
+- Viso is required for colonies and chat: a key made without Viso has no level. Profiles and avatars are read from the persona's Viso contract when this node can reach it.
 - One node = one explorer: the app key lives in the node, so every browser on the same node shares the sign-in (use Sign out to switch persona).
-- Nicknames are chosen by each explorer (signed, but not unique). Viso profile names and avatars are not fetched yet.
+- Names come from Viso profiles (or are chosen here when the profile has none): signed, but not unique.
 - The admin can hide stars or personas; changing the admin key, the app path or the contract creates a new, empty galaxy.
 - Colonies are public and permanent on the network (no global delete).
 - Chat times are the authors' own (no trusted clock): clients hide messages from the future, and each persona keeps at most 20 messages, which bounds what fake times can do.

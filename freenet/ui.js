@@ -3,9 +3,18 @@
 // this file unless a node serves the page.
 import * as net from './net.js';
 import { makeWorld } from '../world.js';
-import { textOk } from './chat.js';
-import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, validText } from './colony.js';
+import { textOk, CHAT_BITS } from './chat.js';
+import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText } from './colony.js';
 
+// Viso avatars as object URLs, loaded once per persona; until then a coloured dot stands in.
+const avatars = new Map();
+function avatar(persona, onReady) {
+  if (!avatars.has(persona)) {
+    avatars.set(persona, null);
+    net.loadPersona(persona).then((p) => { if (p?.avatar) { avatars.set(persona, URL.createObjectURL(new Blob([p.avatar]))); onReady(); } });
+  }
+  return avatars.get(persona);
+}
 const fmt = (s) => (!isFinite(s) ? '—' : s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${(s / 3600).toFixed(1)}h`);
 const hueOf = (persona) => parseInt(persona.slice(0, 4), 16) % 360;
 const storeKey = (seed, persona) => `mine:${seed.replaceAll('_', '-')}:${persona.slice(0, 16)}`;
@@ -13,6 +22,8 @@ const storeKey = (seed, persona) => `mine:${seed.replaceAll('_', '-')}:${persona
 /** `app`: { world(), st(), setSt(s), toast(lines), esc(s), refresh() } from index.html. */
 export async function start(app) {
   let galaxy = { colonies: {} }, me = null, nick = '', miner = null, minerSeed = null, lastPublish = 0;
+  let profile = null; // my Viso persona: { name, avatar, ante, bits }
+  const level = () => profile?.bits ?? 0, anteHex = () => (profile?.ante ? [...profile.ante].map((b) => b.toString(16).padStart(2, '0')).join('') : '');
   const q = new URLSearchParams(location.search);
   // dev only: a faster honest rate, to test colonies without waiting minutes
   const rate = q.has('node') && q.get('rate') ? Number(q.get('rate')) : HASHES_PER_SECOND;
@@ -36,7 +47,7 @@ export async function start(app) {
 
   async function publish(name) {
     const w = app.world(), x = app.cam();
-    const c = await net.publishColony(w.seed, { name, nick, x, nonces: [...miner.nonces] });
+    const c = await net.publishColony(w.seed, { name, nick, x, nonces: [...miner.nonces], ante: anteHex() });
     galaxy.colonies[w.seed] = c; lastPublish = Date.now(); update(); app.refresh();
     return c;
   }
@@ -50,7 +61,7 @@ export async function start(app) {
     if (!miner) return;
     saveMiner();
     const seed = minerSeed, mine = minerScore(miner), col = colonyOf(seed);
-    if (mine === null || mine > MAX_SCORE || !nick) return;
+    if (mine === null || mine > MAX_SCORE || !nick || level() < COLONY_BITS) return;
     const theirs = col && colScore(seed, col);
     try {
       if (!col) { await publish(colonyOf(seed)?.name ?? app.world().name); app.toast([`🚩 You colonized ${app.esc(app.world().name)}!`]); }
@@ -63,7 +74,9 @@ export async function start(app) {
 
   async function signedIn(persona) {
     me = persona;
-    nick = (await net.storeGet('nick')) || '';
+    profile = await net.loadPersona(persona);
+    // the Viso profile name, else a name chosen here
+    nick = [...(profile?.name ?? '')].slice(0, 24).join('').trim().replaceAll('|', '/') || (await net.storeGet('nick')) || '';
     while (!nick) {
       const n = prompt('Your explorer name (shown on your colonies and the leaderboard, 1-24 characters):', '');
       if (n === null) break;
@@ -79,13 +92,7 @@ export async function start(app) {
   }
 
   signBtn.hidden = false;
-  signBtn.onclick = async () => {
-    if (confirm('Sign in with Viso?\n\nOK: pick a Viso persona (recommended).\nCancel: create a local explorer key on this node instead.')) {
-      try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); }
-    } else {
-      try { await signedIn(await net.createLocalIdentity()); app.toast(['Signed in with a local explorer key.']); } catch (e) { app.toast([app.esc(e.message)]); }
-    }
-  };
+  signBtn.onclick = async () => { try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); } };
   renameBtn.onclick = async () => {
     const col = colonyOf(app.world().seed), name = prompt('Rename your planet (1-32 characters):', col?.name ?? '');
     if (!name || !validText(name.trim(), 'x')) return;
@@ -125,7 +132,8 @@ export async function start(app) {
   }
   function renderChat() {
     const msgs = visible(), atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-    log.innerHTML = msgs.map((m) => `<li><b style="color:hsl(${hueOf(m.persona)} 80% 70%)">${app.esc(m.nick)}</b> <small>${time(m.ts)}</small><br>${app.esc(m.text).replace(/\n/g, '<br>')}${m.world ? card(m.world) : ''}</li>`).join('')
+    const av = (p) => { const u = avatar(p, renderChat); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
+    log.innerHTML = msgs.map((m) => `<li>${av(m.persona)}<b style="color:hsl(${hueOf(m.persona)} 80% 70%)">${app.esc(m.nick)}</b> <small>${time(m.ts)}</small><br>${app.esc(m.text).replace(/\n/g, '<br>')}${m.world ? card(m.world) : ''}</li>`).join('')
       || '<li><small>No messages yet. Say hello, or share the world you are on.</small></li>';
     if (atBottom || !open) log.scrollTop = log.scrollHeight;
     if (open) seen = msgs.length;
@@ -140,10 +148,11 @@ export async function start(app) {
   async function refreshChat() { try { chat = await net.loadChat(); renderChat(); } catch (e) { console.warn('chat unavailable:', e); } }
   async function post(text, world) {
     if (!me || !nick) return app.toast(['Sign in to chat.']);
+    if (level() < CHAT_BITS) return app.toast([`Your Viso persona level is ${level()}; chatting needs ${CHAT_BITS}. Raise it in Viso, then sign in again.`]);
     if (!textOk(text)) return app.toast(['Messages are 1-280 characters.']);
     form.querySelectorAll('button').forEach((b) => (b.disabled = true));
     try {
-      const m = await net.postMessage(text, world, nick);
+      const m = await net.postMessage(text, world, nick, anteHex());
       chat.messages[m.sig] = m; input.value = ''; renderChat(); log.scrollTop = log.scrollHeight;
     } catch (e) { app.toast([app.esc(e.message)]); }
     finally { form.querySelectorAll('button').forEach((b) => (b.disabled = false)); }
@@ -170,6 +179,7 @@ export async function start(app) {
       const yours = mine === null ? 0 : seconds(mine);
       let s = col ? `${app.esc(w.name)}, colony of ${app.esc(col.nick)}${col.persona === me ? ' (you)' : ''} · ${fmt(seconds(colScore(w.seed, col)))} here · ` : (w.sector ? 'uncolonized · ' : '');
       if (me && w.sector && !(col && col.persona === me)) s += `your time ${fmt(yours)} / ${fmt(col ? seconds(colScore(w.seed, col)) : seconds(MAX_SCORE))} to colonize · `;
+      if (me && w.sector && level() < COLONY_BITS) s += `Viso level ${level()}/${COLONY_BITS}: raise it in Viso to colonize · `;
       if (!me && w.sector) s += 'sign in to colonize · ';
       return s;
     },
@@ -184,17 +194,18 @@ export async function start(app) {
       }
       const top = [...rows.values()].sort((a, b) => b.n - a.n || b.t - a.t).slice(0, 20);
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);
-      return `<h3>Explorer</h3><p>${me ? `${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}…</small> <button id="signOutBtn">Sign out</button>` : 'Not signed in: use Sign in to colonize planets.'}</p>
+      const av = (p) => { const u = avatar(p, () => {}); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
+      return `<h3>Explorer</h3><p>${me ? `${av(me)}${app.esc(nick)} <small style="display:inline">${net.personaName(me).slice(0, 10)}… · Viso level ${level()} (colonies need ${COLONY_BITS}, chat ${CHAT_BITS})</small> <button id="signOutBtn">Sign out</button>` : 'Not signed in: sign in with Viso to colonize planets and chat.'}</p>
         <h3>Your colonies <small>${mine.length}</small></h3>
         ${mine.length ? `<ul>${mine.map(([seed, c]) => `<li><a href="#${seed}">${app.esc(c.name)}</a> <small style="display:inline">${fmt(seconds(colScore(seed, c)))}</small></li>`).join('')}</ul>` : '<p><small>Stay on a planet for a few minutes to colonize it.</small></p>'}
         <h3>Leaderboard <small>${Object.keys(galaxy.colonies ?? {}).length} colonies</small></h3>
-        ${top.length ? `<ol>${top.map((r) => `<li>${r.persona === me ? '<b>' : ''}${app.esc(r.nick)}${r.persona === me ? '</b>' : ''} — ${r.n} ${r.n === 1 ? 'colony' : 'colonies'}, ${fmt(r.t)}</li>`).join('')}</ol>` : '<p><small>No colonies yet.</small></p>'}
+        ${top.length ? `<ol>${top.map((r) => `<li>${av(r.persona)}${r.persona === me ? '<b>' : ''}${app.esc(r.nick)}${r.persona === me ? '</b>' : ''} — ${r.n} ${r.n === 1 ? 'colony' : 'colonies'}, ${fmt(r.t)}</li>`).join('')}</ol>` : '<p><small>No colonies yet.</small></p>'}
         ${q.has('admin') ? '<button id="blockBtn">Admin: block stars or personas</button>' : ''}`;
     },
     bindAtlas(dlg) {
       const so = dlg.querySelector('#signOutBtn');
       if (so) so.onclick = async () => {
-        saveMiner(); me = null; nick = ''; miner = null; minerSeed = null; // stop the miner before the session goes
+        saveMiner(); me = null; nick = ''; profile = null; miner = null; minerSeed = null; // stop the miner before the session goes
         await net.signOut(); await net.storePut('nick', '');
         update(); app.refresh(); dlg.close(); app.toast(['Signed out.']);
       };

@@ -1,7 +1,9 @@
 //! Distant Worlds global chat. Shared instance; parameters = admin ed25519 pubkey (32 bytes) || app path.
 //!
 //! A message is signed for a whoiam/viso persona by its delegated app key (as colonies are) and
-//! carries a small proof of work against spam. It may share a world (a star seed, optionally with a
+//! carries the persona's Viso level (its `ante` slot, a self-signed proof of work; at least
+//! MIN_ANTE_BITS) instead of a per-message proof: a persona that costs something to make is the
+//! anti-spam. It may share a world (a star seed, optionally with a
 //! position). The state keeps the newest MAX_PER_PERSONA messages of each persona and the newest
 //! MAX_MESSAGES overall (order: ts, then signature). Both are "keep the top k" rules, so every merge
 //! order converges. There is no trusted clock: `ts` is the author's, and clients hide messages from the
@@ -9,11 +11,10 @@
 //! (`dwb1|<ts>|<personas joined by ,>`) removes personas.
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use whoiam_delegation::{check, key, verify, Cert};
 
-pub const POW_BITS: u32 = 16;
+pub const MIN_ANTE_BITS: u32 = 16;
 pub const MAX_MESSAGES: usize = 500;
 pub const MAX_PER_PERSONA: usize = 20;
 const MAX_TEXT: usize = 280;
@@ -26,8 +27,8 @@ pub struct Message {
     #[serde(default)]
     pub world: String, // "" or a shared world: star seed, optionally "@<position>"
     pub ts: u64,
-    pub nonce: u64,
-    pub sig: String, // hex, by the delegated app key over `msg()`
+    pub ante: String, // hex: the persona's Viso `ante` slot content
+    pub sig: String,  // hex, by the delegated app key over `msg()`
     pub cert: Cert,
 }
 
@@ -64,20 +65,6 @@ pub fn msg(m: &Message) -> String {
     format!("dwm1|{}|{}|{}|{}|{}", m.persona, m.nick, m.ts, m.world, m.text)
 }
 
-pub fn pow(m: &Message) -> [u8; 32] {
-    Sha256::digest(format!("{}|{}", msg(m), m.nonce).as_bytes()).into()
-}
-
-fn zero_bits(h: &[u8]) -> u32 {
-    let mut n = 0;
-    for b in h {
-        n += b.leading_zeros();
-        if *b != 0 {
-            break;
-        }
-    }
-    n
-}
 
 fn is_persona(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
@@ -108,8 +95,9 @@ pub fn check_message(app: &str, m: &Message) -> R<()> {
     if m.text.chars().any(|c| c.is_control() && c != '\n') {
         return Err("bad text".into());
     }
-    if zero_bits(&pow(m)) < POW_BITS {
-        return Err("insufficient proof of work".into());
+    let ante = hex::decode(&m.ante).map_err(|e| e.to_string())?;
+    if viso_ante::verify_slot(&key(&m.persona)?, &ante)? < MIN_ANTE_BITS {
+        return Err("persona level too low".into());
     }
     let app_key = check(&m.persona, app, &m.cert)?;
     verify(&app_key, msg(m).as_bytes(), &m.sig)
@@ -290,22 +278,14 @@ mod tests {
         let (base, challenge) = (format!("http://127.0.0.1:7509{APP}"), format!("wd1.{}.n1", pk(&app_key)));
         let csig = persona.sign(&connect_message(persona.verifying_key().as_bytes(), &base, &challenge, 1));
         let cert = Cert { base, challenge, ts: 1, sig: hex::encode(csig.to_bytes()) };
-        let mut m = Message { persona: pk(persona), nick: "nick".into(), text: text.into(), world: world.into(), ts, nonce: 0, sig: String::new(), cert };
-        while zero_bits(&pow(&m)) < POW_BITS {
-            m.nonce += 1;
-        }
+        let n = viso_ante::grind_step(&persona.verifying_key(), 0, u64::MAX, MIN_ANTE_BITS).unwrap();
+        let ante = hex::encode(viso_ante::make_slot(persona, n, 1));
+        let mut m = Message { persona: pk(persona), nick: "nick".into(), text: text.into(), world: world.into(), ts, ante, sig: String::new(), cert };
         m.sig = hex::encode(app_key.sign(msg(&m).as_bytes()).to_bytes());
         m
     }
     fn send(s: &mut ChatState, m: Message) -> R<()> {
         apply(&pk(&sk(1)), APP, s, Delta { messages: vec![m], blocked: None })
-    }
-
-    #[test]
-    fn pow_matches_ui() {
-        // same vector as freenet/net.test.mjs
-        let m = Message { persona: "ab".repeat(32), nick: "eve".into(), text: "hi".into(), world: "v1-1_2_3@4.5".into(), ts: 7, nonce: 42, sig: String::new(), cert: Cert { base: String::new(), challenge: String::new(), ts: 0, sig: String::new() } };
-        assert_eq!(hex::encode(pow(&m)), "88c8eb07c01c6d3f95dc267e1134dd5b2ffd45820bc6ea64ec0f9bb2cfffb428");
     }
 
     #[test]
@@ -343,6 +323,9 @@ mod tests {
         assert!(send(&mut s, message(&sk(2), "x", "not a seed", 5)).is_err());
         assert!(send(&mut s, message(&sk(2), &"x".repeat(281), "", 5)).is_err());
         assert!(check_message("/v1/contract/web/Other/", &good).is_err());
+        let mut weak = good.clone();
+        weak.ante = hex::encode(viso_ante::make_slot(&sk(2), 0, 1)); // nonce 0: almost surely < 16 bits
+        assert!(check_message(APP, &weak).is_err());
         send(&mut s, good.clone()).unwrap();
 
         let list = vec![pk(&sk(2))];
