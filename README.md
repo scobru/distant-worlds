@@ -17,3 +17,38 @@ Everything comes from a seed in the URL (`…/#v1-8393_2007_4`): share the link 
 - Static, no dependencies, no build: `index.html` + ES modules. Deterministic: `makeWorld(seed)` is a pure function (`node world.test.mjs && node atlas.test.mjs`).
 
 Local: `python3 -m http.server` and open http://localhost:8000.
+
+## Freenet version
+
+The same app can be published on [Freenet](https://freenet.org). There it adds one shared thing: **star names**. Any explorer can name the star they are on (✎ Name star); the name appears for everyone, on the map (gold ring) and on the world itself.
+
+Freenet has no global clock, so "first to discover" cannot be decided fairly. As in FreeNames, a name is held by the **strongest proof of work**: naming a free star takes a moment of mining (2^18 hashes on average), and taking a named star means out-working its holder. The contract keeps the strongest claim per star (the 20,000 strongest overall), so every merge order converges.
+
+| Part | What it is |
+| --- | --- |
+| `contract/` | Rust contract: `seed → {name, by, nonce}` with `sha256("dw1\|seed\|name\|by\|nonce")` ≥ 18 leading zero bits; lower hash wins. Admin-signed blocklist (`dwb1\|ts\|seeds`) hides stars. Parameters = admin ed25519 key (the FreeNames / FreeTunes admin key, `ADMIN` in `freenet/net.js`). |
+| `freenet/names.js` | The same claim rules in JS, and the miner. Shares a test vector with the contract. |
+| `freenet/net.js` | Node connection (`@freenetorg/freenet-stdlib`): load / subscribe / publish names. Only imported when a node serves the page or with `?node=host:port`, so the static site stays build-free. |
+
+Known limits:
+
+- **Nicknames are not authenticated**: anyone can type any nickname. A whoiam/viso sign-in (as in FreeNames) would fix that.
+- **Progress is per browser, and may not persist on Freenet**: the node serves apps in a sandboxed iframe where `localStorage` can be unavailable; then atlas, fuel and logbook last only for the session. A storage delegate (as in FreeNames) would fix that.
+- The admin can hide a star's name; changing the admin key or the contract creates a new, empty registry.
+- Names are public and permanent on the network (no global delete).
+
+### Build and publish
+
+Requirements: `rustup` with the `wasm32-unknown-unknown` target, `freenet` and `fdev`, Node 20+.
+
+```bash
+cd contract && cargo test --release && cargo build --release --target wasm32-unknown-unknown && cd ..
+cp contract/target/wasm32-unknown-unknown/release/distant_worlds_names.wasm freenet/names.wasm
+npm install && npm test && npm run build          # -> dist/
+
+# dev against a local node: npm run dev, then open http://localhost:5173/?node=127.0.0.1:7509
+fdev website init distant-worlds                  # once: creates the signing key. Back it up!
+fdev website publish dist --key distant-worlds    # later: fdev website update dist --key distant-worlds
+```
+
+Admin: open the app with `?admin`; the Atlas then shows a button to sign and send the blocklist.

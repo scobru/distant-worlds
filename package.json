@@ -1,0 +1,16 @@
+{
+  "name": "distant-worlds",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node world.test.mjs && node atlas.test.mjs && node freenet/net.test.mjs"
+  },
+  "dependencies": {
+    "@freenetorg/freenet-stdlib": "^0.4.0",
+    "@noble/ed25519": "^2.2.3",
+    "@noble/hashes": "^2.4.0"
+  },
+  "devDependencies": { "vite": "^6.0.0" }
+}

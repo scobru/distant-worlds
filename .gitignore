@@ -1,0 +1,3 @@
+contract/target/
+node_modules/
+dist/
