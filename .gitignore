@@ -2,3 +2,4 @@ contract/target/
 node_modules/
 dist/
 .devnode/
+chat/target/

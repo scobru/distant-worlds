@@ -2,6 +2,8 @@
 // leaderboard and progress kept in the node. index.html calls the returned hooks; it never imports
 // this file unless a node serves the page.
 import * as net from './net.js';
+import { makeWorld } from '../world.js';
+import { textOk } from './chat.js';
 import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, validText } from './colony.js';
 
 const fmt = (s) => (!isFinite(s) ? '—' : s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${(s / 3600).toFixed(1)}h`);
@@ -109,6 +111,56 @@ export async function start(app) {
   net.onUpdate(refreshGalaxy);
   await refreshGalaxy();
   update();
+
+  // ---------------------------------------------------------------- global chat (hideable)
+  const chatBtn = document.getElementById('chatBtn'), panel = document.getElementById('chat');
+  const log = document.getElementById('chatLog'), form = document.getElementById('chatForm'), input = document.getElementById('chatText');
+  let chat = { messages: {} }, seen = 0, open = false;
+  try { open = localStorage.getItem('dw-chat-open') === '1'; } catch { /* sandbox */ }
+  const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000).sort((a, b) => a.ts - b.ts).slice(-100);
+  const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  function card(world) {
+    const [seed, pos] = world.split('@'), w = makeWorld(seed), col = colonyOf(seed);
+    return `<a class="card" href="#${seed}${pos ? '@' + pos : ''}">🌍 <b>${app.esc(col?.name ?? w.name)}</b> <span class="badge ${w.rarity}">${w.rarity}</span><br><small>${w.era} · ${w.civ} · ${w.fauna}${w.region ? ' · ' + w.region : ''}${col ? ' · colony of ' + app.esc(col.nick) : ''}</small></a>`;
+  }
+  function renderChat() {
+    const msgs = visible(), atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.innerHTML = msgs.map((m) => `<li><b style="color:hsl(${hueOf(m.persona)} 80% 70%)">${app.esc(m.nick)}</b> <small>${time(m.ts)}</small><br>${app.esc(m.text).replace(/\n/g, '<br>')}${m.world ? card(m.world) : ''}</li>`).join('')
+      || '<li><small>No messages yet. Say hello, or share the world you are on.</small></li>';
+    if (atBottom || !open) log.scrollTop = log.scrollHeight;
+    if (open) seen = msgs.length;
+    const unread = Math.max(0, msgs.length - seen);
+    chatBtn.textContent = unread ? `💬 Chat (${unread})` : '💬 Chat';
+  }
+  function setOpen(o) {
+    open = o; panel.hidden = !o; chatBtn.setAttribute('aria-expanded', o);
+    try { localStorage.setItem('dw-chat-open', o ? '1' : '0'); } catch { /* sandbox */ }
+    renderChat(); if (o) input.focus();
+  }
+  async function refreshChat() { try { chat = await net.loadChat(); renderChat(); } catch (e) { console.warn('chat unavailable:', e); } }
+  async function post(text, world) {
+    if (!me || !nick) return app.toast(['Sign in to chat.']);
+    if (!textOk(text)) return app.toast(['Messages are 1-280 characters.']);
+    form.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    try {
+      const m = await net.postMessage(text, world, nick);
+      chat.messages[m.sig] = m; input.value = ''; renderChat(); log.scrollTop = log.scrollHeight;
+    } catch (e) { app.toast([app.esc(e.message)]); }
+    finally { form.querySelectorAll('button').forEach((b) => (b.disabled = false)); }
+  }
+  chatBtn.hidden = false;
+  chatBtn.onclick = () => setOpen(!open);
+  document.getElementById('chatHide').onclick = () => setOpen(false);
+  form.onsubmit = (e) => { e.preventDefault(); post(input.value.trim(), ''); };
+  document.getElementById('chatShare').onclick = () => {
+    const w = app.world();
+    if (!w.sector) return app.toast(['Only worlds on the star map can be shared.']);
+    post(input.value.trim() || `Look at ${colonyOf(w.seed)?.name ?? w.name}!`, `${w.seed}@${app.cam().toFixed(1)}`);
+  };
+  log.addEventListener('click', (e) => { if (e.target.closest('a.card') && innerWidth < 640) setOpen(false); });
+  net.onUpdate(refreshChat);
+  await refreshChat();
+  setOpen(open);
 
   return {
     onWorld: () => { saveMiner(); loadMiner().then(update); update(); },

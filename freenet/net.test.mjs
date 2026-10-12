@@ -21,4 +21,19 @@ assert.ok(Math.abs(seconds(s2) - work(s2) / HASHES_PER_SECOND) < 1e-9);
 const back = JSON.parse(JSON.stringify(m));
 assert.equal(minerScore(mineSome(back, seed, p, 0)), s2);
 assert.ok(!validText('a|b', 'x') && !validText(' a', 'x') && !validText('a', '') && validText('Nova Prime', 'scobru'));
+// Viso proof: whoiam's golden vector (common/src/connect.rs) and base58 (computed independently, see FreeNames).
+const ed = await import('@noble/ed25519'), { sha512 } = await import('@noble/hashes/sha2.js');
+ed.etc.sha512Sync = (...x) => sha512(ed.etc.concatBytes(...x));
+const { connectMessage, personaName } = await import('./connect.js');
+const gsk = new Uint8Array(32).fill(42);
+assert.equal(hex(ed.sign(connectMessage(ed.getPublicKey(gsk), 'https://example.com/app', 'abc123', 12345), gsk)),
+  '122b675bdbc8772f52631524ac2b500dec76721bff7c0b299025df04e18e8e8ddf2b8d0a232a5785e68d5738be4f5111ae7b58106f5458b966b9b365fff5ac09');
+assert.equal(personaName('2a76f1666f3aac4f859a1f35300050b69275202d3b880d9f165083c92818b0b5'), '3rmKPdMLRKZPKpEc2UThti8k4EdxzsAH3j7eWx8GhqYY');
+
+// Chat: same proof-of-work vector as chat/src/lib.rs (pow_matches_ui); mining reaches the difficulty.
+const { chatPow, mineMessage, textOk, POW_BITS: CHAT_BITS } = await import('./chat.js');
+assert.equal(hex(chatPow({ persona: 'ab'.repeat(32), nick: 'eve', text: 'hi', world: 'v1-1_2_3@4.5', ts: 7, nonce: 42 })), '88c8eb07c01c6d3f95dc267e1134dd5b2ffd45820bc6ea64ec0f9bb2cfffb428');
+const cm = await mineMessage({ persona: 'ab'.repeat(32), nick: 'eve', text: 'hello', world: '', ts: 1 });
+assert.ok(chatPow(cm)[0] === 0 && chatPow(cm)[1] === 0, `${CHAT_BITS} zero bits`);
+assert.ok(textOk('hi\nthere') && !textOk('') && !textOk('x'.repeat(281)) && !textOk('bell\u0007'));
 console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');

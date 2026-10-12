@@ -15,6 +15,8 @@ import {
   RelatedContractsT, WasmDelegateV1T,
 } from '@freenetorg/freenet-stdlib/client-request';
 import galaxyWasm from './galaxy.wasm?url';
+import chatWasm from './chat.wasm?url';
+import { chatMsg, mineMessage } from './chat.js';
 import identityWasm from './identity.wasm?url';
 import { msg as colonyMsg } from './colony.js';
 import { connectMessage } from './connect.js';
@@ -57,36 +59,56 @@ function api() {
   }));
 }
 
+const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
 // get() responses are matched by arrival order: one at a time.
 let chain = Promise.resolve();
 const serial = (f) => { const p = chain.then(f); chain = p.catch(() => {}); return p; };
 
-// ---------------------------------------------------------------- galaxy contract
-let codeP;
-const code = () => (codeP ??= fetch(galaxyWasm).then(async (r) => { const c = new Uint8Array(await r.arrayBuffer()); return { c, hash: blake3(c) }; }));
+// ---------------------------------------------------------------- shared contracts
+// Both contracts take the same parameters (admin key || app path) and start empty.
 const params = () => new Uint8Array([...unhex(ADMIN), ...enc.encode(APP_PATH)]);
-/** Instance id = blake3(blake3(wasm) || params), as in freenet-stdlib. */
-async function key() { const { hash } = await code(); return new ContractKey(blake3(new Uint8Array([...hash, ...params()])), hash); }
-
-const get = (subscribe) => serial(async () => {
-  const r = await (await api()).get(new GetRequest(await key(), false, subscribe));
-  return JSON.parse(dec.decode(new Uint8Array(r.state)));
-});
-
-/** All colonies. The first visitor on a node creates the galaxy (empty); subscribing keeps it fresh. */
-export async function loadGalaxy() {
-  try { return await get(true); }
-  catch {
+function shared(wasmUrl, empty) {
+  let codeP;
+  const code = () => (codeP ??= fetch(wasmUrl).then(async (r) => { const c = new Uint8Array(await r.arrayBuffer()); return { c, hash: blake3(c) }; }));
+  /** Instance id = blake3(blake3(wasm) || params), as in freenet-stdlib. */
+  const key = async () => { const { hash } = await code(); return new ContractKey(blake3(new Uint8Array([...hash, ...params()])), hash); };
+  // A get on a missing contract and a put on an existing one can both hang until the SDK's 30 s
+  // timeout, so: try a get for a few seconds, and only if it does not answer, create the contract.
+  const put = async () => {
     const { c, hash } = await code(), k = await key();
     const contract = new WasmContractV1(new ContractCodeT(Array.from(c), Array.from(hash)), Array.from(params()), k);
-    await (await api()).put(new PutRequest(new ContractContainer(ContractType.WasmContractV1, contract), bytes(JSON.stringify(EMPTY)), new RelatedContractsT()));
-    return get(true);
-  }
+    await (await api()).put(new PutRequest(new ContractContainer(ContractType.WasmContractV1, contract), bytes(JSON.stringify(empty)), new RelatedContractsT()));
+  };
+  const get = (ms = 30_000) => serial(async () => {
+    const r = await within((await api()).get(new GetRequest(await key(), false, true)), ms);
+    return JSON.parse(dec.decode(new Uint8Array(r.state)));
+  });
+  return {
+    /** Current state; subscribing keeps it fresh. The first visitor on a node creates the contract. */
+    async load() {
+      try { return await get(5000); }
+      catch { await within(put(), 5000).catch(() => {}); return get(); }
+    },
+    async send(delta) {
+      const d = new UpdateData(UpdateDataType.DeltaUpdate, new DeltaUpdate(bytes(JSON.stringify(delta))));
+      await (await api()).update(new UpdateRequest(await key(), d));
+    },
+  };
 }
+const galaxy = shared(galaxyWasm, EMPTY), chat = shared(chatWasm, { messages: {}, blocked: { ts: 0, list: [], sig: '' } });
+export const loadGalaxy = () => galaxy.load();
+export const loadChat = () => chat.load();
+const send = (d) => galaxy.send(d);
 
-async function send(delta) {
-  const d = new UpdateData(UpdateDataType.DeltaUpdate, new DeltaUpdate(bytes(JSON.stringify(delta))));
-  await (await api()).update(new UpdateRequest(await key(), d));
+/** Post a chat message (optionally sharing a world), signed for the signed-in persona. */
+export async function postMessage(text, world, nick) {
+  const s = await session();
+  if (!s) throw new Error('Sign in first.');
+  const m = await mineMessage({ persona: s.persona, nick, text, world, ts: Date.now(), nonce: 0, sig: '', cert: s.cert });
+  m.sig = await s.sign(chatMsg(m));
+  await chat.send({ messages: [m] });
+  return m;
 }
 
 /** Publish (or update) our colony on `seed`: the miner's nonces, signed for the signed-in persona. */
@@ -99,10 +121,11 @@ export async function publishColony(seed, { name, nick, x, nonces }) {
   return c;
 }
 
-/** Admin only: hide these stars or personas (replaces the whole blocklist). */
+/** Admin only: hide these stars or personas (replaces the whole blocklist); personas also leave the chat. */
 export async function block(secretHex, list, ts = Math.floor(Date.now() / 1000)) {
-  const sig = hex(ed.sign(enc.encode(`dwb1|${ts}|${list.join(',')}`), unhex(secretHex)));
-  await send({ blocked: { ts, list, sig } });
+  const sign = (l) => ({ ts, list: l, sig: hex(ed.sign(enc.encode(`dwb1|${ts}|${l.join(',')}`), unhex(secretHex))) });
+  await send({ blocked: sign(list) });
+  await chat.send({ blocked: sign(list.filter((x) => /^[0-9a-f]{64}$/.test(x))) });
 }
 
 // ---------------------------------------------------------------- identity delegate (from FreeNames)

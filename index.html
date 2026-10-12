@@ -28,7 +28,18 @@
   #map svg { width: 100%; max-height: 50vh; display: block; background: #02020a; border-radius: 12px; }
   #map svg a:focus-visible circle { stroke: #fff; stroke-width: .05; }
   .pan { display: flex; gap: 6px; justify-content: center; margin-top: 8px; }
+  #chat { position: fixed; top: 16px; right: 16px; bottom: 120px; width: min(340px, calc(100% - 32px)); display: flex; flex-direction: column;
+          background: #0b0b12e8; border: 1px solid #fff3; border-radius: 16px; padding: 12px; box-sizing: border-box; backdrop-filter: blur(6px); }
+  #chat[hidden] { display: none; }
+  #chat .row { margin-bottom: 8px; }
+  #chatLog { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; font-size: 14px; overflow-wrap: anywhere; }
+  #chatLog li { padding: 6px 0; border-bottom: 1px solid #fff1; }
+  #chatLog small { opacity: .6; }
+  #chatLog .card { display: block; margin-top: 6px; padding: 8px; border-radius: 10px; background: #fff1; color: inherit; text-decoration: none; }
+  #chatForm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #chatForm input { flex: 1 1 100%; background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 10px; padding: 8px; font: inherit; }
   @media (max-width: 640px) {
+    #chat { top: 8px; right: 8px; left: 8px; width: auto; bottom: 200px; }
     .ui { padding: 10px; gap: 6px; } h1 { flex-basis: 100%; font-size: 16px; }
     button { padding: 6px 11px; font-size: 13px; }
   }
@@ -45,6 +56,7 @@
   <button id="fav">☆ Save</button>
   <button id="signBtn" hidden>Sign in</button>
   <button id="renameBtn" hidden>✎ Rename planet</button>
+  <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
   <button id="share">Share</button>
   <button id="atlasBtn">Atlas</button>
   <button id="mapBtn">Map</button>
@@ -52,6 +64,12 @@
   <button id="gen">New world</button>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
+<aside id="chat" hidden aria-label="Galaxy chat">
+  <div class="row"><b>Galaxy chat</b><button id="chatHide" aria-label="Hide chat">Hide</button></div>
+  <ol id="chatLog" aria-live="polite"></ol>
+  <form id="chatForm"><input id="chatText" maxlength="280" placeholder="Message" aria-label="Message" autocomplete="off">
+    <button>Send</button><button type="button" id="chatShare" title="Share the world you are on">🌍 Share world</button></form>
+</aside>
 <dialog id="map"><div class="row"><h2 id="mapTitle">Map</h2><button id="mapClose">Close</button></div>
   <p id="mapInfo"></p><div id="mapSvg"></div>
   <div class="pan"><button data-d="-1,0" aria-label="West">←</button><button data-d="0,-1" aria-label="North">↑</button>
