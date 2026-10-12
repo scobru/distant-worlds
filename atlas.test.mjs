@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { makeWorld, hashSeed } from './world.js';
-import { ENTRIES, COMBOS, emptyState, visit, findRelic, mission, matches, checkMission, isoDay } from './atlas.js';
+import { makeWorld, sectorOf } from './world.js';
+import { ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay } from './atlas.js';
 
 const st = emptyState();
 let found = 0, missionWorld;
@@ -32,4 +32,20 @@ checkMission(st, missionWorld, '2026-10-12', '2026-10-11');
 assert.deepEqual(st.daily, { done: '2026-10-12', streak: 1, best: 5 });
 for (let d = 1; d <= 60; d++) mission(`2026-01-${d}`); // terminates
 assert.equal(isoDay(new Date(2026, 0, 5)), '2026-01-05');
+// Bestiary: species recorded once, achievements at 10.
+const st2 = emptyState();
+let speciesSeen = 0;
+for (let i = 0; speciesSeen < 10; i++) {
+  const w = makeWorld('b' + i);
+  for (const sp of w.species) {
+    const res = findSpecies(st2, sp, w);
+    assert.ok(res.isNew);
+    assert.ok(!findSpecies(st2, sp, w).isNew, 'species counted once');
+    if (++speciesSeen === 10) assert.ok(res.achievements.includes('Naturalista'));
+    if (speciesSeen === 10) break;
+  }
+}
+assert.equal(dailySeed('2026-10-12'), dailySeed('2026-10-12'));
+assert.ok(sectorOf(dailySeed('2026-10-12')), 'daily world is on the map');
+assert.notEqual(dailySeed('2026-10-12'), dailySeed('2026-10-13'));
 console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));

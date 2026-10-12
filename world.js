@@ -43,7 +43,36 @@ export function rngFrom(str) {
 // Seeds carry the generator version: a future v2 must keep generating v1 seeds the v1 way,
 // so links people already shared keep showing the same world.
 export const VERSION = 'v1';
-export const randomSeed = () => `${VERSION}-${Math.random().toString(36).slice(2, 10)}`;
+
+// Galaxy: a GALAXY x GALAXY torus of sectors, each holding a few stars; a star's seed is
+// "v1-<sx>_<sy>_<i>". Seeds of other shapes still make worlds, they just aren't on the map.
+export const GALAXY = 10000;
+export const wrapS = (v) => ((v % GALAXY) + GALAXY) % GALAXY;
+export function starsIn(sx, sy) {
+  const r = rngFrom(`${VERSION}:settore:${sx}:${sy}`);
+  return Array.from({ length: 4 + Math.floor(r() * 6) }, (_, i) => ({ seed: `${VERSION}-${sx}_${sy}_${i}`, x: sx + r(), y: sy + r() }));
+}
+export const sectorOf = (seed) => { const m = /^v1-(\d+)_(\d+)_\d+$/.exec(seed); return m && [+m[1], +m[2]]; };
+export function randomSeed(rand = Math.random) {
+  const sx = Math.floor(rand() * GALAXY), sy = Math.floor(rand() * GALAXY), stars = starsIn(sx, sy);
+  return stars[Math.floor(rand() * stars.length)].seed;
+}
+
+// Regions span 4x4 sectors and bias what their worlds are made of.
+export const REGIONI = [
+  ['Spazio profondo', 6, {}],
+  ['Nebulosa aliena', 1, { civ: { alieni: 8 } }],
+  ['Settore delle rovine', 1, { civ: { rovine: 6 } }],
+  ['Ammasso antico', 1, { era: { antico: 4, medievale: 3 } }],
+  ['Frontiera del futuro', 1, { era: { futuro: 4, 'lontano futuro': 6 } }],
+  ['Giardino stellare', 1, { flora: { foresta: 2, funghi: 4, cristalli: 5 } }],
+  ['Mari del cielo', 1, { fauna: { balene: 10, meduse: 5 } }],
+];
+export function regionAt(sx, sy) {
+  const r = rngFrom(`${VERSION}:regione:${Math.floor(sx / 4)}:${Math.floor(sy / 4)}`);
+  let x = r() * REGIONI.reduce((a, [, w]) => a + w, 0);
+  return REGIONI.find(([, w]) => (x -= w) < 0) ?? REGIONI[0];
+}
 
 const SYL = ['ka', 've', 'lor', 'ny', 'tha', 'ri', 'os', 'mu', 'zen', 'ae', 'quel', 'dra', 'si', 'on', 'xi', 'ul', 'bre', 'ith'];
 const SCALES = {
@@ -112,6 +141,9 @@ function toner(style) {
 
 export function makeWorld(seedStr) {
   const r = rngFrom(seedStr);
+  const sector = sectorOf(seedStr), region = sector && regionAt(...sector);
+  // Regional bias multiplies the global weights; rarity is measured against what was used.
+  const T = (k) => Object.fromEntries(Object.entries(TRAITS[k]).map(([v, w]) => [v, w * (region?.[2][k]?.[v] ?? 1)]));
   const pick = (a) => a[Math.floor(r() * a.length)];
   let bits = 0;
   const wpick = (table) => {
@@ -126,7 +158,7 @@ export function makeWorld(seedStr) {
   let name = Array.from({ length: n }, () => pick(SYL)).join('');
   name = name[0].toUpperCase() + name.slice(1) + (r() < 0.3 ? ' ' + pick(['Prime', 'IV', 'b', 'Minor', 'Reach']) : '');
 
-  const era = wpick(TRAITS.era), civ = wpick(TRAITS.civ), flora = wpick(TRAITS.flora), style = wpick(TRAITS.style);
+  const era = wpick(T('era')), civ = wpick(T('civ')), flora = wpick(T('flora')), style = wpick(T('style'));
   const eraIdx = ERE.indexOf(era);
   const c = toner(style);
 
@@ -149,14 +181,14 @@ export function makeWorld(seedStr) {
       rough: 0.35 + r() * 0.3,
       base: 0.5 + depth * 0.32,
       span: 0.12 + r() * 0.25 * (1 - depth * 0.5),
-      color: c(groundHue, 20 + r() * 30, night ? 4 + depth * 6 : 30 - depth * 22),
+      color: c(groundHue, 20 + r() * 30, night ? 16 - depth * 12 : 30 - depth * 22),
       parallax: 0.15 + depth * 0.85,
     };
   });
 
   // Flyers live in the sky and follow the traveller; walkers are placed per chunk (see chunk()).
   // Speeds are in screen-widths per ms.
-  const fauna = wpick(TRAITS.fauna), flyers = [];
+  const fauna = wpick(T('fauna')), flyers = [];
   const sign = () => (r() < 0.5 ? -1 : 1);
   if (fauna === 'uccelli') for (let k = 1 + Math.floor(r() * 3); k--;)
     flyers.push({ kind: 'stormo', x: r(), y: 0.1 + r() * 0.3, speed: sign() * (1 + r() * 2) * 1e-5, size: 0.006 + r() * 0.006, seed: Math.floor(r() * 2 ** 32) });
@@ -170,6 +202,8 @@ export function makeWorld(seedStr) {
     floraDensity: flora === 'brullo' ? 0 : r() * 20,
     herdLayer: nLayers - 1 - Math.floor(r() * 2),
   };
+  const species = fauna === 'branchi' || fauna === 'giganti'
+    ? Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => makeSpecies(seedStr, k, fauna === 'giganti')) : [];
 
   const rings = chance(P.anelli), sea = chance(P.mare);
   const traits = { era, civ, flora, fauna, style, notte: night, anelli: rings, mare: sea };
@@ -177,7 +211,7 @@ export function makeWorld(seedStr) {
 
   const scaleName = civ === 'alieni' ? pick(['hirajoshi', 'lydian']) : pick(Object.keys(SCALES));
   return {
-    seed: seedStr,
+    seed: seedStr, sector, region: region?.[0] ?? null, species,
     name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'rovine' && civ !== 'disabitato' && (eraIdx >= 2 || civ === 'alieni'),
     ships: eraIdx >= 4 || civ === 'alieni' ? Math.floor(r() * 5) : 0,
@@ -191,12 +225,20 @@ export function makeWorld(seedStr) {
       scaleName,
       scale: SCALES[scaleName],
       bpm: 50 + Math.floor(r() * 50),
-      // Older eras sound softer, future ones brighter and buzzier.
-      wave: ['triangle', 'triangle', 'square', 'sine', 'sawtooth', 'sawtooth'][eraIdx],
       microtonal: civ === 'alieni',
       density: (civ === 'disabitato' ? 0.15 : 0.25) + r() * 0.4,
       cutoff: 400 + eraIdx * 200 + r() * 1200,
       noteSeed: hashSeed(seedStr + ':music'),
+      // Timbre: older eras lean acoustic, future and alien worlds lean synthetic.
+      lead: civ === 'alieni' ? pick(['vetro', 'campana']) : pick([
+        ['flauto', 'pizzico', 'marimba', 'campana'], ['flauto', 'pizzico', 'marimba', 'campana'],
+        ['pizzico', 'marimba', 'campana', 'flauto'], ['pizzico', 'marimba', 'campana', 'vetro'],
+        ['campana', 'vetro', 'pizzico', 'marimba'], ['vetro', 'campana', 'vetro', 'pizzico']][eraIdx]),
+      drone: pick(['organo', 'vento', 'coro', 'organo', 'vento']),
+      pad: r() < 0.5,
+      bass: r() < 0.5,
+      perc: r() < (eraIdx >= 2 ? 0.45 : 0.12),
+      space: 1.5 + r() * 4.5, // reverb seconds
     },
   };
 }
@@ -216,12 +258,16 @@ export function chunk(w, i, c) {
   things.sort((a, b) => b.size - a.size);
 
   // Walkers pace back and forth over [x, x + range] (see walkerAt), so they never pop at chunk edges.
-  const walker = (kind, x, range, speed, size) => creatures.push({ kind, x, range, speed, size, phase: r() * 2, seed: id() });
+  const walker = (kind, x, range, speed, size, dna) => creatures.push({ kind, x, range, speed, size, phase: r() * 2, seed: id(), dna });
   if (w.fauna === 'branchi' && i === w.pop.herdLayer && r() < 0.5) {
     const x = c + 0.1 + r() * 0.5, v = (2 + r() * 3) * 1e-6;
-    for (let k = 3 + Math.floor(r() * 5); k--;) walker('quadrupede', x + r() * 0.12, 0.25, v, 0.03 + r() * 0.02);
+    const sp = pick(w.species);
+    for (let k = 3 + Math.floor(r() * 5); k--;) walker('specie', x + r() * 0.12, 0.25, v * sp.pace, 0.03 + r() * 0.02, sp);
   }
-  if (w.fauna === 'giganti' && i === Math.min(1, n - 2) && r() < 0.5) walker('gigante', c + r() * 0.4, 0.5, (1 + r()) * 1e-6, 0.08 + r() * 0.07);
+  if (w.fauna === 'giganti' && i === Math.min(1, n - 2) && r() < 0.5) {
+    const sp = pick(w.species);
+    walker('specie', c + r() * 0.4, 0.5, (1 + r()) * 1e-6 * sp.pace, 0.1 + r() * 0.08, sp);
+  }
   if ((w.civ === 'umani' || w.civ === 'alieni') && i === n - 2) for (let k = count(1.5); k--;)
     walker(w.civ === 'umani' ? 'abitante' : 'alieno', c + r() * 0.7, 0.3, (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
   return { things, creatures };
@@ -231,4 +277,42 @@ export function chunk(w, i, c) {
 export function walkerAt(cr, t) {
   const u = (((cr.phase + (t * cr.speed) / cr.range) % 2) + 2) % 2;
   return [cr.x + cr.range * (1 - Math.abs(u - 1)), u < 1 ? 1 : -1];
+}
+
+// Species are built from parts, so every world can have animals nobody has seen before.
+export const DNA = {
+  legs: { 4: 6, 2: 3, 6: 1 },
+  neck: { nessuno: 3, corto: 4, lungo: 2 },
+  head: { tonda: 4, allungata: 3, piatta: 2 },
+  extra: { niente: 5, corna: 3, antenne: 1.5, cresta: 1.5 },
+  tail: { nessuna: 2, corta: 4, lunga: 3, folta: 1 },
+  pattern: { liscio: 5, macchie: 2, strisce: 2 },
+};
+const SUFFIX = ['odonte', 'ide', 'ope', 'ulo', 'ante', 'aro', 'ix'];
+export const SPECIES_RARITY = [['comune', 0], ['raro', 9.8], ['epico', 11.3], ['leggendario', 12.4]];
+
+export function makeSpecies(worldSeed, k, giant) {
+  const r = rngFrom(`${worldSeed}:specie:${k}`);
+  let bits = 0;
+  const wpick = (table) => {
+    const total = Object.values(table).reduce((a, b) => a + b);
+    let x = r() * total;
+    const [v, w] = Object.entries(table).find(([, w]) => (x -= w) < 0) ?? Object.entries(table).at(-1);
+    bits -= Math.log2(w / total);
+    return v;
+  };
+  const dna = Object.fromEntries(Object.entries(DNA).map(([part, t]) => [part, wpick(t)]));
+  dna.legs = +dna.legs;
+  const name = SYL[Math.floor(r() * SYL.length)] + SYL[Math.floor(r() * SYL.length)] + SUFFIX[Math.floor(r() * SUFFIX.length)];
+  return {
+    id: `${worldSeed}#${k}`,
+    name: name[0].toUpperCase() + name.slice(1),
+    ...dna,
+    bodyLen: 0.35 + r() * 0.35, bodyH: 0.12 + r() * 0.15,
+    legLen: (giant ? 0.6 : 0.25) + r() * 0.4,
+    neckLen: { nessuno: 0, corto: 0.25, lungo: giant ? 1 : 0.6 }[dna.neck] * (0.7 + r() * 0.6),
+    pace: 0.6 + r() * 0.8,
+    rarity: SPECIES_RARITY.findLast(([, min]) => bits >= min)[0],
+    bits,
+  };
 }

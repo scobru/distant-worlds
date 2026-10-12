@@ -41,12 +41,18 @@ export function drawThing(g, t, x, y, s, o) {
     case 'obelisco': P(-0.1, 0, -0.07, -1.4, 0, -1.55, 0.07, -1.4, 0.1, 0); break;
     case 'castello':
       R(-1, -0.6, 2, 0.6); R(-0.35, -1.2, 0.7, 0.6);
+      if (r() < 0.5) { R(-1.1, -0.95, 0.35, 0.95); P(-1.15, -0.95, -0.925, -1.3, -0.7, -0.95); }
+      if (r() < 0.5) { R(0, -1.75, 0.02, 0.55); P(0.02, -1.75, 0.3, -1.65, 0.02, -1.55); }
       for (let i = 0; i < 10; i++) R(-1 + i * 0.2, -0.7, 0.1, 0.1);
       for (let i = 0; i < 4; i++) R(-0.35 + i * 0.2, -1.32, 0.1, 0.12);
       windows(-0.3, -1.15, 0.6, 0.5, 2, 2); break;
-    case 'casa':
-      R(-0.4, -0.45, 0.8, 0.45); P(-0.5, -0.45, 0, -0.8, 0.5, -0.45);
-      windows(-0.35, -0.4, 0.7, 0.35, 2, 1); break;
+    case 'casa': {
+      const w = 0.6 + r() * 0.6, h = 0.35 + r() * 0.3;
+      R(-w / 2, -h, w, h);
+      if (r() < 0.6) P(-w / 2 - 0.1, -h, 0, -h - 0.35, w / 2 + 0.1, -h); else R(-w / 2 - 0.05, -h - 0.06, w + 0.1, 0.06);
+      if (r() < 0.4) R(w / 4, -h - 0.35, 0.08, 0.25);
+      windows(-w / 2 + 0.05, -h + 0.05, w - 0.1, h - 0.1, Math.round(w * 3), 1); break;
+    }
     case 'mulino': {
       P(-0.25, 0, -0.15, -0.9, 0.15, -0.9, 0.25, 0);
       g.save(); g.translate(0, -0.9); g.rotate(o.t / 3000 + t.seed);
@@ -69,11 +75,14 @@ export function drawThing(g, t, x, y, s, o) {
     }
     case 'antenna':
       P(-0.18, 0, -0.02, -1.6, 0.02, -1.6, 0.18, 0); beacon(0, -1.62, 0.05, '#f33'); break;
-    case 'torre':
-      P(-0.22, 0, -0.07, -2, 0.07, -2, 0.22, 0);
-      g.beginPath(); g.ellipse(0, -1.55, 0.4, 0.08, 0, 0, 7); f();
-      R(-0.01, -2.5, 0.02, 0.5); windows(-0.12, -1.5, 0.24, 1.4, 1, 10); beacon(0, -2.5, 0.05, o.accent); break;
+    case 'torre': {
+      const h = 1.5 + r() * 1.2;
+      P(-0.22, 0, -0.07, -h, 0.07, -h, 0.22, 0);
+      for (let k = 1 + Math.floor(r() * 3); k--;) { g.beginPath(); g.ellipse(0, -h * (0.5 + r() * 0.35), 0.2 + r() * 0.3, 0.07, 0, 0, 7); f(); }
+      R(-0.01, -h - 0.5, 0.02, 0.5); windows(-0.12, -h * 0.75, 0.24, h * 0.7, 1, Math.round(h * 5)); beacon(0, -h - 0.5, 0.05, o.accent); break;
+    }
     case 'cupola':
+      for (let k = Math.floor(r() * 3); k--;) { g.beginPath(); g.arc((r() - 0.5) * 1.6, 0, 0.2 + r() * 0.2, Math.PI, 0); f(); }
       g.beginPath(); g.arc(0, 0, 0.6, Math.PI, 0); f(); R(-0.02, -0.95, 0.04, 0.4);
       windows(-0.45, -0.3, 0.9, 0.15, 5, 1); beacon(0, -0.96, 0.04, o.accent); break;
     case 'arco':
@@ -152,20 +161,43 @@ export function drawCreature(g, c, x, y, s, o) {
       g.beginPath(); g.moveTo(0, 0); g.lineTo(-0.35, -0.2); g.lineTo(-0.28, 0); g.lineTo(-0.35, 0.2); g.fill(); g.restore();
       E(0.1, 0.25, 0.25, 0.05, 0.5);
       break;
-    case 'quadrupede':
-      for (const [a, k] of [[-0.45, 0], [-0.3, 3], [0.3, 1.5], [0.45, 4.5]]) leg(a, -0.5, 0.5, 0.1, k);
-      E(0, -0.6, 0.6, 0.2);
-      g.lineWidth = 0.12; g.beginPath(); g.moveTo(0.5, -0.65); g.lineTo(0.75, -0.95 + swing * 0.03); g.stroke();
-      E(0.85, -0.97 + swing * 0.03, 0.17, 0.09, 0.3);
+    case 'specie': {
+      // Built from DNA (see makeSpecies); scaled so the whole animal is ~1 unit tall.
+      const d = c.dna, L = d.legLen, bl = d.bodyLen, bh = d.bodyH, H = L + bh + d.neckLen + 0.25;
+      g.scale(1 / H, 1 / H);
+      const lw = 0.05 + bh * 0.25;
+      const at = d.legs === 2 ? [0] : d.legs === 4 ? [-bl * 0.65, bl * 0.65] : [-bl * 0.7, 0, bl * 0.7];
+      at.forEach((a, k) => { leg(a, -L, L, lw, k * 1.5); leg(a + 0.04, -L, L, lw, k * 1.5 + Math.PI); });
+      E(0, -L, bl, bh);
+      if (d.pattern !== 'liscio') {
+        g.save(); g.beginPath(); g.ellipse(0, -L, bl, bh, 0, 0, 7); g.clip();
+        g.fillStyle = o.accent; g.globalAlpha = 0.35;
+        for (let k = 0; k < 6; k++) {
+          const x = -bl + (k + 0.5) * (bl / 3);
+          if (d.pattern === 'strisce') g.fillRect(x, -L - bh, bl * 0.12, bh * 2);
+          else { g.beginPath(); g.arc(x, -L + (r() - 0.5) * bh, bh * 0.25, 0, 7); g.fill(); }
+        }
+        g.restore();
+      }
+      // Tail.
+      g.lineWidth = lw * 0.8; g.beginPath(); g.moveTo(-bl * 0.9, -L);
+      if (d.tail === 'corta') { g.lineTo(-bl - 0.15, -L - 0.08 + swing * 0.02); g.stroke(); }
+      if (d.tail === 'lunga') { g.quadraticCurveTo(-bl - 0.4, -L + swing * 0.05, -bl - 0.6, -L + 0.15); g.stroke(); }
+      if (d.tail === 'folta') E(-bl - 0.15, -L - 0.1 + swing * 0.02, 0.18, 0.1, -0.5);
+      // Neck and head.
+      const hx = bl * 0.85 + d.neckLen * 0.35, hy = -L - bh * 0.5 - d.neckLen + swing * 0.02;
+      if (d.neckLen) { g.lineWidth = lw * 1.4; g.beginPath(); g.moveTo(bl * 0.7, -L - bh * 0.3); g.quadraticCurveTo(bl * 0.8, (hy - L) / 2, hx, hy); g.stroke(); }
+      const [hw, hh] = { tonda: [0.14, 0.12], allungata: [0.24, 0.09], piatta: [0.2, 0.06] }[d.head];
+      E(hx + hw * 0.5, hy, hw, hh, 0.15);
+      g.lineWidth = lw * 0.5; g.beginPath();
+      if (d.extra === 'corna') { g.moveTo(hx, hy - hh); g.quadraticCurveTo(hx - 0.1, hy - hh - 0.2, hx - 0.2, hy - hh - 0.15); g.stroke(); }
+      if (d.extra === 'antenne') {
+        for (const dx of [0, 0.08]) { g.moveTo(hx + dx, hy - hh); g.lineTo(hx + dx + 0.12, hy - hh - 0.25); }
+        g.stroke(); if (o.lights) { g.fillStyle = g.shadowColor = o.accent; g.shadowBlur = 6; } E(hx + 0.2, hy - hh - 0.25, 0.03, 0.03);
+      }
+      if (d.extra === 'cresta') { g.moveTo(hx - 0.1, hy - hh * 0.5); g.lineTo(hx + 0.05, hy - hh - 0.15); g.lineTo(hx + 0.2, hy - hh * 0.6); g.fill(); }
       break;
-    case 'gigante':
-      for (const [a, k] of [[-0.35, 0], [-0.25, 3], [0.25, 1.5], [0.35, 4.5]]) leg(a, -0.75, 0.75, 0.07, k);
-      E(0, -0.85, 0.5, 0.2);
-      g.lineWidth = 0.08; g.beginPath(); g.moveTo(0.4, -0.9);
-      g.quadraticCurveTo(0.75, -1.3, 0.8, -1.75 + swing * 0.02); g.stroke();
-      E(0.88, -1.77 + swing * 0.02, 0.12, 0.05);
-      g.beginPath(); g.moveTo(-0.45, -0.85); g.quadraticCurveTo(-0.9, -0.8 + swing * 0.05, -1.1, -0.5); g.stroke();
-      break;
+    }
     case 'abitante':
       leg(0, -0.5, 0.5, 0.1, 0); leg(0, -0.5, 0.5, 0.1, Math.PI);
       g.lineWidth = 0.14; g.beginPath(); g.moveTo(0, -0.5); g.lineTo(0, -0.95); g.stroke();

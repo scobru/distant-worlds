@@ -6,7 +6,7 @@
 <title>Distant Worlds</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #eee; font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
-  canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
   .ui { position: fixed; left: 0; right: 0; bottom: 0; padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
         background: linear-gradient(transparent, #0008); }
   h1 { margin: 0 auto 0 0; font-weight: 300; letter-spacing: .15em; text-transform: uppercase; font-size: 18px; }
@@ -19,10 +19,19 @@
            padding: 10px 16px; max-width: calc(100% - 32px); box-sizing: border-box; transition: opacity .5s; opacity: 0; pointer-events: none; }
   dialog { background: #0b0b12ee; color: inherit; border: 1px solid #fff3; border-radius: 16px; width: min(600px, calc(100% - 32px)); max-height: 85vh; padding: 20px; box-sizing: border-box; }
   dialog::backdrop { background: #0006; }
+  dialog .row { position: sticky; top: -20px; margin: -20px -20px 0; padding: 20px 20px 8px; background: #0b0b12; z-index: 1; }
   dialog h2, dialog h3 { font-weight: 400; margin: 18px 0 8px; } dialog h2 { margin-top: 0; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
   .chip { font-size: 13px; padding: 2px 10px; border-radius: 999px; background: #fff1; } .chip.no { opacity: .35; }
   dialog ul { list-style: none; padding: 0; margin: 0; } dialog li { padding: 4px 0; }
+  .portrait { vertical-align: middle; margin-right: 8px; background: #fff1; border-radius: 8px; }
+  #map svg { width: 100%; max-height: 50vh; display: block; background: #02020a; border-radius: 12px; }
+  #map svg a:focus-visible circle { stroke: #fff; stroke-width: .05; }
+  .pan { display: flex; gap: 6px; justify-content: center; margin-top: 8px; }
+  @media (max-width: 640px) {
+    .ui { padding: 10px; gap: 6px; } h1 { flex-basis: 100%; font-size: 16px; }
+    button { padding: 6px 11px; font-size: 13px; }
+  }
   dialog a { color: inherit; } dialog .x { padding: 0 8px; margin-left: 6px; font-size: 12px; }
   .row { display: flex; justify-content: space-between; align-items: center; }
 </style>
@@ -36,15 +45,21 @@
   <button id="fav">☆ Salva</button>
   <button id="share">Condividi</button>
   <button id="atlasBtn">Atlante</button>
+  <button id="mapBtn">Mappa</button>
   <button id="day">Mondo del giorno</button>
   <button id="gen">Genera mondo</button>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
+<dialog id="map"><div class="row"><h2 id="mapTitle">Mappa</h2><button id="mapClose">Chiudi</button></div>
+  <p id="mapInfo"></p><div id="mapSvg"></div>
+  <div class="pan"><button data-d="-1,0" aria-label="Ovest">←</button><button data-d="0,-1" aria-label="Nord">↑</button>
+  <button data-d="0,1" aria-label="Sud">↓</button><button data-d="1,0" aria-label="Est">→</button><button id="mapHome">Qui</button></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlante</h2><button id="close">Chiudi</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, chunk, height, walkerAt } from './world.js';
+import { makeWorld, randomSeed, rng, chunk, height, walkerAt, starsIn, regionAt, wrapS, REGIONI } from './world.js';
 import { drawThing, drawCreature } from './draw.js';
-import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
+import { startAudio as startMusic } from './audio.js';
+import { ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds';
@@ -66,13 +81,13 @@ const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let world, stars = [], ships = [];
 // Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
-let cam = 0, vel = 0, walking = false, keys = 0, cache = new Map();
+let cam = 0, vel = 0, walking = false, keys = 0, cache = new Map(), seenNow = new Set(), interest = 0;
 
 function load() {
   const [seedPart, pos] = decodeURIComponent(location.hash.slice(1)).split('@');
   const seed = seedPart || randomSeed();
   if (!location.hash) history.replaceState(null, '', '#' + seed);
-  cam = Number(pos) || 0; cache = new Map();
+  cam = Number(pos) || 0; cache = new Map(); seenNow = new Set();
   world = makeWorld(seed);
   const r = rng(world.music.noteSeed ^ 0x5eed);
   stars = Array.from({ length: world.stars }, () => [r(), r() * 0.7, r() * 1.5 + 0.3, r() * 6]);
@@ -81,7 +96,7 @@ function load() {
   document.getElementById('name').textContent = W.name;
   const rb = document.getElementById('rarity');
   rb.textContent = W.rarity; rb.className = 'badge ' + W.rarity;
-  document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.scaleName} ${W.music.bpm} bpm`;
+  document.getElementById('meta').textContent = `#${seed} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.lead} · ${W.music.scaleName} ${W.music.bpm} bpm${W.region ? ' · ' + W.region : ''}`;
   updateFav();
 
   if (st.last !== seed) {
@@ -141,12 +156,15 @@ function draw(t) {
 
   const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
   const next = new Map(), step = 4 * devicePixelRatio;
+  let seen = 0; // how much is on screen: drives the music
   W.layers.forEach((L, i) => {
     const off = cam * L.parallax, X = (x) => (x - off) * w, Y = (x) => (L.base - height(L, x) * L.span) * h;
     g.fillStyle = L.color; g.beginPath(); g.moveTo(0, h);
     for (let sx = -step; sx < w + step; sx += step) g.lineTo(sx, Y(off + sx / w));
     g.lineTo(w, h); g.fill();
     if (W.style === 'neon') { g.save(); g.strokeStyle = g.shadowColor = W.accent; g.shadowBlur = 10; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
+    // At night a faint rim of sky light keeps ridges (and what stands on them) readable.
+    else if (W.night) { g.save(); g.strokeStyle = W.sky.bottom; g.globalAlpha = 0.5; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
     const o = { color: L.color, accent: W.accent, light, night: W.night, lights: W.lights, style: W.style, t };
     // Only chunks near the screen exist; the rest are rebuilt identically on return.
     for (let c = Math.floor(off - 0.5); c <= Math.floor(off + 1.5); c++) {
@@ -155,10 +173,12 @@ function draw(t) {
       // Sink things slightly into the ground so slopes don't leave them floating.
       for (const th of ch.things) {
         drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
-        if (th.relic && X(th.x) > 0 && X(th.x) < w) relic(th.kind);
+        const vis = X(th.x) > 0 && X(th.x) < w;
+        if (vis && th.relic) { relic(th.kind); seen += 6; } else if (vis && !th.kind.match(/foresta|conifere|cristalli|funghi/)) seen++;
       }
       for (const cr of ch.creatures) {
         const [x, dir] = walkerAt(cr, t);
+        if (X(x) > 0 && X(x) < w) { seen++; if (cr.dna && !seenNow.has(cr.dna.id)) { seenNow.add(cr.dna.id); species(cr.dna); } }
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m, { ...co, color: L.color });
       }
     }
@@ -169,8 +189,14 @@ function draw(t) {
         g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
     }
   });
-  cache = next;
+  cache = next; interest = Math.min(seen, 12);
   requestAnimationFrame(draw);
+}
+
+function species(sp) {
+  const res = findSpecies(st, sp, world);
+  if (!res.isNew) return;
+  save(); toast([`Nuova specie: ${esc(sp.name)} (${sp.rarity})`, ...res.achievements.map((a) => `🏆 Traguardo: ${a}`)]);
 }
 
 function relic(kind) {
@@ -191,43 +217,9 @@ cv.addEventListener('pointerup', () => (dragX = null));
 const walkBtn = document.getElementById('walk');
 walkBtn.onclick = () => { walking = !walking; walkBtn.textContent = walking ? '■ Fermati' : '🚶 Cammina'; walkBtn.setAttribute('aria-pressed', walking); };
 
-// Generative ambient: drone on root+fifth, sparse seeded melody through a delay.
 let audio = null;
-function startAudio() {
-  const M = world.music, ac = new AudioContext(), out = ac.createGain();
-  out.gain.setValueAtTime(0, ac.currentTime); out.gain.linearRampToValueAtTime(0.5, ac.currentTime + 3);
-  const lp = ac.createBiquadFilter(); lp.frequency.value = M.cutoff; lp.connect(out); out.connect(ac.destination);
-  const delay = ac.createDelay(), fb = ac.createGain();
-  delay.delayTime.value = 60 / M.bpm * 0.75; fb.gain.value = 0.45;
-  delay.connect(fb); fb.connect(delay); delay.connect(lp);
-  const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
-
-  for (const [semi, det] of [[0, -4], [7, 4], [12, 0]]) {
-    const o = ac.createOscillator(), gg = ac.createGain();
-    o.type = 'sine'; o.frequency.value = hz(M.root + semi); o.detune.value = det; gg.gain.value = 0.12;
-    o.connect(gg); gg.connect(lp); o.start();
-  }
-
-  const r = rng(M.noteSeed), beat = 60 / M.bpm / 2;
-  let next = ac.currentTime + 1;
-  const tick = () => {
-    while (next < ac.currentTime + 0.5) {
-      if (r() < M.density) {
-        const deg = Math.floor(r() * M.scale.length), oct = 24 + 12 * Math.floor(r() * 2);
-        const o = ac.createOscillator(), e = ac.createGain();
-        o.type = M.wave; o.frequency.value = hz(M.root + oct + M.scale[deg]);
-        if (M.microtonal) o.detune.value = (r() - 0.5) * 60;
-        e.gain.setValueAtTime(0, next); e.gain.linearRampToValueAtTime(0.15, next + 0.02);
-        e.gain.exponentialRampToValueAtTime(0.001, next + beat * 3);
-        o.connect(e); e.connect(lp); e.connect(delay); o.start(next); o.stop(next + beat * 3);
-      }
-      next += beat;
-    }
-  };
-  audio = { ac, timer: setInterval(tick, 100) };
-  setBtn(true);
-}
-function stopAudio() { clearInterval(audio.timer); audio.ac.close(); audio = null; setBtn(false); }
+function startAudio() { audio = startMusic(world.music, () => interest); setBtn(true); }
+function stopAudio() { audio(); audio = null; setBtn(false); }
 const sb = document.getElementById('sound');
 function setBtn(on) { sb.textContent = on ? '■ Silenzio' : '▶ Suono'; sb.setAttribute('aria-pressed', on); }
 
@@ -254,6 +246,35 @@ favBtn.onclick = () => {
 };
 document.getElementById('day').onclick = () => { location.hash = dailySeed(days()[0]); };
 
+// Star map: 5x5 sectors around a centre; each star is a link to its world.
+const mapDlg = document.getElementById('map');
+let mapC = [0, 0];
+const REGION_COLOR = { 'Spazio profondo': 'transparent', 'Nebulosa aliena': '#3f6', 'Settore delle rovine': '#c96', 'Ammasso antico': '#fc6',
+  'Frontiera del futuro': '#6cf', 'Giardino stellare': '#9f6', 'Mari del cielo': '#69f' };
+function renderMap() {
+  const [cx, cy] = mapC, here = world.sector, svg = [];
+  for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
+    const sx = wrapS(cx + dx), sy = wrapS(cy + dy), [rn] = regionAt(sx, sy);
+    svg.push(`<rect x="${cx + dx}" y="${cy + dy}" width="1" height="1" fill="${REGION_COLOR[rn]}" opacity=".12"><title>${rn}</title></rect>`);
+    for (const s of starsIn(sx, sy)) {
+      const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
+      const rad = 0.05 + ['comune', 'raro', 'epico', 'leggendario'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
+      svg.push(`<a href="#${s.seed}" aria-label="${esc(w.name)}, ${w.rarity}"><title>${esc(w.name)} · ${w.rarity} · ${w.era} · ${w.civ}</title>
+        <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
+        ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
+    }
+  }
+  document.getElementById('mapSvg').innerHTML = `<svg viewBox="${cx - 2} ${cy - 2} 5 5" role="img" aria-label="Mappa stellare">${svg.join('')}</svg>`;
+  document.getElementById('mapTitle').textContent = `Mappa · ${regionAt(wrapS(cx), wrapS(cy))[0]}`;
+  document.getElementById('mapInfo').innerHTML = (here ? `Sei nel settore ${here.join(', ')}.` : 'Questo mondo è fuori mappa (seed personalizzato).')
+    + ` Centro ${wrapS(cx)}, ${wrapS(cy)} · stelle visitate cerchiate · più grande = più raro.`;
+  mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', () => mapDlg.close()));
+}
+document.getElementById('mapBtn').onclick = () => { mapC = world.sector ? [...world.sector] : [0, 0]; renderMap(); mapDlg.showModal(); };
+document.getElementById('mapClose').onclick = () => mapDlg.close();
+document.getElementById('mapHome').onclick = () => { mapC = world.sector ? [...world.sector] : [0, 0]; renderMap(); };
+mapDlg.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { const [dx, dy] = b.dataset.d.split(',').map(Number); mapC = [mapC[0] + dx, mapC[1] + dy]; renderMap(); }));
+
 const dlg = document.getElementById('atlas');
 document.getElementById('close').onclick = () => dlg.close();
 document.getElementById('atlasBtn').onclick = () => {
@@ -272,12 +293,20 @@ document.getElementById('atlasBtn').onclick = () => {
       <br><small>Serie attuale ${st.daily.streak} · migliore ${st.daily.best}${matches(world, m) && done ? ' · questo mondo la soddisfa' : ''}</small></p>
     <h3>Traguardi</h3>
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
+    <h3>Bestiario <small>${st.species.length} specie</small></h3>
+    ${st.species.length ? `<ul>${st.species.slice(0, 60).map((sp) => `<li><canvas class="portrait" width="72" height="48" data-id="${esc(sp.id)}" aria-hidden="true"></canvas>
+      <b>${esc(sp.name)}</b> <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">da <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
+      : '<p><small>Nessuna specie ancora. Cammina nei mondi con branchi o giganti.</small></p>'}
     <h3>Diario di bordo</h3>
     ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
       <span class="badge ${f.rarity}">${f.rarity}</span><button class="x" data-i="${i}" aria-label="Rimuovi ${esc(f.name)}">✕</button></li>`).join('')}</ul>`
       : '<p><small>Nessun mondo salvato. Usa ☆ Salva.</small></p>'}`;
   dlg.querySelectorAll('.x').forEach((b) => (b.onclick = () => { st.favs.splice(+b.dataset.i, 1); save(); updateFav(); dlg.close(); document.getElementById('atlasBtn').click(); }));
   dlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => dlg.close()));
+  for (const cv2 of dlg.querySelectorAll('.portrait')) {
+    const [seed, k] = cv2.dataset.id.split('#'), dna = makeWorld(seed).species[k];
+    if (dna) drawCreature(cv2.getContext('2d'), { kind: 'specie', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classico', lights: false, t: 0 });
+  }
   dlg.showModal();
 };
 
