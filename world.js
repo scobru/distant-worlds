@@ -521,3 +521,50 @@ export function depositsNear(w, x0, x1) {
   }
   return out;
 }
+
+// Events, on the clock everyone shares: each world rolls for one every 3 hours; an event lasts 1-2 hours.
+// Meteor showers leave rich ore (more often on dying worlds), herds migrate in from a neighbouring star,
+// a trader sets up a stall. The same for every explorer at the same time.
+export const EVENT_SLOT = 3 * 3600e3;
+export function eventAt(w, now = Date.now()) {
+  const slot = Math.floor((now - EPOCH) / EVENT_SLOT), r = rngFrom(`${w.seed}:event:${slot}`), life = ageOf(w.seed, now);
+  const unstable = life ? instability(life.age) : 0;
+  const start = EPOCH + slot * EVENT_SLOT + r() * 3600e3, end = start + (1 + r()) * 3600e3;
+  if (r() > 0.4 + unstable * 0.4 || now < start || now >= end) return null;
+  const roll = r() * (2 + unstable * 4), id = `${slot}`;
+  if (roll >= 2) return { kind: 'meteors', id, start, end };
+  if (roll < 1) return { kind: 'trader', id, start, end, x: (r() - 0.5) * 3 };
+  // migrants come from a star of the same sector that has animals
+  const sector = sectorOf(w.seed), from = sector && starsIn(...sector, now).map((s) => makeWorld(s.seed)).find((o) => o.species.length && o.seed !== w.seed);
+  return from ? { kind: 'migration', id, start, end, from: from.seed, fromName: from.name } : { kind: 'meteors', id, start, end };
+}
+
+/** Rich ore the meteors left, around the arrival point: [{ id, kind: 'ore', x, amount, seed }]. */
+export function meteoritesNear(w, ev, x0, x1) {
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:meteor:${ev.id}:${k}`);
+    if (r() < 0.55) out.push({ id: `met${ev.id}_${k}`, kind: 'ore', x: k + 0.1 + r() * 0.8, amount: 4 + Math.floor(r() * 4), seed: Math.floor(r() * 2 ** 32), meteor: true });
+  }
+  return out;
+}
+
+/** The migrating herd: walkers crossing the land, of a species from the neighbouring star. */
+export function migrants(ev) {
+  const r = rngFrom(`migration:${ev.id}:${ev.from}`), from = makeWorld(ev.from), sp = from.species[Math.floor(r() * from.species.length)];
+  // they travel together: same stretch of land and pace, a little spread out
+  const speed = (3 + r() * 3) * 1e-6 * sp.pace, phase = r() * 2;
+  return Array.from({ length: 8 + Math.floor(r() * 8) }, () => ({
+    kind: 'species', dna: sp, x: -0.6 + r() * 0.4, range: 1.6, speed, size: 0.03 + r() * 0.02, phase: phase + r() * 0.05, seed: Math.floor(r() * 2 ** 32),
+  }));
+}
+
+/** The trader's three deals for this event: [{ give: { plant, ore }, get: { ore | fuel | creature } }]. */
+export function deals(w, ev) {
+  const r = rngFrom(`trade:${w.seed}:${ev.id}`), n = (a, b) => a + Math.floor(r() * (b - a + 1));
+  return [
+    { give: { plant: n(8, 14) }, get: { ore: n(3, 6) } },
+    { give: { ore: n(6, 10) }, get: { fuel: n(25, 45) } },
+    { give: { plant: n(10, 16), ore: n(4, 8) }, get: { creature: 1 } },
+  ];
+}

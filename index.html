@@ -115,16 +115,21 @@
   <p>Worlds age (shown as <i>age N/100</i>) and collapse, then their star gives birth to a new one. After age 70 a world is unstable:
     tremors, a red sky, meteors, but richer ore. If it collapses while you are there you escape, leaving half your bag behind.
     If your home's world is dying, go to a young world and press <b>🚀 Move home here</b> before it is too late.</p>
+  <h3>✨ Events</h3>
+  <p>Worlds have events on a clock everyone shares, lasting an hour or two: a <b>☄ meteor shower</b> leaves meteorites full of ore,
+    a <b>🐾 migration</b> brings a herd from a nearby star to capture, a <b>🧳 trader</b> swaps plants and ore for ore, fuel or a creature from another world.
+    Dying worlds have more meteor showers. The map marks the worlds that have an event right now.</p>
   <h3>🌐 Together (Freenet)</h3>
   <p>On the Freenet version you sign in with your Viso persona: stay on a planet to plant your flag 🚩, your home is seen by everyone who visits it, and there is a leaderboard 🏆 and a galaxy chat 💬.</p>
 </dialog>
+<dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability } from './world.js';
+import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
-import { startAudio as startMusic } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate } from './atlas.js';
+import { startAudio as startMusic, sfx } from './audio.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -149,7 +154,8 @@ function toast(lines) {
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const cv = document.getElementById('c'), g = cv.getContext('2d');
-let world, stars = [], ships = [], life = null, inst = 0;
+let world, stars = [], ships = [], life = null, inst = 0, ev = null, evHerd = [];
+const EVENT_NAME = { meteors: '☄ Meteor shower', migration: '🐾 Migration', trader: '🧳 Trader' };
 // time left, readable: "3 days", "5 h", "12 min"
 const left = (ms) => ms > 2 * 864e5 ? `${Math.round(ms / 864e5)} days` : ms > 2 * 36e5 ? `${Math.round(ms / 36e5)} h` : `${Math.max(1, Math.round(ms / 6e4))} min`;
 // Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
@@ -197,7 +203,7 @@ function load() {
     toast([n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
       ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
-  checkHome();
+  checkHome(); ev = null; checkEvent();
   if (inst) setTimeout(() => world === W && toast([`⚠ ${W.name} is unstable: it collapses in ${left(life.collapse - Date.now())}. Ore is richer here, but leave in time.`]), 3600);
   updateHome(); pets = homePets();
   if (audio) { stopAudio(); startAudio(); }
@@ -258,7 +264,7 @@ function draw(t) {
   const fresh = Math.max(0, cam - explored[1]) + Math.max(0, explored[0] - cam);
   explored = [Math.min(explored[0], cam), Math.max(explored[1], cam)];
   if (fresh) addFuel(st, Math.min(fresh * FUEL.perScreen, FUEL.maxPerSecond * dt / 1000));
-  document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)} · 🌿${Math.floor(st.bag.plant)} ⛏${Math.floor(st.bag.ore)} 🐾${st.bag.creature.length}`;
+  document.getElementById('pos').textContent = `${ev ? EVENT_NAME[ev.kind] + ' · ' : ''}📍 ${cam.toFixed(1)} · 🌿${Math.floor(st.bag.plant)} ⛏${Math.floor(st.bag.ore)} 🐾${st.bag.creature.length}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
   hits = [];
   // tremors on a dying world
@@ -391,13 +397,29 @@ function draw(t) {
         hit({ type: 'pet', ...cr, owner: H.nick }, X(x), Y(x) + s * 0.05, s);
       }
     }
+    if (i === W.layers.length - 2) for (const cr of evHerd) { // a migrating herd, free to capture
+      const take = { id: cr.seed, kind: 'creature', dna: cr.dna.id, name: cr.dna.name };
+      if (picked(st, day, W.seed, take)) continue;
+      const [x, dir] = walkerAt(cr, t), s = cr.size * m;
+      if (X(x) < -s * 2 || X(x) > w + s * 2) continue;
+      drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, { ...co, color: L.color });
+      hit({ type: 'walker', ...cr, migrant: ev.fromName, take, reach: near(X(x)) }, X(x), Y(x) + s * 0.05, s);
+    }
     // pickups lie on the nearest ground; only those near the middle (where you stand) can be taken
     if (i === W.layers.length - 1) {
-      for (const d of depositsNear(W, off - 0.5, off + 1.5)) {
+      for (const d of [...depositsNear(W, off - 0.5, off + 1.5), ...(ev?.kind === 'meteors' ? meteoritesNear(W, ev, off - 0.5, off + 1.5) : [])]) {
         if (picked(st, day, W.seed, d)) continue;
-        const dx = X(d.x), dy = Y(d.x) + 0.01 * m, s = 0.05 * m, reach = near(dx), ore = { ...d, amount: d.amount + Math.round(inst * 3) };
-        drawDeposit(g, dx, dy, s, d.seed, W.accent, !reach);
+        const dx = X(d.x), dy = Y(d.x) + 0.01 * m, s = (d.meteor ? 0.065 : 0.05) * m, reach = near(dx), ore = { ...d, amount: d.amount + Math.round(inst * 3) };
+        drawDeposit(g, dx, dy, s, d.seed, d.meteor ? '#ffcf5a' : W.accent, !reach);
         hits.push([[dx - s * 0.7, dy - s * 0.9, dx + s * 0.7, dy], { type: 'ore', ...ore, take: ore, reach }]);
+      }
+      if (ev?.kind === 'trader') { // a stall and its keeper
+        const tx = X(ev.x), ty = Y(ev.x), s = 0.08 * m, reach = near(tx);
+        drawThing(g, { kind: 'shack', seed: 3, size: 0.08 }, tx + s * 0.6, ty + s * 0.1, s, o);
+        drawCreature(g, { kind: 'human', speed: -1, seed: 5 }, tx - s * 0.5, ty + s * 0.05, s * 0.45, { ...co, color: L.color });
+        g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
+        g.fillText('🧳 Trader', tx, ty - s * 1.6); g.restore();
+        hits.push([[tx - s, ty - s * 1.4, tx + s * 1.4, ty], { type: 'trader', trade: true, reach, end: ev.end }]);
       }
       const time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
       for (const p of pickupsNear(W, day, off - 0.5, off + 1.5, time)) {
@@ -420,10 +442,11 @@ function draw(t) {
   const LN = W.layers.at(-1), gx = cam * LN.parallax + 0.5, as = 0.09 * m;
   drawAvatar(g, st.avatar, w / 2, (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m, as, facing, gx * w / (as * 0.15), t < movingUntil, t);
   if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
-  if (inst) { // red sky and falling meteors as the world nears collapse
+  const fall = Math.max(inst, ev?.kind === 'meteors' ? 0.75 : 0);
+  if (fall) { // red sky as the world nears collapse; falling meteors then and during showers
     g.fillStyle = `rgba(200, 40, 0, ${0.22 * inst})`; g.fillRect(-w, -h, 3 * w, 3 * h);
     g.strokeStyle = '#ffb36b'; g.lineWidth = 2 * devicePixelRatio;
-    for (let k = 0; k < Math.floor(inst * 8); k++) {
+    for (let k = 0; k < Math.floor(fall * 8); k++) {
       const u = (t / 2600 + k * 0.618) % 1, x0 = ((k * 0.37 + Math.floor(t / 2600 + k * 0.618) * 0.29) % 1) * w * 1.3;
       g.globalAlpha = 1 - u; g.beginPath(); g.moveTo(x0 - u * w * 0.3, u * h * 0.7); g.lineTo(x0 - u * w * 0.3 + w * 0.04, u * h * 0.7 - h * 0.06); g.stroke();
     }
@@ -465,7 +488,7 @@ addEventListener('keydown', (e) => {
   // E: take the nearest thing within reach of the explorer
   if (e.code === 'KeyE') {
     const mid = cv.width / 2, d = ([[x0, , x1]]) => Math.abs((x0 + x1) / 2 - mid);
-    const best = hits.filter(([, h]) => h.take && h.reach).sort((a, b) => d(a) - d(b))[0];
+    const best = hits.filter(([, h]) => (h.take || h.trade) && h.reach).sort((a, b) => d(a) - d(b))[0];
     if (best) take(best[1]);
   }
 });
@@ -491,15 +514,16 @@ cv.addEventListener('pointerup', (e) => {
   if (dragged) return;
   pointer = [e.clientX, e.clientY]; tapUntil = performance.now() + 4000;
   const [px, py] = pointer.map((v) => v * devicePixelRatio);
-  const it = hits.findLast(([[x0, y0, x1, y1], h]) => h.take && px >= x0 && px <= x1 && py >= y0 && py <= y1)?.[1];
+  const it = hits.findLast(([[x0, y0, x1, y1], h]) => (h.take || h.trade) && px >= x0 && px <= x1 && py >= y0 && py <= y1)?.[1];
   if (it) take(it);
 });
 // Pickups, plants, creatures and ore: whatever is within the explorer's reach.
 function take(e) {
-  if (!e.reach) return toast(['Walk closer to take it.']);
+  if (!e.reach) return toast([e.trade ? 'Walk to the stall to trade.' : 'Walk closer to take it.']);
+  if (e.trade) return openTrade();
   const p = e.take;
   if (!collect(st, days()[0], world.seed, p, Date.now())) return toast(['You already took as many time shards as this planet gives today.']);
-  save();
+  save(); sfx(p.kind === 'plant' || p.kind === 'ore' || p.kind === 'creature' ? p.kind : 'pickup');
   toast([{ fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
     creature: `🐾 Captured ${esc(p.name)}: it will live on your home planet` }[p.kind]]);
@@ -531,8 +555,20 @@ moveBtn.onclick = () => {
   save(); checkHome(); updateHome(); pets = homePets(); fn?.homeChanged();
   toast([`🚀 Your civilization moved to ${world.name}.`]);
 };
+// Events on this world (world.js eventAt): announced when they start or when you arrive.
+function checkEvent() {
+  const e = eventAt(world);
+  if (e?.id === ev?.id && e?.kind === ev?.kind) return;
+  ev = e; evHerd = ev?.kind === 'migration' ? migrants(ev) : [];
+  if (!ev) return;
+  const until = new Date(ev.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  toast([{ meteors: `☄ Meteor shower on ${world.name} until ${until}: meteorites full of ore have fallen.`,
+    migration: `🐾 A herd is migrating through ${world.name} from ${esc(ev.fromName)} until ${until}.`,
+    trader: `🧳 A trader has set up on ${world.name} until ${until}: walk to the stall.` }[ev.kind]]);
+}
 // Collapse while you are here: emergency jump to the world the star gives birth to, half the bag left behind.
 setInterval(() => {
+  checkEvent();
   if (!life) return;
   if (Date.now() < life.collapse) { inst = instability(ageOf(world.seed).age); return; }
   const next = ageOf(world.seed).next;
@@ -540,6 +576,26 @@ setInterval(() => {
   toast([`💥 ${world.name} collapsed! Emergency jump: you escaped, but half of your bag was left behind.`]);
   location.hash = next;
 }, 1000);
+
+// The trader's deals; a creature bought comes from some star with animals.
+const tradeDlg = document.getElementById('tradeDlg');
+document.getElementById('tradeClose').onclick = () => tradeDlg.close();
+const bagText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.fuel && `⚡${c.fuel}`, c.creature && '🐾 a creature from another world'].filter(Boolean).join(' ');
+function openTrade() {
+  if (ev?.kind !== 'trader') return;
+  const list = deals(world, ev);
+  document.getElementById('tradeBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} · ⛏ ${Math.floor(st.bag.ore)}</p>
+    <ul>${list.map((d, i) => `<li><button data-deal="${i}">Trade</button> ${bagText(d.give)} → <b>${bagText(d.get)}</b></li>`).join('')}</ul>`;
+  tradeDlg.querySelectorAll('[data-deal]').forEach((b) => (b.onclick = () => {
+    const d = list[+b.dataset.deal];
+    let exotic = null;
+    if (d.get.creature) for (let k = 0; !exotic && k < 20; k++) { const o = makeWorld(randomSeed(rng(Date.now() + k))); if (o.species.length) exotic = o.species[0]; }
+    if (!trade(st, d, exotic?.id)) return toast(['You do not have enough for that.']);
+    save(); sfx('pickup'); openTrade();
+    toast([`🧳 Traded: ${bagText(d.get).replace('a creature from another world', exotic ? esc(exotic.name) : '')}`]);
+  }));
+  tradeDlg.showModal();
+}
 
 // Home planet: settle on one world, come back to it for free and build with what you gathered.
 const homeBtn = document.getElementById('homeBtn'), buildDlg = document.getElementById('buildDlg');
@@ -570,14 +626,14 @@ function renderBuild() {
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();
     save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
-    toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
+    sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
   }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     let ok;
     const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, standing()); }); // new buildings start producing now
     if (!ok) return;
     save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
-    toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
+    sfx('build'); toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
   }));
 }
 document.getElementById('buildClose').onclick = () => buildDlg.close();
@@ -667,6 +723,7 @@ function renderMap() {
       svg.push(`<a href="#${s.seed}" data-cost="${cost}" data-full="${jumpCost(here, [sx, sy], GALAXY)}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${col ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}
+        ${eventAt(w) ? `<text x="${x + rad}" y="${y - rad}" font-size=".14">${EVENT_NAME[eventAt(w).kind].split(' ')[0]}</text>` : ''}
         ${dying ? `<circle cx="${x}" cy="${y}" r="${rad + 0.05}" fill="none" stroke="#f42" stroke-width=".012" stroke-dasharray=".03 .02"/>` : ''}
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
     }
@@ -674,7 +731,7 @@ function renderMap() {
   document.getElementById('mapSvg').innerHTML = `<svg viewBox="${cx - 2} ${cy - 2} 5 5" role="img" aria-label="Star map">${svg.join('')}</svg>`;
   document.getElementById('mapTitle').textContent = `Map · ${regionAt(wrapS(cx), wrapS(cy))[0]}`;
   document.getElementById('mapInfo').innerHTML = (here ? `You are in sector ${here.join(', ')}.` : 'This world is off the map (custom seed).')
-    + ` Centre ${wrapS(cx)}, ${wrapS(cy)}${fn ? ' · gold ring = colony' : ''} · fuel ${Math.floor(st.fuel)}⚡ · nearer stars cost less · circled (visited) stars are free · bigger = rarer · red dashes = dying world.`;
+    + ` Centre ${wrapS(cx)}, ${wrapS(cy)}${fn ? ' · gold ring = colony' : ''} · fuel ${Math.floor(st.fuel)}⚡ · nearer stars cost less · circled (visited) stars are free · bigger = rarer · red dashes = dying world · ☄ 🐾 🧳 = event now.`;
   mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', (e) => {
     const cost = +a.dataset.cost;
     // data-cost is already the price; pass the full cost so jump() applies (and spends) the discounts once

@@ -173,3 +173,13 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual(st.bag, { plant: 2, ore: 2, creature: ['x', 'y'] });
   console.log('exodus ok');
 }
+{
+  const { trade } = await import('./atlas.js');
+  const st = emptyState(); st.bag = { plant: 20, ore: 5, creature: [] }; st.fuel = 10;
+  assert.ok(trade(st, { give: { plant: 10 }, get: { ore: 4 } }) && st.bag.plant === 10 && st.bag.ore === 9);
+  assert.ok(trade(st, { give: { ore: 8 }, get: { fuel: 30 } }) && st.fuel === 40);
+  assert.ok(!trade(st, { give: { plant: 11 }, get: { ore: 1 } }), 'not enough plants');
+  assert.ok(!trade(st, { give: { plant: 1 }, get: { creature: 1 } }), 'no creature to give');
+  assert.ok(trade(st, { give: { plant: 1 }, get: { creature: 1 } }, 'v1-1_1_1#0') && st.bag.creature[0] === 'v1-1_1_1#0');
+  console.log('trade ok');
+}
