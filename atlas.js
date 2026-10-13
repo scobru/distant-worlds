@@ -197,3 +197,24 @@ export function build(st, kind, x) {
   st.home.built.push({ kind, x, seed: st.home.built.length + 1 });
   return true;
 }
+
+// Exodus: a home whose world is dying can move, buildings and creatures included, for a price per building.
+export const MOVE_COST = { plant: 3, ore: 3 };
+export const moveCost = (st) => ({ plant: MOVE_COST.plant * st.home.built.length, ore: MOVE_COST.ore * st.home.built.length });
+export function moveHome(st, seed) {
+  const c = moveCost(st);
+  if (st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
+  st.bag.plant -= c.plant; st.bag.ore -= c.ore; st.home.seed = seed;
+  return true;
+}
+/** The home world collapsed: the buildings are lost, the creatures escape into the bag. */
+export function loseHome(st) {
+  st.bag.creature.push(...st.home.animals);
+  const lost = st.home; st.home = null;
+  return lost;
+}
+/** Evacuating a collapsing world: half of what is in the bag is left behind. */
+export function evacuate(st) {
+  st.bag.plant = Math.floor(st.bag.plant / 2); st.bag.ore = Math.floor(st.bag.ore / 2);
+  st.bag.creature = st.bag.creature.slice(0, Math.floor(st.bag.creature.length / 2));
+}

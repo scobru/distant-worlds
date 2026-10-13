@@ -32,7 +32,7 @@ for (let i = 0; i < 300; i++) {
 }
 assert.ok(things && relics && walkers, `${things} ${relics} ${walkers}`);
 // Galaxy: stars are stable, seeds parse back to their sector, regions bias worlds.
-assert.deepEqual(starsIn(12, 34), starsIn(12, 34));
+assert.deepEqual(starsIn(12, 34, 1.8e12), starsIn(12, 34, 1.8e12));
 for (const st of starsIn(12, 34)) assert.deepEqual(sectorOf(st.seed), [12, 34]);
 for (let i = 0; i < 200; i++) { const s = randomSeed(); const [x, y] = sectorOf(s); assert.ok(x >= 0 && x < GALAXY && y >= 0 && y < GALAXY && starsIn(x, y).some((st) => st.seed === s)); }
 assert.equal(sectorOf('v1-abc'), null);
@@ -104,4 +104,26 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.ok(all.length > 20 && all.every((d) => d.amount >= 1 && d.amount <= 3 && d.kind === 'ore'));
   assert.equal(new Set(all.map((d) => d.id)).size, all.length, 'deposit ids are unique');
   console.log('deposits ok:', all.length);
+}
+{
+  const { lifeOf, ageOf, instability, starsIn, sectorOf, EPOCH, DAY } = await import('./world.js');
+  const t0 = EPOCH + 12 * DAY;
+  const a = lifeOf(5, 7, 2, t0);
+  assert.ok(a.age >= 0 && a.age < 100 && a.collapse > t0);
+  // just before and after the collapse: same star, next world
+  const before = lifeOf(5, 7, 2, a.collapse - 1), after = lifeOf(5, 7, 2, a.collapse + 1);
+  assert.equal(before.seed, a.seed);
+  assert.equal(after.gen, a.gen + 1);
+  assert.ok(after.age < 1 && before.age > 99);
+  assert.ok(ageOf(a.seed, a.collapse + 1).dead && ageOf(a.seed, a.collapse + 1).next === after.seed);
+  assert.ok(!ageOf(a.seed, t0).dead);
+  assert.equal(ageOf('my-own-world', t0), null, 'custom seeds never age');
+  assert.deepEqual(sectorOf('v1-5_7_2.3'), [5, 7]);
+  assert.equal(sectorOf('v1-5_7_2.0'), null, 'generation 0 has no suffix');
+  assert.notEqual(makeWorld('v1-5_7_2').name, makeWorld('v1-5_7_2.1').name, 'a reborn star makes a new world');
+  assert.ok(starsIn(5, 7, t0).every((s) => !ageOf(s.seed, t0).dead));
+  assert.deepEqual([instability(50), instability(85), instability(100)], [0, 0.5, 1]);
+  // lifespans 30-120 days
+  for (let i = 0; i < 50; i++) { const l = lifeOf(i, 1, 0, t0), n = lifeOf(i, 1, 0, l.collapse + 1); assert.ok(n.collapse - l.collapse >= 30 * DAY - 1 && n.collapse - l.collapse <= 120 * DAY + 1); }
+  console.log('life ok:', a.seed, a.age.toFixed(1));
 }

@@ -156,3 +156,20 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(withAchievements(st, () => {}).length === 0);
   console.log('buildings ok');
 }
+{
+  const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'A'); st.bag = { plant: 20, ore: 10, creature: ['x', 'y', 'z'] };
+  build(st, 'house', 0); build(st, 'house', 0); // 10 plants spent
+  assert.deepEqual(moveCost(st), { plant: 6, ore: 6 });
+  assert.ok(moveHome(st, 'B') && st.home.seed === 'B' && st.home.built.length === 2);
+  assert.deepEqual([st.bag.plant, st.bag.ore], [4, 4]);
+  assert.ok(!moveHome(st, 'C'), 'not enough to move again');
+  st.home.animals = ['a', 'b'];
+  assert.equal(loseHome(st).built.length, 2);
+  assert.equal(st.home, null);
+  assert.deepEqual(st.bag.creature, ['x', 'y', 'z', 'a', 'b'], 'creatures escape');
+  evacuate(st);
+  assert.deepEqual(st.bag, { plant: 2, ore: 2, creature: ['x', 'y'] });
+  console.log('exodus ok');
+}
