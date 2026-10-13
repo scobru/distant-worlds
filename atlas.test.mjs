@@ -174,6 +174,40 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   console.log('population ok');
 }
 {
+  // Pirates: the same raids for everyone, defended by castles, towers, people and creatures.
+  const { setHome, pirates, raidAt, defence, pirateThreat, repair, repairCost, population, PIRATES } = await import('./atlas.js');
+  const st = emptyState(), day = 864e5;
+  setHome(st, 'P', 0);
+  const { sow } = await import('./atlas.js');
+  assert.equal(sow(st), 0); assert.deepEqual(st.home.garden, [], 'sowing an empty bag');
+  assert.deepEqual(pirates(st, 2 * day), [], 'new homes are left alone');
+  st.home.built = ['castle', 'castle', 'tower', 'windmill', 'house'].map((kind, i) => ({ kind, x: i / 5 }));
+  assert.equal(defence(st.home), 6 + 6 + 4 + Math.floor(population(st.home) / 5));
+  // find a day with a raid; the home wins it: no damage, ore from the wreck
+  let t = 4 * day;
+  const raids = (from, to) => { const out = []; for (let s = Math.floor(from / PIRATES.slot); s * PIRATES.slot < to; s++) { const r = raidAt(st.home, s); if (r && r.at >= from && r.at < to) out.push(r); } return out; };
+  while (!raids(t - day, t).length) t += day;
+  st.home.raided = t - day;
+  const ore = st.bag.ore, won = pirates(st, t);
+  assert.ok(won.length && won.every((r) => r.won && r.loot) && st.bag.ore > ore, JSON.stringify(won));
+  assert.ok(st.home.built.every((b) => !b.damaged));
+  assert.deepEqual(raidAt(st.home, 7), raidAt(st.home, 7), 'deterministic');
+  // undefended: the raid damages a building, which then counts for nothing, and a day of shield follows
+  st.home.built = [{ kind: 'house', x: 0 }];
+  st.home.raided = t;
+  let lost = [];
+  for (t += day; !lost.length; t += day) lost = pirates(st, t).filter((r) => !r.won);
+  assert.equal(lost.length, 1, 'a lost raid shields the home for a day');
+  assert.ok(lost[0].crew > defence({ built: [{ kind: 'house' }], animals: [] }) && lost[0].damaged === 'house');
+  assert.equal(population(st.home), 0, 'a damaged hut shelters nobody');
+  assert.ok(pirateThreat({ built: [], animals: [] }) < pirateThreat({ built: [{ kind: 'dome' }], animals: [] }));
+  st.bag = { plant: 0, ore: 0, creature: [] };
+  assert.ok(!repair(st, 0), 'repairs cost');
+  st.bag.plant = repairCost('house').plant;
+  assert.ok(repair(st, 0) && !st.home.built[0].damaged && population(st.home) === 4);
+  console.log('pirates ok');
+}
+{
   const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');
   const st = emptyState();
   setHome(st, 'A'); st.bag = { plant: 20, ore: 10, creature: ['x', 'y', 'z'] };

@@ -148,19 +148,20 @@ export const boostOn = (st, seed, now) => st.boost?.seed === seed && now < st.bo
 // Home planet: the explorer's own world, where gathered resources become a civilization.
 // Plants and ore are spent; animals (captured creatures, released at home) are a requirement.
 // `gather`: extra per plant / ore / creature taken; `hour`: produced while you are away; `jump`: cheaper jumps;
-// `house`: people it shelters; `food`: people it feeds.
+// `house`: people it shelters; `food`: people it feeds; `guard`: defence against pirates.
 export const BUILDINGS = {
   house: { name: 'Hut', cost: { plant: 5 }, hour: { plant: 1 }, house: 4, food: 2 },
   windmill: { name: 'Mill', cost: { plant: 8, ore: 2 }, gather: 'plant', hour: { plant: 1 }, house: 1, food: 10 },
   longhouse: { name: 'Stable', cost: { plant: 6, ore: 2, animals: 2 }, gather: 'creature', house: 2, food: 4 },
   factory: { name: 'Workshop', cost: { plant: 4, ore: 8 }, gather: 'ore', hour: { ore: 1 }, house: 3 },
   temple: { name: 'Temple', cost: { plant: 6, ore: 12, animals: 3 }, hour: { fuel: 5 }, house: 2 },
-  castle: { name: 'Castle', cost: { plant: 10, ore: 20 }, hour: { ore: 2 }, house: 8 },
-  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 }, jump: 0.1, house: 1 },
+  castle: { name: 'Castle', cost: { plant: 10, ore: 20 }, hour: { ore: 2 }, house: 8, guard: 6 },
+  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 }, jump: 0.1, house: 1, guard: 4 },
   dome: { name: 'Dome', cost: { plant: 20, ore: 30, animals: 8 }, hour: { plant: 2, ore: 2, fuel: 5 }, house: 10, food: 10 },
 };
 // Buildings come as { kind } here and as [kind, x] in homes published on Freenet.
-const kinds = (home) => (home?.built ?? []).map((b) => b.kind ?? b[0]).filter((k) => BUILDINGS[k]);
+// Damaged buildings (pirates) shelter, feed and count for nothing until repaired.
+const kinds = (home) => (home?.built ?? []).filter((b) => !b.damaged).map((b) => b.kind ?? b[0]).filter((k) => BUILDINGS[k]);
 // What the land around the landing site feeds without farms.
 export const BASE_FOOD = 6;
 /** People living at home: as many as the buildings shelter, but no more than they can feed. */
@@ -177,7 +178,7 @@ export function civPoints(home) {
 }
 /** Civilization level, from 1: each level needs more points than the one before. */
 export const civLevel = (home) => 1 + Math.floor(Math.sqrt(civPoints(home) / 20));
-const builtOf = (st, k) => st.home?.built.filter((b) => b.kind === k).length ?? 0;
+const builtOf = (st, k) => st.home?.built.filter((b) => b.kind === k && !b.damaged).length ?? 0;
 // +1 per building of that kind, at most +3 (creatures: at most one extra)
 export const gatherBonus = (st, kind) => Math.min(kind === 'creature' ? 1 : 3,
   Object.entries(BUILDINGS).filter(([, b]) => b.gather === kind).reduce((a, [k]) => a + builtOf(st, k), 0));
@@ -188,7 +189,7 @@ export const jumpDiscount = (st) => Math.min(0.5, builtOf(st, 'tower') * BUILDIN
 export function produce(st, now) {
   const H = st.home, hours = Math.min(24, Math.max(0, (now - (H.prod ?? now)) / 3.6e6)), got = { plant: 0, ore: 0, fuel: 0 };
   H.prod = now;
-  for (const b of H.built) for (const [r, n] of Object.entries(BUILDINGS[b.kind].hour ?? {})) got[r] += n * hours;
+  for (const b of H.built) if (!b.damaged) for (const [r, n] of Object.entries(BUILDINGS[b.kind].hour ?? {})) got[r] += n * hours;
   // workers: +2% plants and ore per inhabitant, at most double
   const work = 1 + Math.min(1, population(H) / 50);
   got.plant *= work; got.ore *= work;
@@ -199,12 +200,13 @@ export function produce(st, now) {
 const TITLES = [[1, 'Landing site'], [2, 'Camp'], [3, 'Village'], [5, 'Town'], [6, 'City'], [9, 'Capital']];
 export const civTitle = (home) => TITLES.findLast(([n]) => civLevel(home) >= n)[1];
 
-export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now });
+export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now, since: now });
 
 /** Releases the creatures in the bag on the home planet; returns how many. */
 /** Sows the seeds in the bag in the home's garden (one entry per species); returns how many are new. */
 export function sow(st) {
-  const fresh = (st.bag.seeds ?? []).filter((s) => !(st.home.garden ??= []).includes(s));
+  st.home.garden ??= []; // homes from before the garden, and a bag without seeds
+  const fresh = (st.bag.seeds ?? []).filter((s) => !st.home.garden.includes(s));
   st.home.garden.push(...fresh); st.bag.seeds = [];
   return fresh.length;
 }
@@ -227,6 +229,50 @@ export function build(st, kind, x, g = 1) {
   const c = costOf(kind, g);
   st.bag.plant -= c.plant; st.bag.ore -= c.ore;
   st.home.built.push({ kind, x, seed: st.home.built.length + 1 });
+  return true;
+}
+
+// Pirates, on a clock everyone shares: every 8 hours a home may be attacked. They come for bigger
+// civilizations with bigger crews; castles and towers, people and creatures defend it. A lost raid
+// damages a building (it does nothing until repaired); a repelled one leaves ore from the wreck.
+// New homes are left alone for 3 days, and a home that lost a raid for a day.
+export const PIRATES = { slot: 8 * 3600e3, chance: 0.3, grace: 3 * 864e5, shield: 864e5 };
+/** Defence of a home: castles and towers, one per 5 people, one per 3 creatures. */
+export const defence = (home) => kinds(home).reduce((a, k) => a + (BUILDINGS[k].guard ?? 0), 0)
+  + Math.floor(population(home) / 5) + Math.floor((home?.animals.length ?? 0) / 3);
+/** Average pirate crew for a home of this civilization level (a raid ranges from half to 1.5 times it). */
+export const pirateThreat = (home) => 2 + 2 * civLevel(home);
+/** The raid on `home` in clock slot `slot`, or null: { at, crew } (the same for everyone, from the seed). */
+export function raidAt(home, slot) {
+  const r = rngFrom(`${home.seed}:pirates:${slot}`);
+  if (r() >= PIRATES.chance) return null;
+  return { at: (slot + r()) * PIRATES.slot, crew: Math.round(pirateThreat(home) * (0.5 + r())) };
+}
+/** Fights the raids since the last check (at most a day's worth, like production); returns what happened:
+ *  [{ at, crew, defence, won, damaged?: kind, loot?: ore }]. */
+export function pirates(st, now) {
+  const H = st.home, from = Math.max(H.raided ?? 0, (H.since ?? 0) + PIRATES.grace, now - 864e5), out = [];
+  H.raided = now;
+  for (let slot = Math.floor(from / PIRATES.slot); slot * PIRATES.slot < now; slot++) {
+    const raid = raidAt(H, slot);
+    if (!raid || raid.at < from || raid.at >= now || raid.at < (H.shield ?? 0)) continue;
+    const d = defence(H), won = d >= raid.crew, res = { ...raid, defence: d, won };
+    if (won) { res.loot = 2 + Math.floor(raid.crew / 3); st.bag.ore += res.loot; }
+    else {
+      const ok = H.built.filter((b) => !b.damaged);
+      if (ok.length) { const b = ok[Math.floor(rngFrom(`${H.seed}:hit:${slot}`)() * ok.length)]; b.damaged = true; res.damaged = b.kind; }
+      H.shield = raid.at + PIRATES.shield;
+    }
+    out.push(res);
+  }
+  return out;
+}
+/** Repairing a damaged building costs half of building it. */
+export const repairCost = (kind, g = 1) => { const c = costOf(kind, g); return { plant: Math.ceil(c.plant / 2), ore: Math.ceil(c.ore / 2) }; };
+export function repair(st, i, g = 1) {
+  const b = st.home.built[i], c = b?.damaged && repairCost(b.kind, g);
+  if (!c || st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
+  st.bag.plant -= c.plant; st.bag.ore -= c.ore; delete b.damaged;
   return true;
 }
 

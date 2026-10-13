@@ -28,7 +28,7 @@ export function describe(e, w, known) {
     lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],
       e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
   };
-  if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.'] };
+  if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.', e.damaged && 'Damaged by pirates: repair it from 🏗 Build.'].filter(Boolean) };
   if (e.type === 'pet') return { title: e.dna.name, lines: [e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', parts(e.dna)] };
   if (e.type === 'ruin') return { title: e.owner ? `Ruins of ${e.owner}` : `Ruins of ${e.prev}`, lines: [e.owner ? `Built on ${e.prev}, the world that stood here before it collapsed.` : `Left by ${e.prev}, the world that stood here before.`] };
   if (e.type === 'trader') return { title: '🧳 Trader', lines: [`Trades plants and ore until ${new Date(e.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`, e.reach ? 'Click (or press E) to trade.' : 'Walk to the stall to trade.'] };
