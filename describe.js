@@ -17,6 +17,7 @@ const RELIC = {
 };
 const FLYER = { flock: ['Flock of birds', 'They never land.'], jellyfish: ['Sky jellyfish', 'Drifts on warm currents.'], whale: ['Flying whale', 'Sings below the clouds.'] };
 const parts = (d) => [`${d.legs} legs`, d.neck === 'none' ? 'no neck' : `${d.neck} neck`, `${d.head} head`, d.extra === 'none' ? '' : d.extra, d.tail === 'none' ? 'no tail' : `${d.tail} tail`, d.pattern].filter(Boolean).join(' · ');
+const hint = (e, verb) => e.reach === undefined ? '' : e.reach ? `Click (or press E) to ${verb} it.` : `Walk closer to ${verb} it.`;
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
 /** `e`: { type: 'thing' | 'walker' | 'flyer' | 'beacon', ...the drawn entity }; `w`: the world;
@@ -27,6 +28,9 @@ export function describe(e, w, known) {
     lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],
       e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
   };
+  if (e.type === 'home') return { title: e.name, lines: ['Built by you on your home planet.'] };
+  if (e.type === 'pet') return { title: e.dna.name, lines: ['Lives on your home planet.', parts(e.dna)] };
+  if (e.type === 'ore') return { title: '⛏ Ore deposit', lines: [`${e.amount} raw material for your home planet.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
   if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };
   if (e.type === 'colonist') return { title: `${e.label}'s people`, lines: [`${e.dna.name}: settlers who follow ${e.label} from planet to planet.`, parts(e.dna)] };
@@ -40,12 +44,13 @@ export function describe(e, w, known) {
       lines: [
         parts(d),
         known.species(d.id) ? '✓ In your bestiary' : 'New species',
+        hint(e, 'capture'),
       ],
     };
   }
   if (e.relic) return { title: cap(e.kind), lines: ['Rare relic. ' + RELIC[e.kind], known.relic(e.kind) ? '✓ In your atlas' : 'Not in your atlas yet'] };
   if (FLORA[e.kind]) return e.plant
-    ? { title: e.plant.name, rarity: e.plant.rarity, lines: [`${FLORA[e.kind]}${e.plant.bloom ? ', flowering' : ''}.`, known.plant?.(e.plant.id) ? '✓ In your herbarium' : 'New plant'] }
+    ? { title: e.plant.name, rarity: e.plant.rarity, lines: [`${FLORA[e.kind]}${e.plant.bloom ? ', flowering' : ''}.`, known.plant?.(e.plant.id) ? '✓ In your herbarium' : 'New plant', hint(e, 'harvest')] }
     : { title: FLORA[e.kind], lines: [`Flora of this world (${e.kind}).`] };
   return {
     title: (e.broken ? 'Ruined ' + (STRUCT[e.kind] ?? e.kind).toLowerCase() : STRUCT[e.kind] ?? cap(e.kind)),
@@ -60,7 +65,7 @@ export function boxOf(e, x, y, s) {
     if (e.kind === 'whale') return [x - 1.4 * s, y - 0.4 * s, x + 1.4 * s, y + 0.4 * s];
     return [x - 0.6 * s, y - 0.5 * s, x + 0.6 * s, y + 1.3 * s];
   }
-  if (e.type === 'walker' || e.type === 'colonist') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
+  if (e.type === 'walker' || e.type === 'colonist' || e.type === 'pet') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
   if (e.type === 'pickup') return {
     title: { fuel: '⚡ Fuel cell', time: '⏳ Time shard', map: '🧭 Map fragment' }[e.kind],
     lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],

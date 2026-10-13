@@ -488,3 +488,15 @@ export function pickupsNear(w, day, x0, x1, time) {
   }
   return out;
 }
+
+// Raw material deposits: a rock with shards of the world's ore, permanent per world (taken ones
+// grow back the next day). Own rng, so v1 worlds and their chunks stay unchanged.
+export function depositsNear(w, x0, x1) {
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:ore:${k}`);
+    if (r() > 0.45) continue;
+    out.push({ id: `ore${k}`, kind: 'ore', x: k + 0.05 + r() * 0.9, amount: 1 + Math.floor(r() * 3), seed: Math.floor(r() * 2 ** 32) });
+  }
+  return out;
+}

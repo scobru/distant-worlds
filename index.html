@@ -57,7 +57,9 @@
 <canvas id="c" aria-label="Landscape of the generated world"></canvas>
 <div class="ui">
   <h1><span id="name">…</span><span id="rarity" class="badge"></span><small><span id="claim"></span><span id="meta"></span> · <span id="pos"></span></small></h1>
-  <button id="walk" aria-pressed="false">🚶 Walk</button>
+  <button id="left" aria-label="Walk left">◀</button>
+  <button id="right" aria-label="Walk right">▶</button>
+  <button id="homeBtn">🏠 Settle here</button>
   <button id="sound" aria-pressed="false">▶ Sound</button>
   <button id="fav">☆ Save</button>
   <button id="signBtn" hidden>Sign in</button>
@@ -88,18 +90,21 @@
   <p><button id="signNew">Create a new key</button><br><small>A key made on this node. Its level is built here (a few seconds of work). Back it up from the Atlas.</small></p>
   <p><button id="signImport">Import a key</button><br><small>A key you backed up before (64 hex characters).</small></p></dialog>
 <dialog id="lbDlg"><div class="row"><h2>Leaderboard</h2><button id="lbClose">Close</button></div><div id="lbBody"></div></dialog>
+<dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY } from './world.js';
-import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup } from './draw.js';
+import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY } from './world.js';
+import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
 let st;
 try { st = { ...emptyState(), ...JSON.parse(localStorage.getItem(KEY)) }; } catch { st = emptyState(); }
+// each player gets their own explorer, random the first time
+st.avatar ??= Math.random().toString(36).slice(2);
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
 const LABEL = { culture: 'culture', relief: 'relief', era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', rarity: 'rarity', relic: 'relics' };
 const days = () => { const d = new Date(); const y = new Date(d); y.setDate(d.getDate() - 1); return [isoDay(d), isoDay(y)]; };
@@ -116,7 +121,7 @@ const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const cv = document.getElementById('c'), g = cv.getContext('2d');
 let world, stars = [], ships = [];
 // Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
-let cam = 0, explored = [0, 0], walking = false, keys = 0, cache = new Map(), seenNow = new Set(), interest = 0;
+let cam = 0, explored = [0, 0], keys = 0, lastCam = 0, facing = 1, movingUntil = 0, pets = [], cache = new Map(), seenNow = new Set(), interest = 0;
 
 function load() {
   const [seedPart, pos] = decodeURIComponent(location.hash.slice(1)).split('@');
@@ -146,7 +151,24 @@ function load() {
     save(); toast(msg);
   }
   document.title = `${world.name} — Distant Worlds`;
+  if (st.home?.seed === seed) {
+    const n = arriveHome(st);
+    if (n) { save(); toast([`🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`]); }
+  }
+  updateHome(); pets = homePets();
   if (audio) { stopAudio(); startAudio(); }
+}
+
+// Captured creatures roam around the first building of the home planet.
+const worldsMemo = new Map();
+function homePets() {
+  if (st.home?.seed !== world.seed) return [];
+  const cx = st.home.built[0]?.x ?? 0.5;
+  return st.home.animals.slice(-16).map((id, k) => {
+    const [seed, i] = id.split('#'), r = rngFrom(`pet:${id}:${k}`);
+    if (!worldsMemo.has(seed)) worldsMemo.set(seed, makeWorld(seed));
+    return { kind: 'species', dna: worldsMemo.get(seed).species[i], x: cx - 0.3 + r() * 0.4, range: 0.1 + r() * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.03 + r() * 0.015, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
+  }).filter((p) => p.dna);
 }
 
 let last = 0;
@@ -158,7 +180,7 @@ function showTip() {
   if (!pointer || touchOver || dragX !== null && dragged) { tip.hidden = true; return; }
   const [px, py] = pointer.map((v) => v * devicePixelRatio);
   const found = hits.findLast(([[x0, y0, x1, y1]]) => px >= x0 && px <= x1 && py >= y0 && py <= y1);
-  cv.style.cursor = found?.[1].type === 'pickup' ? 'pointer' : '';
+  cv.style.cursor = found?.[1].take ? 'pointer' : '';
   if (!found) { tip.hidden = true; return; }
   const d = describe(found[1], world, { relic: (k) => st.seen.includes(`relic:${k}`), species: (id) => st.species.some((x) => x.id === id), plant: (id) => (st.plants ?? []).some((x) => x.id === id) });
   const html = `<b>${esc(d.title)}</b>${d.rarity ? ` <span class="badge ${d.rarity}">${d.rarity}</span>` : ''}${d.lines.filter(Boolean).map((l) => `<small>${esc(l)}</small>`).join('')}`;
@@ -171,14 +193,17 @@ function showTip() {
 
 function draw(t) {
   const dt = Math.min(t - last, 100); last = t;
-  cam += (keys * 0.3 + (walking ? 0.05 : 0)) * dt / 1000;
+  cam += keys * 0.3 * dt / 1000;
+  const day = days()[0];
   // Fuel for new ground only, rate-capped so dragging fast doesn't fill the tank.
   const fresh = Math.max(0, cam - explored[1]) + Math.max(0, explored[0] - cam);
   explored = [Math.min(explored[0], cam), Math.max(explored[1], cam)];
   if (fresh) addFuel(st, Math.min(fresh * FUEL.perScreen, FUEL.maxPerSecond * dt / 1000));
-  document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)}`;
+  document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)} · 🌿${st.bag.plant} ⛏${st.bag.ore} 🐾${st.bag.creature.length}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
   hits = [];
+  // the explorer stands mid-screen: only what is near it can be taken
+  const near = (x) => Math.abs(x - w / 2) < w * 0.2;
   const W = world, sky = g.createLinearGradient(0, 0, 0, h);
   sky.addColorStop(0, W.sky.top); sky.addColorStop(1, W.sky.bottom);
   g.fillStyle = sky; g.fillRect(0, 0, w, h);
@@ -268,27 +293,51 @@ function draw(t) {
       next.set(key, ch);
       // Sink things slightly into the ground so slopes don't leave them floating.
       for (const th of ch.things) {
+        const take = th.plant && { id: th.seed, kind: 'plant', name: th.plant.name };
+        if (take && picked(st, day, W.seed, take)) continue; // harvested today
         drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
-        hit({ type: 'thing', ...th }, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m);
+        hit({ type: 'thing', ...th, ...(take && { take, reach: near(X(th.x)) }) }, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m);
         if (th.plant && !seenNow.has(th.plant.id) && X(th.x) > 0 && X(th.x) < w) { seenNow.add(th.plant.id); plant(th.plant); }
         const vis = X(th.x) > 0 && X(th.x) < w;
         if (vis && th.relic) { relic(th.kind); seen += 6; } else if (vis && !th.kind.match(/forest|conifers|crystals|mushrooms/)) seen++;
       }
       for (const cr of ch.creatures) {
+        const take = cr.dna && { id: cr.seed, kind: 'creature', dna: cr.dna.id, name: cr.dna.name };
+        if (take && picked(st, day, W.seed, take)) continue; // captured today
         const [x, dir] = walkerAt(cr, t);
         if (X(x) > 0 && X(x) < w) { seen++; if (cr.dna && !seenNow.has(cr.dna.id)) { seenNow.add(cr.dna.id); species(cr.dna); } }
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m, { ...co, color: L.color });
-        hit({ type: 'walker', ...cr }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m);
+        hit({ type: 'walker', ...cr, ...(take && { take, reach: near(X(x)) }) }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m);
+      }
+    }
+    // the home planet: what the explorer built, and the creatures they brought
+    if (i === W.layers.length - 2 && st.home?.seed === W.seed) {
+      for (const b of st.home.built) {
+        const bx = X(b.x), by = Y(b.x) + 0.012 * m, s = 0.12 * m;
+        if (bx < -s * 3 || bx > w + s * 3) continue;
+        drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12 }, bx, by, s, { ...o, lights: true });
+        hit({ type: 'home', name: BUILDINGS[b.kind].name, kind: b.kind }, bx, by, s);
+      }
+      for (const cr of pets) {
+        const [x, dir] = walkerAt(cr, t), s = cr.size * m;
+        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, { ...co, color: L.color });
+        hit({ type: 'pet', ...cr }, X(x), Y(x) + s * 0.05, s);
       }
     }
     // pickups lie on the nearest ground; only those near the middle (where you stand) can be taken
     if (i === W.layers.length - 1) {
-      const day = days()[0], time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
+      for (const d of depositsNear(W, off - 0.5, off + 1.5)) {
+        if (picked(st, day, W.seed, d)) continue;
+        const dx = X(d.x), dy = Y(d.x) + 0.01 * m, s = 0.05 * m, reach = near(dx);
+        drawDeposit(g, dx, dy, s, d.seed, W.accent, !reach);
+        hits.push([[dx - s * 0.7, dy - s * 0.9, dx + s * 0.7, dy], { type: 'ore', ...d, take: d, reach }]);
+      }
+      const time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
       for (const p of pickupsNear(W, day, off - 0.5, off + 1.5, time)) {
         if (picked(st, day, W.seed, p)) continue;
-        const px = X(p.x), py = Y(p.x), s = 0.045 * m, reach = Math.abs(px - w / 2) < w * 0.2;
+        const px = X(p.x), py = Y(p.x), s = 0.045 * m, reach = near(px);
         drawPickup(g, px, py, s, p.kind, t, p.phase, W.culture, !reach);
-        hits.push([[px - s, py - s * 1.4, px + s, py], { type: 'pickup', ...p, reach }]);
+        hits.push([[px - s, py - s * 1.4, px + s, py], { type: 'pickup', ...p, take: p, reach }]);
       }
     }
     if (W.water && i === 0) {
@@ -298,6 +347,11 @@ function draw(t) {
         g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
     }
   });
+  // the explorer, on the nearest ground; legs follow the distance walked
+  const v = cam - lastCam; lastCam = cam; // keys and dragging both move the camera
+  if (v) { facing = Math.sign(v); movingUntil = t + 120; }
+  const LN = W.layers.at(-1), gx = cam * LN.parallax + 0.5, as = 0.09 * m;
+  drawAvatar(g, st.avatar, w / 2, (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m, as, facing, gx * w / (as * 0.15), t < movingUntil, t);
   if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
   cache = next; interest = Math.min(seen, 12);
   showTip();
@@ -328,8 +382,24 @@ function relic(kind) {
 // Travel: arrow keys / A-D, drag on the landscape, or the walk toggle.
 const held = new Set();
 const keyDir = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
-addEventListener('keydown', (e) => { if (e.code in keyDir && !e.target.closest?.('dialog')) { held.add(e.code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); } });
-addEventListener('keyup', (e) => { held.delete(e.code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); });
+const hold = (code, on) => { on ? held.add(code) : held.delete(code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); };
+addEventListener('keydown', (e) => {
+  if (e.target.closest?.('dialog, input')) return;
+  if (e.code in keyDir) hold(e.code, true);
+  // E: take the nearest thing within reach of the explorer
+  if (e.code === 'KeyE') {
+    const mid = cv.width / 2, d = ([[x0, , x1]]) => Math.abs((x0 + x1) / 2 - mid);
+    const best = hits.filter(([, h]) => h.take && h.reach).sort((a, b) => d(a) - d(b))[0];
+    if (best) take(best[1]);
+  }
+});
+addEventListener('keyup', (e) => hold(e.code, false));
+// touch: hold ◀ / ▶ to walk
+for (const [id, code] of [['left', 'ArrowLeft'], ['right', 'ArrowRight']]) {
+  const b = document.getElementById(id);
+  b.onpointerdown = () => hold(code, true);
+  b.onpointerup = b.onpointerleave = b.onpointercancel = () => hold(code, false);
+}
 let dragX = null;
 let dragged = false;
 cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; dragged = false; cv.setPointerCapture(e.pointerId); });
@@ -345,19 +415,47 @@ cv.addEventListener('pointerup', (e) => {
   if (dragged) return;
   pointer = [e.clientX, e.clientY]; tapUntil = performance.now() + 4000;
   const [px, py] = pointer.map((v) => v * devicePixelRatio);
-  const p = hits.findLast(([[x0, y0, x1, y1], h]) => h.type === 'pickup' && px >= x0 && px <= x1 && py >= y0 && py <= y1)?.[1];
-  if (p) pickUp(p);
+  const it = hits.findLast(([[x0, y0, x1, y1], h]) => h.take && px >= x0 && px <= x1 && py >= y0 && py <= y1)?.[1];
+  if (it) take(it);
 });
-function pickUp(p) {
-  if (!p.reach) return toast(['Walk closer to pick it up.']);
+// Pickups, plants, creatures and ore: whatever is within the explorer's reach.
+function take(e) {
+  if (!e.reach) return toast(['Walk closer to take it.']);
+  const p = e.take;
   if (!collect(st, days()[0], world.seed, p, Date.now())) return toast(['You already took as many time shards as this planet gives today.']);
   save();
-  toast([p.kind === 'fuel' ? `⚡ Fuel cell: +${PICKUP.fuel} fuel` : p.kind === 'time'
-    ? `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s` : '🧭 Map fragment: your next jump to a new star costs half']);
+  toast([{ fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
+    map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
+    creature: `🐾 Captured ${esc(p.name)}: it will live on your home planet` }[p.kind]]);
 }
 cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') pointer = null; });
-const walkBtn = document.getElementById('walk');
-walkBtn.onclick = () => { walking = !walking; walkBtn.textContent = walking ? '■ Stop' : '🚶 Walk'; walkBtn.setAttribute('aria-pressed', walking); };
+
+// Home planet: settle on one world, come back to it for free and build with what you gathered.
+const homeBtn = document.getElementById('homeBtn'), buildDlg = document.getElementById('buildDlg');
+function updateHome() { homeBtn.textContent = !st.home ? '🏠 Settle here' : st.home.seed === world.seed ? '🏗 Build' : '🏠 Go home'; }
+homeBtn.onclick = () => {
+  if (!st.home) {
+    if (!confirm(`Make ${world.name} your home planet? You build your civilization there with what you gather exploring.`)) return;
+    setHome(st, world.seed); arriveHome(st); save(); updateHome(); pets = homePets();
+  } else if (st.home.seed !== world.seed) { location.hash = st.home.seed; return; }
+  renderBuild(); buildDlg.showModal();
+};
+const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
+function renderBuild() {
+  const H = st.home;
+  document.getElementById('buildTitle').textContent = `${world.name} · ${civTitle(H)}`;
+  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${st.bag.plant} plants · ⛏ ${st.bag.ore} ore · 🐾 ${H.animals.length} creatures living here.
+    <br><small>Buildings go where you stand. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
+    <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k) ? '' : ' disabled'}>Build</button>
+      <b>${b.name}</b> <small style="display:inline">${costText(b.cost)} · built ${H.built.filter((x) => x.kind === k).length}</small></li>`).join('')}</ul>`;
+  buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
+    const L = world.layers.at(-2);
+    if (!build(st, b.dataset.k, cam * L.parallax + 0.5)) return;
+    save(); pets = homePets(); buildDlg.close();
+    toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`]);
+  }));
+}
+document.getElementById('buildClose').onclick = () => buildDlg.close();
 
 let audio = null;
 function startAudio() { audio = startMusic(world.music, () => interest); setBtn(true); }

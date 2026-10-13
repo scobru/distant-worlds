@@ -3,7 +3,8 @@
 Press **New world**: a new planet is born, with its own landscape, creatures and generative soundtrack.
 Everything comes from a seed in the URL (`…/#v1-8393_2007_4`): share the link and whoever opens it sees and hears the same world, at the same spot (`#seed@12.5`).
 
-- **Endless worlds**: walk forever (arrow keys / A-D, drag, or **Walk**). Terrain, structures, flora, creatures and rare relics are generated chunk by chunk as you go.
+- **Your explorer**: a character with looks random for each player (suit colour, helmet or hat, backpack) walks left and right (arrow keys / A-D, hold ◀ ▶, or drag).
+- **Endless worlds**: walk forever. Terrain, structures, flora, creatures and rare relics are generated chunk by chunk as you go.
 - **Cultures** (One Piece style: real places, reinvented): temperate, japanese, nordic, desert, jungle, western, arctic, apocalyptic, war. Each brings its buildings (pagodas and torii, longhouses and stave churches, domes and minarets, step pyramids, saloons, igloos and lighthouses, broken towers and wrecks, bunkers and searchlights), flora (blossoms, bamboo, palms, cacti, dead trees…), relief, colours, weather (petals, snow, ash) and music.
 - **Relief and depth**: rolling hills, ridged peaks, mesas, dunes, rock spires, floating islands with waterfalls; rivers winding towards the viewer; auroras and smoke columns.
 - **Traits**: era (ancient … far future), civilization (uninhabited, humans, aliens, ruins), fauna (birds, herds, sky jellyfish, giants, flying whales), flora (forest, conifers, crystals, mushrooms) and visual style (classic, neon, pastel, mono, sepia).
@@ -11,6 +12,8 @@ Everything comes from a seed in the URL (`…/#v1-8393_2007_4`): share the link 
 - **Composable species**: animals are built from parts (legs, neck, head, horns, tail, pattern) and go into your bestiary.
 - **Herbarium**: each world grows 1-3 plant species of its flora (own proportions, colour, sometimes flowers, a Latin-sounding name); the ones you see are pressed into the Atlas.
 - **Pickups** along the walk, the same for everyone each day and more frequent far from the arrival point: fuel cells (+15 fuel, shaped by the culture), map fragments (the next jump costs half) and, on the Freenet version, time shards (your time on that planet runs ×3 for 90 s; 3 a day per planet). Click one near the middle of the screen, where you stand.
+- **Gathering**: near your explorer, click (or press **E**) to harvest plants 🌿, capture creatures 🐾 and mine ore deposits ⛏. What you take is gone for the day and grows back tomorrow.
+- **Home planet** (🏠): settle on a world, then come back for free with **Go home**. Creatures you captured are released there and roam around; plants and ore build huts, mills, stables, workshops, temples, castles, towers and domes where you stand (**🏗 Build**), growing your camp into a village, town, city, capital. Kept in this browser (and in the node on Freenet), visible only to you.
 - **Hover cards**: point at (or tap) a plant, animal, building, relic, flyer or flag to see what it is, and whether it is already in your atlas or bestiary.
 - **Music** (`audio.js`): each world has its own lead instrument (bell, glass, pluck, marimba, flute), drone (organ, wind, choir), optional pad / bass / percussion and reverb; it gets richer when more is happening on screen.
 - **Game**, all in the browser (`localStorage`, no server):
