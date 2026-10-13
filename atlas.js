@@ -40,7 +40,7 @@ export const ACHIEVEMENTS = [
 export const withAchievements = (st, change) => discover(st, [], null, change).achievements;
 
 export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], plants: [], stars: [], daily: { done: null, streak: 0, best: 0 },
-  bag: { plant: 0, ore: 0, creature: [] }, home: null, avatar: null });
+  bag: { plant: 0, ore: 0, creature: [], seeds: [] }, home: null, avatar: null });
 
 // Applies `change` to the state; returns the entries, combos and achievements it unlocked.
 function discover(st, keys, combo, change = () => {}) {
@@ -138,6 +138,8 @@ export function collect(st, day, seed, p, now) {
   // gathered on the way, spent on the home planet
   // home buildings make gathering richer
   if (p.kind === 'plant' || p.kind === 'ore') st.bag[p.kind] += (p.amount ?? 1) + gatherBonus(st, p.kind);
+  // the first harvest of a plant species also gives its seeds, sown at home on the next visit
+  if (p.kind === 'plant' && p.species && !(st.bag.seeds ??= []).includes(p.species) && !st.home?.garden?.includes(p.species)) st.bag.seeds.push(p.species);
   if (p.kind === 'creature') for (let k = 1 + gatherBonus(st, 'creature'); k--;) st.bag.creature.push(p.dna);
   return true;
 }
@@ -178,6 +180,12 @@ export const civTitle = (home) => TITLES.findLast(([n]) => (home?.built.length ?
 export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now });
 
 /** Releases the creatures in the bag on the home planet; returns how many. */
+/** Sows the seeds in the bag in the home's garden (one entry per species); returns how many are new. */
+export function sow(st) {
+  const fresh = (st.bag.seeds ?? []).filter((s) => !(st.home.garden ??= []).includes(s));
+  st.home.garden.push(...fresh); st.bag.seeds = [];
+  return fresh.length;
+}
 export function arriveHome(st) {
   const n = st.bag.creature.length;
   st.home.animals.push(...st.bag.creature); st.bag.creature = [];
