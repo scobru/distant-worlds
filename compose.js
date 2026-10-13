@@ -3,7 +3,8 @@
 // (no notes are copied, only the shape of the writing):
 //  - ballad: slow, I-vi-IV-V family, 7ths and 9ths, broken-chord accompaniment, long melodic notes;
 //  - dreamy: IV-I sways with maj7 / add9 colour, a chord every half bar, flowing 16th arpeggios;
-//  - groove: dominant-7th vamps (I, IV, bVII), syncopated bass ostinato, short riffs, drums.
+//  - groove: dominant-7th vamps (I, IV, bVII), syncopated bass ostinato, short riffs, drums;
+//  - tense: minor-feeling loops around vi, pulsing 8ths, driving bass (worlds about to collapse).
 // Harmony is built by stacking thirds inside the world's own scale, so exotic scales keep their colour.
 // What it learned from example MIDI files (music-model.js, made by tools/learn-music.mjs) shapes each
 // style: chord-to-chord moves (a Markov chain over scale degrees), melodic intervals, rhythm cells,
@@ -31,6 +32,12 @@ const STYLES = {
     bridges: [[3, 3, 0, 0], [4, 3, 0, 6], [6, 6, 3, 3]],
     cells: [[[0, 0.5], [0.75, 0.25], [1.5, 0.5]], [[0, 0.25], [0.25, 0.25], [0.5, 1]], [[0.5, 0.5], [1, 0.5], [1.5, 0.5]], [[0, 1], [1.5, 0.5]], [[0, 1.5]]],
   },
+  tense: {
+    bpm: [100, 125], chordBeats: 4, cell: 2, seventh: 0.3, ninth: 0.1, comp: 'pulse', bass: 'ostinato',
+    progs: [[5, 3, 4, 5], [5, 5, 3, 4], [5, 1, 2, 5], [5, 4, 3, 4]],
+    bridges: [[3, 4, 2, 5], [1, 2, 3, 4]],
+    cells: [[[0, 0.5], [0.5, 0.5], [1, 1]], [[0, 1.5], [1.5, 0.5]], [[0, 0.25], [0.25, 0.25], [0.5, 0.5], [1, 1]], [[0, 2]]],
+  },
 };
 export const STYLE_NAMES = Object.keys(STYLES);
 
@@ -43,13 +50,15 @@ function knowledge(name) {
   for (const p of [...S.progs, ...S.bridges]) p.forEach((d, k) => { const e = p[(k + 1) % p.length]; if (d !== e) T[d][e] += 2; });
   const cells = [...S.cells.flatMap((c) => (S.cell === 2 ? [[c, 2]] : [])), ...(L?.cells ?? [])];
   const intervals = L ? Object.entries(L.intervals).map(([iv, n]) => [+iv, n]) : [[-2, 3], [-1, 2], [0, 1], [1, 2], [2, 3], [-4, 1], [4, 1], [-3, 1], [3, 1]];
-  return { ...S, T, cells: cells.length ? cells : [[[[0, 2]], 1]], intervals, bpm: L?.bpm ?? S.bpm, chordBeats: L?.chordBeats ?? S.chordBeats };
+  // background music: learned tempos, but none frantic
+  const lo = L ? Math.max(L.bpm[0], S.bpm[0] - 10) : S.bpm[0], hi = L ? Math.max(lo, Math.min(L.bpm[1], S.bpm[1] + 15)) : S.bpm[1];
+  return { ...S, T, cells: cells.length ? cells : [[[[0, 2]], 1]], intervals, bpm: [lo, hi], chordBeats: L?.chordBeats ?? S.chordBeats };
 }
-/** A 4-chord progression walked on the learned chain from `start`; the last chord leads home to the tonic. */
+/** A 4-chord progression walked on the learned chain from `start`; the last chord leads back to `start`. */
 function walk(K, r, start) {
   const prog = [start];
   for (let k = 1; k < 4; k++) {
-    const from = prog[k - 1], row = K.T[from].map((w, to) => [to, k === 3 ? w * (K.T[to][0] + 0.5) : w]);
+    const from = prog[k - 1], row = K.T[from].map((w, to) => [to, k === 3 ? w * (K.T[to][start] + 0.5) : w]);
     prog.push(choose(r, row));
   }
   return prog;
@@ -60,7 +69,7 @@ const FORM = ['A', 'A', 'B', 'A'];
 /** `M`: a world's music (root, scale, bpm, perc, noteSeed). */
 export function makeSong(M) {
   const r = rng(M.noteSeed ^ 0x50a6), pick = (a) => a[Math.floor(r() * a.length)];
-  const name = M.perc ? 'groove' : M.bpm < 72 ? 'ballad' : r() < 0.5 ? 'dreamy' : 'ballad';
+  const name = M.tense ? 'tense' : M.perc ? 'groove' : M.bpm < 72 ? 'ballad' : r() < 0.5 ? 'dreamy' : 'ballad';
   const S = knowledge(name), len = M.scale.length;
   const bpm = Math.round(S.bpm[0] + ((M.bpm - 50) / 50) * (S.bpm[1] - S.bpm[0]));
   const at = (i) => M.root + 12 * Math.floor(i / len) + M.scale[((i % len) + len) % len]; // scale index -> MIDI
@@ -82,7 +91,7 @@ export function makeSong(M) {
       const motif = () => Array.from({ length: 2 }, () => choose(pr, S.cells));
       // melodic moves sampled from the learned intervals (semitones), turned into steps of this scale
       const steps = Array.from({ length: 16 }, () => Math.round(choose(pr, S.intervals) / (12 / len)));
-      const A = pr() < 0.3 ? pk(S.progs) : walk(S, pr, 0);
+      const A = pr() < 0.3 ? pk(S.progs) : walk(S, pr, name === 'tense' ? 5 : 0);
       passes.set(p, { A, B: pr() < 0.3 ? pk(S.bridges) : walk(S, pr, choose(pr, S.T[A[3]].map((w, to) => [to, to ? w : 0]))), motifA: motif(), motifB: motif(), steps });
       if (passes.size > 8) passes.delete(passes.keys().next().value);
     }
@@ -100,8 +109,8 @@ export function makeSong(M) {
     const chords = Array.from({ length: chordsPerBar }, (_, k) => {
       const deg = prog[(inSec * chordsPerBar + k) % prog.length];
       // the answer phrase closes on the tonic
-      const last = inSec === PHRASE * 2 - 1 && k === chordsPerBar - 1 && section === 'A';
-      return { deg: last ? 0 : deg, tones: chordOf(last ? 0 : deg, rng(M.noteSeed + deg * 31 + P.A[0])) };
+      const last = inSec === PHRASE * 2 - 1 && k === chordsPerBar - 1 && section === 'A', home = name === 'tense' ? 5 : 0;
+      return { deg: last ? home : deg, tones: chordOf(last ? home : deg, rng(M.noteSeed + deg * 31 + P.A[0])) };
     });
     const chordAt = (beat) => chords[Math.min(chordsPerBar - 1, Math.floor(beat / S.chordBeats))];
 
@@ -125,6 +134,7 @@ export function makeSong(M) {
         const up = [...v, ...v.map((x) => x + 12)], seq = [...up, ...up.slice(1, -1).reverse()];
         for (let s = 0; s < span * 4; s++) out.push({ beat: b0 + s / 4, dur: 0.6, midi: seq[s % seq.length], voice: 'comp', vel: s % 4 ? 0.35 : 0.55 });
       }
+      if (S.comp === 'pulse') for (let s = 0; s < span * 2; s++) out.push({ beat: b0 + s / 2, dur: 0.4, midi: v[s % 2 ? 1 : 0] - 12, voice: 'comp', vel: s % 4 ? 0.4 : 0.6 });
       if (S.comp === 'stabs') for (const o of [0.5, 1.5, 2.75, 3.5]) for (const x of v.slice(0, 4)) out.push({ beat: b0 + o, dur: 0.25, midi: x, voice: 'comp', vel: 0.5 });
       if (M.pad) for (const x of v.slice(0, 3)) out.push({ beat: b0, dur: span, midi: x - 12, voice: 'pad', vel: 0.5 });
     }
