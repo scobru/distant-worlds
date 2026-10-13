@@ -149,12 +149,29 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   build(st, 'temple', 0);
   assert.deepEqual(produce(st, 3 * 3.6e6), { plant: 3, ore: 0, fuel: 15 }, 'mill 1/h, temple 5 fuel/h');
   assert.equal(st.bag.plant, plants - 6 + 3);
-  assert.deepEqual(produce(st, 100 * 3.6e6), { plant: 24, ore: 0, fuel: 120 }, 'at most a day');
+  assert.deepEqual(produce(st, 100 * 3.6e6), { plant: 26, ore: 0, fuel: 120 }, 'at most a day, +10% from 5 workers');
   assert.equal(st.fuel, 100, 'the tank stays capped');
   for (let i = 0; i < 7; i++) st.home.built.push({ kind: 'tower' });
   assert.equal(jumpDiscount(st), 0.5);
   assert.ok(withAchievements(st, () => {}).length === 0);
   console.log('buildings ok');
+}
+{
+  // Population: shelter limited by food; civilization level from people, buildings, variety, creatures.
+  const { population, civPoints, civLevel, civTitle } = await import('./atlas.js');
+  const home = (k, animals = 0) => ({ built: k.map((kind) => ({ kind })), animals: Array(animals).fill('A#0') });
+  assert.equal(population(null), 0);
+  assert.equal(population(home([])), 0, 'nobody lives at an empty landing site');
+  assert.equal(population(home(['house'])), 4);
+  assert.equal(population(home(['castle', 'castle'])), 6, 'no farms: only what the land feeds');
+  assert.equal(population(home(['castle', 'castle', 'windmill'])), 16, 'a mill feeds them');
+  assert.equal(civLevel(home([])), 1);
+  assert.equal(civPoints(home(['house'], 1)), 4 * 5 + 5 + 10 + 3);
+  // published homes carry buildings as [kind, x]
+  assert.equal(civPoints({ built: [['house', 50]], animals: ['A#0'] }), civPoints(home(['house'], 1)));
+  const big = home([...Array(4).fill('house'), 'windmill', 'windmill', 'castle', 'castle', 'dome', 'temple', 'factory', 'tower'], 12);
+  assert.ok(civLevel(big) >= 6 && civTitle(big) === 'City', `level ${civLevel(big)}`);
+  console.log('population ok');
 }
 {
   const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');

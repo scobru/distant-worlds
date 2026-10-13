@@ -31,8 +31,8 @@ export const ACHIEVEMENTS = [
   ['Explorer', 'Explore 100 worlds', (st) => st.count >= 100],
   ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
   ['Settler', 'Choose a home planet', (st) => !!st.home],
-  ['Founder', 'Grow your home into a village', (st) => (st.home?.built.length ?? 0) >= 3],
-  ['Mayor', 'Grow your home into a city', (st) => (st.home?.built.length ?? 0) >= 10],
+  ['Founder', 'Grow your home into a village', (st) => civLevel(st.home) >= 3],
+  ['Mayor', 'Grow your home into a city', (st) => civLevel(st.home) >= 6],
   ['Architect', 'Build every kind of building', (st) => Object.keys(BUILDINGS).every((k) => st.home?.built.some((b) => b.kind === k))],
   ['Rancher', 'Bring 10 creatures home', (st) => (st.home?.animals.length ?? 0) >= 10],
 ];
@@ -147,17 +147,36 @@ export const boostOn = (st, seed, now) => st.boost?.seed === seed && now < st.bo
 
 // Home planet: the explorer's own world, where gathered resources become a civilization.
 // Plants and ore are spent; animals (captured creatures, released at home) are a requirement.
-// `gather`: extra per plant / ore / creature taken; `hour`: produced while you are away; `jump`: cheaper jumps.
+// `gather`: extra per plant / ore / creature taken; `hour`: produced while you are away; `jump`: cheaper jumps;
+// `house`: people it shelters; `food`: people it feeds.
 export const BUILDINGS = {
-  house: { name: 'Hut', cost: { plant: 5 }, hour: { plant: 1 } },
-  windmill: { name: 'Mill', cost: { plant: 8, ore: 2 }, gather: 'plant', hour: { plant: 1 } },
-  longhouse: { name: 'Stable', cost: { plant: 6, ore: 2, animals: 2 }, gather: 'creature' },
-  factory: { name: 'Workshop', cost: { plant: 4, ore: 8 }, gather: 'ore', hour: { ore: 1 } },
-  temple: { name: 'Temple', cost: { plant: 6, ore: 12, animals: 3 }, hour: { fuel: 5 } },
-  castle: { name: 'Castle', cost: { plant: 10, ore: 20 }, hour: { ore: 2 } },
-  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 }, jump: 0.1 },
-  dome: { name: 'Dome', cost: { plant: 20, ore: 30, animals: 8 }, hour: { plant: 2, ore: 2, fuel: 5 } },
+  house: { name: 'Hut', cost: { plant: 5 }, hour: { plant: 1 }, house: 4, food: 2 },
+  windmill: { name: 'Mill', cost: { plant: 8, ore: 2 }, gather: 'plant', hour: { plant: 1 }, house: 1, food: 10 },
+  longhouse: { name: 'Stable', cost: { plant: 6, ore: 2, animals: 2 }, gather: 'creature', house: 2, food: 4 },
+  factory: { name: 'Workshop', cost: { plant: 4, ore: 8 }, gather: 'ore', hour: { ore: 1 }, house: 3 },
+  temple: { name: 'Temple', cost: { plant: 6, ore: 12, animals: 3 }, hour: { fuel: 5 }, house: 2 },
+  castle: { name: 'Castle', cost: { plant: 10, ore: 20 }, hour: { ore: 2 }, house: 8 },
+  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 }, jump: 0.1, house: 1 },
+  dome: { name: 'Dome', cost: { plant: 20, ore: 30, animals: 8 }, hour: { plant: 2, ore: 2, fuel: 5 }, house: 10, food: 10 },
 };
+// Buildings come as { kind } here and as [kind, x] in homes published on Freenet.
+const kinds = (home) => (home?.built ?? []).map((b) => b.kind ?? b[0]).filter((k) => BUILDINGS[k]);
+// What the land around the landing site feeds without farms.
+export const BASE_FOOD = 6;
+/** People living at home: as many as the buildings shelter, but no more than they can feed. */
+export function population(home) {
+  const k = kinds(home);
+  if (!k.length) return 0;
+  const sum = (f) => k.reduce((a, x) => a + (BUILDINGS[x][f] ?? 0), 0);
+  return Math.min(sum('house'), BASE_FOOD + sum('food'));
+}
+/** Civilization points: people, what was built (its cost), the variety of buildings, creatures. */
+export function civPoints(home) {
+  const k = kinds(home), c = (x) => (BUILDINGS[x].cost.plant ?? 0) + (BUILDINGS[x].cost.ore ?? 0);
+  return population(home) * 5 + k.reduce((a, x) => a + c(x), 0) + new Set(k).size * 10 + (home?.animals.length ?? 0) * 3;
+}
+/** Civilization level, from 1: each level needs more points than the one before. */
+export const civLevel = (home) => 1 + Math.floor(Math.sqrt(civPoints(home) / 20));
 const builtOf = (st, k) => st.home?.built.filter((b) => b.kind === k).length ?? 0;
 // +1 per building of that kind, at most +3 (creatures: at most one extra)
 export const gatherBonus = (st, kind) => Math.min(kind === 'creature' ? 1 : 3,
@@ -170,12 +189,15 @@ export function produce(st, now) {
   const H = st.home, hours = Math.min(24, Math.max(0, (now - (H.prod ?? now)) / 3.6e6)), got = { plant: 0, ore: 0, fuel: 0 };
   H.prod = now;
   for (const b of H.built) for (const [r, n] of Object.entries(BUILDINGS[b.kind].hour ?? {})) got[r] += n * hours;
+  // workers: +2% plants and ore per inhabitant, at most double
+  const work = 1 + Math.min(1, population(H) / 50);
+  got.plant *= work; got.ore *= work;
   for (const r in got) got[r] = Math.floor(got[r]);
   st.bag.plant += got.plant; st.bag.ore += got.ore; addFuel(st, got.fuel);
   return got;
 }
-const TITLES = [[0, 'Landing site'], [1, 'Camp'], [3, 'Village'], [6, 'Town'], [10, 'City'], [16, 'Capital']];
-export const civTitle = (home) => TITLES.findLast(([n]) => (home?.built.length ?? 0) >= n)[1];
+const TITLES = [[1, 'Landing site'], [2, 'Camp'], [3, 'Village'], [5, 'Town'], [6, 'City'], [9, 'Capital']];
+export const civTitle = (home) => TITLES.findLast(([n]) => civLevel(home) >= n)[1];
 
 export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now });
 

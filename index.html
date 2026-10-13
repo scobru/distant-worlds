@@ -110,7 +110,8 @@
   <h3>🏠 Home</h3>
   <p>On a world you like, press <b>🏠 Settle here</b>. From anywhere, <b>🏠 Go home</b> brings you back for free.
     Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
-    they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and grow your camp into a village, a town, a city.</p>
+    they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and house and feed your people (huts and castles house them, mills and domes feed them; the more people, the more your home produces).
+    Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
   <h3>⏳ Living worlds</h3>
   <p>Worlds age (shown as <i>age N/100</i>) and collapse, then their star gives birth to a new one. After age 70 a world is unstable:
     tremors, a red sky, meteors, but richer ore. Gravity grows too (up to ×2): you walk slower, reach less, and building costs more. If it collapses while you are there you escape, leaving half your bag behind.
@@ -134,7 +135,7 @@ import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNea
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -680,14 +681,15 @@ homeBtn.onclick = () => {
   renderBuild(); buildDlg.showModal();
 };
 const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
-  b.jump && `jumps ${b.jump * 100}% cheaper`].filter(Boolean).join(' · ');
+  b.jump && `jumps ${b.jump * 100}% cheaper`, b.house && `houses ${b.house}`, b.food && `feeds ${b.food}`].filter(Boolean).join(' · ');
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
 function renderBuild() {
   const H = st.home;
-  document.getElementById('buildTitle').textContent = `${world.name} · ${civTitle(H)}`;
+  document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
   document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
+    <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double).
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
@@ -833,7 +835,7 @@ document.getElementById('atlasBtn').onclick = () => {
     <p>${done ? '✓' : '○'} Find a world with ${m.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}.
       <br><small>Current streak ${st.daily.streak} · best ${st.daily.best}${matches(world, m) && done ? ' · this world fits' : ''}</small></p>
     <h3>Home planet</h3>
-    <p>${st.home ? `<a href="#${encodeURIComponent(st.home.seed)}">${esc(makeWorld(st.home.seed).name)}</a> · ${civTitle(st.home)} · ${st.home.built.length} buildings · ${st.home.animals.length} creatures`
+    <p>${st.home ? `<a href="#${encodeURIComponent(st.home.seed)}">${esc(makeWorld(st.home.seed).name)}</a> · Lv ${civLevel(st.home)} ${civTitle(st.home)} · 👥 ${population(st.home)} people · ${st.home.built.length} buildings · ${st.home.animals.length} creatures`
       : '<small>No home yet. Use 🏠 Settle here on a world you like.</small>'}${st.home && ageOf(st.home.seed) ? ` <small style="display:inline">· world age ${Math.floor(ageOf(st.home.seed).age)}/100</small>` : ''}</p>
     <h3>Achievements</h3>
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>

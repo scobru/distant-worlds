@@ -4,6 +4,7 @@
 import * as net from './net.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
+import { civLevel, civPoints, civTitle, population } from '../atlas.js';
 import { textOk, CHAT_BITS } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText } from './colony.js';
@@ -188,22 +189,25 @@ export async function start(app) {
   const lbBtn = document.getElementById('lbBtn'), lbDlg = document.getElementById('lbDlg');
   function renderLeaderboard() {
     const rows = new Map();
+    const rowOf = (persona, nick) => rows.get(persona) ?? rows.set(persona, { nick, persona, t: 0, planets: [], home: null }).get(persona);
     for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
-      const r = rows.get(c.persona) ?? { nick: c.nick, persona: c.persona, t: 0, planets: [] };
-      const t = seconds(colScore(seed, c));
-      r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t }); rows.set(c.persona, r);
+      const r = rowOf(c.persona, c.nick), t = seconds(colScore(seed, c));
+      r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t });
     }
-    const all = [...rows.values()].sort((a, b) => b.planets.length - a.planets.length || b.t - a.t);
+    for (const h of Object.values(galaxy.homes ?? {})) { const r = rowOf(h.persona, h.nick); r.home = h; r.nick = h.nick; }
+    for (const r of rows.values()) { r.lv = civLevel(r.home); r.pts = civPoints(r.home); }
+    // civilization first (level, then points), then colonies and time spent on them
+    const all = [...rows.values()].sort((a, b) => b.lv - a.lv || b.pts - a.pts || b.planets.length - a.planets.length || b.t - a.t);
     const av = (p) => { const u = avatar(p, renderLeaderboard); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
-    const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — ${r.planets.length} ${r.planets.length === 1 ? 'colony' : 'colonies'}, ${fmt(r.t)}</summary>
-      <ul>${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
+    const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — Lv ${r.lv} ${civTitle(r.home)} · 👥 ${population(r.home)} · 🏗 ${r.home?.built.length ?? 0} · 🚩 ${r.planets.length}${r.t ? `, ${fmt(r.t)}` : ''}</summary>
+      <ul>${r.home ? `<li>🏠 <a href="#${r.home.seed}">${app.esc(makeWorld(r.home.seed).name)}</a> <small style="display:inline">${r.home.animals.length} creatures</small></li>` : ''}${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
     const mine = all.findIndex((r) => r.persona === me);
     document.getElementById('lbBody').innerHTML = all.length
-      ? `<p><small>${all.length} explorers · ${Object.keys(galaxy.colonies ?? {}).length} colonies · ranked by colonies, then time. Open a name to see their planets.</small></p>
+      ? `<p><small>${all.length} explorers · ${Object.keys(galaxy.colonies ?? {}).length} colonies · ranked by civilization level (people, buildings, creatures), then colonies and time. Open a name to see their planets.</small></p>
         <ol>${all.slice(0, 20).map((r, i) => row(r, i + 1)).join('')}</ol>
         ${mine >= 20 ? `<p>…</p><ol>${row(all[mine], mine + 1)}</ol>` : ''}
-        ${me && mine < 0 ? '<p><small>You have no colony yet: stay on a planet for a few minutes.</small></p>' : ''}`
-      : '<p><small>No colonies yet. Stay on a planet for a few minutes to found the first one.</small></p>';
+        ${me && mine < 0 ? '<p><small>You are not ranked yet: settle a home 🏠 or stay on a planet for a few minutes.</small></p>' : ''}`
+      : '<p><small>Nobody yet. Settle a home 🏠 or stay on a planet for a few minutes to be the first.</small></p>';
     lbDlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => lbDlg.close()));
   }
   lbBtn.hidden = false;
