@@ -98,7 +98,7 @@ import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNea
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -153,8 +153,12 @@ function load() {
   }
   document.title = `${world.name} — Distant Worlds`;
   if (st.home?.seed === seed) {
-    const n = arriveHome(st);
-    if (n) { save(); toast([`🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`]); }
+    let n, got;
+    const ach = withAchievements(st, () => { n = arriveHome(st); got = produce(st, Date.now()); });
+    const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
+    save();
+    toast([n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
+      ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   updateHome(); pets = homePets();
   if (audio) { stopAudio(); startAudio(); }
@@ -201,7 +205,7 @@ function draw(t) {
   const fresh = Math.max(0, cam - explored[1]) + Math.max(0, explored[0] - cam);
   explored = [Math.min(explored[0], cam), Math.max(explored[1], cam)];
   if (fresh) addFuel(st, Math.min(fresh * FUEL.perScreen, FUEL.maxPerSecond * dt / 1000));
-  document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)} · 🌿${st.bag.plant} ⛏${st.bag.ore} 🐾${st.bag.creature.length}`;
+  document.getElementById('pos').textContent = `📍 ${cam.toFixed(1)} · 🌿${Math.floor(st.bag.plant)} ⛏${Math.floor(st.bag.ore)} 🐾${st.bag.creature.length}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
   hits = [];
   // the explorer stands mid-screen: only what is near it can be taken
@@ -441,23 +445,28 @@ function updateHome() { homeBtn.textContent = !st.home ? '🏠 Settle here' : st
 homeBtn.onclick = () => {
   if (!st.home) {
     if (!confirm(`Make ${world.name} your home planet? You build your civilization there with what you gather exploring.`)) return;
-    setHome(st, world.seed); arriveHome(st); save(); updateHome(); pets = homePets();
+    const ach = withAchievements(st, () => { setHome(st, world.seed, Date.now()); arriveHome(st); });
+    save(); updateHome(); pets = homePets(); toast(ach.map((a) => `🏆 Achievement: ${a}`));
   } else if (st.home.seed !== world.seed) { location.hash = st.home.seed; return; }
   renderBuild(); buildDlg.showModal();
 };
+const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
+  b.jump && `jumps ${b.jump * 100}% cheaper`].filter(Boolean).join(' · ');
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · ${civTitle(H)}`;
-  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${st.bag.plant} plants · ⛏ ${st.bag.ore} ore · 🐾 ${H.animals.length} creatures living here.
-    <br><small>Buildings go where you stand. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
+  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
+    <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k) ? '' : ' disabled'}>Build</button>
-      <b>${b.name}</b> <small style="display:inline">${costText(b.cost)} · built ${H.built.filter((x) => x.kind === k).length}</small></li>`).join('')}</ul>`;
+      <b>${b.name}</b> <small style="display:inline">${costText(b.cost)} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>`;
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     const L = world.layers.at(-2);
-    if (!build(st, b.dataset.k, cam * L.parallax + 0.5)) return;
+    let ok;
+    const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, cam * L.parallax + 0.5); }); // new buildings start producing now
+    if (!ok) return;
     save(); pets = homePets(); buildDlg.close();
-    toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`]);
+    toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
   }));
 }
 document.getElementById('buildClose').onclick = () => buildDlg.close();
@@ -470,8 +479,8 @@ function setBtn(on) { sb.textContent = on ? '■ Mute' : '▶ Sound'; sb.setAttr
 
 sb.onclick = () => (audio ? stopAudio() : startAudio());
 // Jumping to an unvisited world spends fuel; the button doubles as the fuel gauge.
-// a map fragment halves the next jump that costs anything
-const jumpPrice = (cost) => (st.halfJump && cost ? Math.ceil(cost / 2) : cost);
+// a map fragment halves the next jump that costs anything; towers at home take a share off every jump
+const jumpPrice = (cost) => Math.ceil(cost * (1 - jumpDiscount(st)) / (st.halfJump && cost ? 2 : 1));
 function jump(seed, full) {
   const cost = jumpPrice(full);
   if (st.fuel < cost) {
@@ -543,7 +552,7 @@ function renderMap() {
       const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
       const cost = cur || st.stars.includes(s.seed) ? 0 : jumpPrice(jumpCost(here, [sx, sy], GALAXY));
       const col = fn?.colonyOf(s.seed), nm = col ? `${w.name}, colony of ${col.nick}` : w.name;
-      svg.push(`<a href="#${s.seed}" data-cost="${cost}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
+      svg.push(`<a href="#${s.seed}" data-cost="${cost}" data-full="${jumpCost(here, [sx, sy], GALAXY)}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${col ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
@@ -555,8 +564,8 @@ function renderMap() {
     + ` Centre ${wrapS(cx)}, ${wrapS(cy)}${fn ? ' · gold ring = colony' : ''} · fuel ${Math.floor(st.fuel)}⚡ · nearer stars cost less · circled (visited) stars are free · bigger = rarer.`;
   mapDlg.querySelectorAll('svg a').forEach((a) => a.addEventListener('click', (e) => {
     const cost = +a.dataset.cost;
-    // data-cost is already the price; pass the full cost so jump() applies (and spends) the discount once
-    if (cost) { e.preventDefault(); if (!jump(a.getAttribute('href').slice(1), st.halfJump ? cost * 2 : cost)) return; }
+    // data-cost is already the price; pass the full cost so jump() applies (and spends) the discounts once
+    if (cost) { e.preventDefault(); if (!jump(a.getAttribute('href').slice(1), +a.dataset.full)) return; }
     mapDlg.close();
   }));
 }
@@ -581,6 +590,9 @@ document.getElementById('atlasBtn').onclick = () => {
     <h3>Daily mission</h3>
     <p>${done ? '✓' : '○'} Find a world with ${m.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}.
       <br><small>Current streak ${st.daily.streak} · best ${st.daily.best}${matches(world, m) && done ? ' · this world fits' : ''}</small></p>
+    <h3>Home planet</h3>
+    <p>${st.home ? `<a href="#${encodeURIComponent(st.home.seed)}">${esc(makeWorld(st.home.seed).name)}</a> · ${civTitle(st.home)} · ${st.home.built.length} buildings · ${st.home.animals.length} creatures`
+      : '<small>No home yet. Use 🏠 Settle here on a world you like.</small>'}</p>
     <h3>Achievements</h3>
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
     <h3>Bestiary <small>${st.species.length} species</small></h3>
