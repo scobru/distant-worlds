@@ -54,7 +54,7 @@ export function describe(e, w, known) {
   }
   if (e.relic) return { title: cap(e.kind), lines: ['Rare relic. ' + RELIC[e.kind], known.relic(e.kind) ? '✓ In your atlas' : 'Not in your atlas yet'] };
   if (FLORA[e.kind]) return e.plant
-    ? { title: e.plant.name, rarity: e.plant.rarity, lines: [`${FLORA[e.kind]}${e.plant.bloom ? ', flowering' : ''}.`, known.plant?.(e.plant.id) ? '✓ In your herbarium' : 'New plant', hint(e, 'harvest')] }
+    ? { title: e.plant.name, rarity: e.plant.rarity, lines: [`${FLORA[e.kind]}${e.plant.bloom ? ', flowering' : ''}.`, e.garden ? 'Grows in your garden.' : known.plant?.(e.plant.id) ? '✓ In your herbarium' : 'New plant', e.garden ? '' : hint(e, 'harvest')] }
     : { title: FLORA[e.kind], lines: [`Flora of this world (${e.kind}).`] };
   return {
     title: (e.broken ? 'Ruined ' + (STRUCT[e.kind] ?? e.kind).toLowerCase() : STRUCT[e.kind] ?? cap(e.kind)),
