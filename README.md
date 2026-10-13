@@ -3,7 +3,7 @@
 Press **New world**: a new planet is born, with its own landscape, creatures and generative soundtrack.
 Everything comes from a seed in the URL (`…/#v1-8393_2007_4`): share the link and whoever opens it sees and hears the same world, at the same spot (`#seed@12.5`).
 
-- **Your explorer**: a character with looks random for each player (suit colour, helmet or hat, backpack) walks left and right (arrow keys / A-D, hold ◀ ▶, or drag).
+- **Your explorer**: a character with looks random for each player (suit colour, helmet or hat, backpack) walks left and right (arrow keys / A-D, hold ◀ ▶, or drag), or on its own with **🚶 Auto** (it keeps going the way it faces).
 - **Endless worlds**: walk forever. Terrain, structures, flora, creatures and rare relics are generated chunk by chunk as you go.
 - **Cultures** (One Piece style: real places, reinvented): temperate, japanese, nordic, desert, jungle, western, arctic, apocalyptic, war. Each brings its buildings (pagodas and torii, longhouses and stave churches, domes and minarets, step pyramids, saloons, igloos and lighthouses, broken towers and wrecks, bunkers and searchlights), flora (blossoms, bamboo, palms, cacti, dead trees…), relief, colours, weather (petals, snow, ash) and music.
 - **Relief and depth**: rolling hills, ridged peaks, mesas, dunes, rock spires, floating islands with waterfalls; rivers winding towards the viewer; auroras and smoke columns.
