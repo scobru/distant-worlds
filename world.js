@@ -468,6 +468,41 @@ export function makeSpecies(worldSeed, k, giant) {
   };
 }
 
+// Breeding (at home, with a stable): the child of two wild species takes each part from one parent,
+// sometimes a new one (a mutation), and proportions in between. The same parents always give the same
+// child, whichever order: its id is the parents' ids, sorted, joined by '+'. Only wild species breed.
+export function breed(a, b) {
+  if (a.id > b.id) [a, b] = [b, a];
+  const r = rngFrom(`breed:${a.id}+${b.id}`), mix = (x, y) => x + (y - x) * r();
+  let mutated = 0;
+  const dna = Object.fromEntries(Object.entries(DNA).map(([part, t]) => {
+    if (r() < 0.12) { mutated++; const vals = Object.keys(t); return [part, vals[Math.floor(r() * vals.length)]]; }
+    return [part, r() < 0.5 ? a[part] : b[part]];
+  }));
+  dna.legs = +dna.legs;
+  const bits = Math.max(a.bits, b.bits) + mutated * 1.5;
+  return {
+    id: `${a.id}+${b.id}`,
+    name: a.name.slice(0, Math.ceil(a.name.length / 2)) + b.name.slice(Math.floor(b.name.length / 2)),
+    ...dna,
+    bodyLen: mix(a.bodyLen, b.bodyLen), bodyH: mix(a.bodyH, b.bodyH), legLen: mix(a.legLen, b.legLen),
+    neckLen: dna.neck === 'none' ? 0 : Math.max(0.2, mix(a.neckLen, b.neckLen)), pace: mix(a.pace, b.pace),
+    rarity: SPECIES_RARITY.findLast(([, min]) => bits >= min)[0], bits, bred: true,
+  };
+}
+// shortcut: cached forever per id, fine for the few hundred species a session meets.
+const speciesMemo = new Map();
+/** The species with this id: "<world seed>#<k>", or two wild ones bred ("<id>+<id>"); null if unknown. */
+export function speciesOf(id) {
+  if (!speciesMemo.has(id)) {
+    const parents = id.split('+');
+    const wild = (x) => { const [seed, k] = x.split('#'); return makeWorld(seed).species[k] ?? null; };
+    const sp = parents.length === 1 ? wild(id) : parents.length === 2 ? (([a, b]) => a && b && breed(a, b))(parents.map(wild)) : null;
+    speciesMemo.set(id, sp ?? null);
+  }
+  return speciesMemo.get(id);
+}
+
 // A colonist's people: one species per explorer (random from their key, the same on every colony),
 // living around their flag. How many, where and how they move is random per planet; more time
 // invested on the planet means more of them (2 to 8).

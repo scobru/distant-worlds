@@ -116,6 +116,8 @@
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
     and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
+  <p>🧬 <b>Breeding</b>: each Stable at home lets two wild species living there have a young one a day (🌿10 ⛏5). It takes each part from one parent,
+    sometimes something new, and joins your bestiary and your home. The same parents always give the same young.</p>
   <p>⚔ <b>Sieges</b> (Freenet): land on another explorer's home and press <b>⚔ Besiege</b> (⚡20 ⛏10). Stay there: every 2 minutes another raider joins.
     When you attack, your raiders against their defence decide it: win and you bring back ore. Once a day per home. A besieged home fights it like a pirate raid.
     Homes marked 🕊 Peaceful neither besiege nor get besieged.</p>
@@ -138,11 +140,11 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
+import { makeWorld, speciesOf, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -237,9 +239,8 @@ function homePets(H = st.home?.seed === world.seed && st.home) {
   if (!H) return [];
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.2, span = Math.max(0.8, ...xs) + 0.2 - lo;
   return H.animals.slice(-24).map((id, k) => {
-    const [seed, i] = id.split('#'), r = rngFrom(`pet:${id}:${k}`);
-    if (!worldsMemo.has(seed)) worldsMemo.set(seed, makeWorld(seed));
-    return { kind: 'species', dna: worldsMemo.get(seed).species[i], x: lo + r() * span * 0.8, range: 0.15 + r() * span * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.04 + r() * 0.02, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
+    const r = rngFrom(`pet:${id}:${k}`);
+    return { kind: 'species', dna: speciesOf(id), x: lo + r() * span * 0.8, range: 0.15 + r() * span * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.04 + r() * 0.02, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
   }).filter((p) => p.dna);
 }
 
@@ -697,6 +698,17 @@ const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `m
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
+// Breeding: two wild species living at home, in a stable (atlas.js breedAt, world.js breed).
+function breedHtml(H) {
+  const ids = [...new Set(H.animals.filter((id) => !id.includes('+')))].filter((id) => speciesOf(id));
+  if (!H.built.some((b) => b.kind === 'longhouse' && !b.damaged)) return '<p><small>🧬 Build a Stable to breed your creatures into new species.</small></p>';
+  if (ids.length < 2) return '<p><small>🧬 Bring home two different wild species to breed them in your stable.</small></p>';
+  const opts = (sel) => ids.map((id, i) => `<option value="${esc(id)}"${i === sel ? ' selected' : ''}>${esc(speciesOf(id).name)}</option>`).join('');
+  const left = breedsLeft(st, isoDay());
+  return `<p>🧬 <select id="breedA" aria-label="First parent">${opts(0)}</select> × <select id="breedB" aria-label="Second parent">${opts(1)}</select>
+    <button id="breedBtn"${left > 0 ? '' : ' disabled'}>Breed 🌿${BREED.plant} ⛏${BREED.ore}</button>
+    <small style="display:inline">${left > 0 ? `${left} more today` : 'your stables rest until tomorrow'}</small></p>`;
+}
 function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
@@ -706,6 +718,7 @@ function renderBuild() {
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
+    ${breedHtml(H)}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
@@ -716,6 +729,16 @@ function renderBuild() {
     save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
     sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
   }));
+  const bb = document.getElementById('breedBtn');
+  if (bb) bb.onclick = () => {
+    const a = document.getElementById('breedA').value, b = document.getElementById('breedB').value;
+    if (a === b) return toast(['Pick two different species.']);
+    const id = breedAt(st, a, b, isoDay());
+    if (!id) return toast([`Breeding needs a free stable today and 🌿${BREED.plant} ⛏${BREED.ore}.`]);
+    const sp = speciesOf(id), res = findSpecies(st, sp, { seed: st.home.seed, name: `${world.name} (bred)` });
+    save(); pets = homePets(); fn?.homeChanged(); renderBuild(); sfx('pickup');
+    toast([`🧬 A young ${esc(sp.name)} (${sp.rarity}) was born in your stable!`, ...res.achievements.map((x) => `🏆 Achievement: ${x}`)]);
+  };
   const pc = document.getElementById('peaceChk');
   if (pc) pc.onchange = () => { st.home.peace = pc.checked; save(); fn?.homeChanged(); toast([pc.checked ? '🕊 Your home is peaceful.' : '⚔ Your home can besiege and be besieged.']); };
   buildDlg.querySelectorAll('[data-repair]').forEach((b) => (b.onclick = () => {
@@ -884,7 +907,7 @@ document.getElementById('atlasBtn').onclick = () => {
     if (pl) drawThing(cv2.getContext('2d'), { kind: pl.family, seed: 5, size: 0.1, plant: pl }, 36, 46, 34, { color: '#9a9', accent: '#9cf', light: '#ffd', style: 'classic', lights: false, night: false, t: 0 });
   }
   for (const cv2 of dlg.querySelectorAll('.portrait[data-id]')) {
-    const [seed, k] = cv2.dataset.id.split('#'), dna = makeWorld(seed).species[k];
+    const dna = speciesOf(cv2.dataset.id);
     if (dna) drawCreature(cv2.getContext('2d'), { kind: 'species', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classic', lights: false, t: 0 });
   }
   dlg.showModal();

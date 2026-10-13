@@ -299,6 +299,23 @@ export function repair(st, i, g = 1) {
   return true;
 }
 
+// Breeding: each working stable lets two wild species living at home have a young one a day, for plants and
+// ore. The young (world.js breed) joins the home's creatures.
+export const BREED = { plant: 10, ore: 5 };
+const wild = (id) => !id.includes('+');
+export const breedsLeft = (st, day) => builtOf(st, 'longhouse') - (st.home.bred?.day === day ? st.home.bred.n : 0);
+/** Breeds species `a` and `b` (wild, both living at home) on `day`; returns the young's id, or null. */
+export function breedAt(st, a, b, day) {
+  const H = st.home;
+  if (a === b || !wild(a) || !wild(b) || !H.animals.includes(a) || !H.animals.includes(b)) return null;
+  if (breedsLeft(st, day) < 1 || st.bag.plant < BREED.plant || st.bag.ore < BREED.ore) return null;
+  st.bag.plant -= BREED.plant; st.bag.ore -= BREED.ore;
+  H.bred = { day, n: (H.bred?.day === day ? H.bred.n : 0) + 1 };
+  const id = [a, b].sort().join('+');
+  H.animals.push(id);
+  return id;
+}
+
 // Exodus: a home whose world is dying can move, buildings and creatures included, for a price per building.
 export const MOVE_COST = { plant: 3, ore: 3 };
 export const moveCost = (st) => ({ plant: MOVE_COST.plant * st.home.built.length, ore: MOVE_COST.ore * st.home.built.length });
