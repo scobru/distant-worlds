@@ -15,6 +15,11 @@
 //! Homes: each persona can publish its home planet (buildings and creatures), signed like a colony,
 //! so other explorers see it. The newest signed home of a persona wins. What a home holds is
 //! self-declared (resources are gathered in the client); MAX_BUILT and MAX_ANIMALS bound it.
+//!
+//! Sieges: an explorer besieges another one's home by spending time there, measured like a colony
+//! but bound to the defender and the day (`dwr1|<target>|<attacker>|<day>|<lane>|<nonce>`), so a
+//! siege cannot be reused on another home or another day. One raid per attacker, target and day; more
+//! work replaces it. Who wins is decided by the clients (the defence is the self-declared home).
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -32,6 +37,7 @@ const GALAXY: u32 = 10_000;
 pub const MAX_HOMES: usize = 20_000;
 pub const MAX_BUILT: usize = 64;
 pub const MAX_ANIMALS: usize = 64;
+pub const MAX_RAIDS: usize = 20_000;
 pub const BUILDINGS: [&str; 8] = ["house", "windmill", "longhouse", "factory", "temple", "castle", "tower", "dome"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -55,8 +61,22 @@ pub struct Home {
     pub built: Vec<(String, i64)>, // (building kind, position in hundredths of a screen)
     pub animals: Vec<String>,      // species ids "<star seed>#<k>"
     pub ts: u64,                   // self-declared (ms); the newest home of a persona wins
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub peace: bool, // opted out of sieges, both ways
     pub ante: String,
     pub sig: String, // by the delegated app key over `home_msg()`
+    pub cert: Cert,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Raid {
+    pub attacker: String, // hex ed25519 pubkey
+    pub nick: String,
+    pub target: String, // the besieged persona
+    pub day: u64,       // days since 1970 (UTC), self-declared; clients ignore old and future ones
+    pub nonces: Vec<u64>,
+    pub ante: String,
+    pub sig: String, // by the attacker's delegated app key over `raid_msg()`
     pub cert: Cert,
 }
 
@@ -73,6 +93,8 @@ pub struct GalaxyState {
     pub blocked: Blocklist,
     #[serde(default)]
     pub homes: BTreeMap<String, Home>, // persona -> home
+    #[serde(default)]
+    pub raids: BTreeMap<String, Raid>, // "<attacker>|<target>|<day>" -> raid
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -81,6 +103,8 @@ pub struct Summary {
     pub blocked_ts: u64,
     #[serde(default)]
     pub homes: BTreeMap<String, u64>, // persona -> ts
+    #[serde(default)]
+    pub raids: BTreeMap<String, String>, // key -> score as decimal string
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -91,6 +115,8 @@ pub struct Delta {
     pub blocked: Option<Blocklist>,
     #[serde(default)]
     pub homes: BTreeMap<String, Home>,
+    #[serde(default)]
+    pub raids: BTreeMap<String, Raid>,
 }
 
 type R<T> = Result<T, String>;
@@ -106,6 +132,59 @@ pub fn score(seed: &str, c: &Colony) -> u128 {
         .enumerate()
         .map(|(i, n)| u64::from_be_bytes(lane_hash(seed, &c.persona, i, *n)[..8].try_into().unwrap()) as u128)
         .sum()
+}
+
+pub fn raid_hash(r: &Raid, lane: usize, nonce: u64) -> [u8; 32] {
+    Sha256::digest(format!("dwr1|{}|{}|{}|{lane}|{nonce}", r.target, r.attacker, r.day).as_bytes()).into()
+}
+
+/// Like a colony's score: lower = a longer siege.
+pub fn raid_score(r: &Raid) -> u128 {
+    r.nonces.iter().enumerate().map(|(i, n)| u64::from_be_bytes(raid_hash(r, i, *n)[..8].try_into().unwrap()) as u128).sum()
+}
+
+pub fn raid_key(r: &Raid) -> String {
+    format!("{}|{}|{}", r.attacker, r.target, r.day)
+}
+
+pub fn raid_msg(r: &Raid) -> String {
+    let n: Vec<String> = r.nonces.iter().map(u64::to_string).collect();
+    format!("dwr1|{}|{}|{}|{}|{}", r.attacker, r.nick, r.target, r.day, n.join(","))
+}
+
+fn raid_rank(r: &Raid) -> (u128, &str) {
+    (raid_score(r), &r.sig)
+}
+
+pub fn check_raid(app: &str, r: &Raid) -> R<()> {
+    if !is_persona(&r.attacker) || !is_persona(&r.target) || r.attacker == r.target || !text_ok(&r.nick, 24) || r.nonces.len() != LANES {
+        return Err("bad raid".into());
+    }
+    if raid_score(r) > MAX_SCORE {
+        return Err("siege too short".into());
+    }
+    let ante = hex::decode(&r.ante).map_err(|e| e.to_string())?;
+    if viso_ante::verify_slot(&key(&r.attacker)?, &ante)? < MIN_ANTE_BITS {
+        return Err("persona level too low".into());
+    }
+    let app_key = check(&r.attacker, app, &r.cert)?;
+    verify(&app_key, raid_msg(r).as_bytes(), &r.sig)
+}
+
+fn raid_blocked(b: &Blocklist, r: &Raid) -> bool {
+    b.list.iter().any(|x| *x == r.attacker || *x == r.target)
+}
+
+/// Keep the MAX_RAIDS most recent raids (then the longest sieges).
+fn prune_raids(raids: &mut BTreeMap<String, Raid>) {
+    if raids.len() <= MAX_RAIDS {
+        return;
+    }
+    let mut order: Vec<_> = raids.iter().map(|(k, r)| ((std::cmp::Reverse(r.day), raid_score(r), r.sig.clone()), k.clone())).collect();
+    order.sort();
+    for (_, k) in order.into_iter().skip(MAX_RAIDS) {
+        raids.remove(&k);
+    }
 }
 
 pub fn msg(seed: &str, c: &Colony) -> String {
@@ -135,7 +214,8 @@ pub fn is_star(seed: &str) -> bool {
 
 pub fn home_msg(h: &Home) -> String {
     let b: Vec<String> = h.built.iter().map(|(k, x)| format!("{k}:{x}")).collect();
-    format!("dwh1|{}|{}|{}|{}|{}|{}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
+    let peace = if h.peace { "|peace" } else { "" }; // absent for homes signed before sieges
+    format!("dwh1|{}|{}|{}|{}|{}|{}{peace}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
 }
 
 fn is_animal(a: &str) -> bool {
@@ -242,8 +322,12 @@ pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
     if s.homes.len() > MAX_HOMES || s.homes.iter().any(|(p, h)| *p != h.persona || home_blocked(&s.blocked, h)) {
         return Err("homes out of bounds".into());
     }
+    if s.raids.len() > MAX_RAIDS || s.raids.iter().any(|(k, r)| *k != raid_key(r) || raid_blocked(&s.blocked, r)) {
+        return Err("raids out of bounds".into());
+    }
     s.colonies.iter().try_for_each(|(k, c)| check_colony(app, k, c))?;
-    s.homes.values().try_for_each(|h| check_home(app, h))
+    s.homes.values().try_for_each(|h| check_home(app, h))?;
+    s.raids.values().try_for_each(|r| check_raid(app, r))
 }
 
 pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
@@ -267,11 +351,20 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         check_home(app, &h)?;
         s.homes.insert(persona, h);
     }
+    for (k, r) in d.raids {
+        if k != raid_key(&r) || raid_blocked(&s.blocked, &r) || s.raids.get(&k).is_some_and(|old| raid_rank(old) <= raid_rank(&r)) {
+            continue;
+        }
+        check_raid(app, &r)?;
+        s.raids.insert(k, r);
+    }
     let b = s.blocked.clone();
     s.colonies.retain(|k, c| !blocked(&b, k, c));
     s.homes.retain(|_, h| !home_blocked(&b, h));
+    s.raids.retain(|_, r| !raid_blocked(&b, r));
     prune(&mut s.colonies);
     prune_homes(&mut s.homes);
+    prune_raids(&mut s.raids);
     Ok(())
 }
 
@@ -280,6 +373,7 @@ pub fn summarize(s: &GalaxyState) -> Summary {
         colonies: s.colonies.iter().map(|(k, c)| (k.clone(), (score(k, c).to_string(), c.ts))).collect(),
         blocked_ts: s.blocked.ts,
         homes: s.homes.iter().map(|(p, h)| (p.clone(), h.ts)).collect(),
+        raids: s.raids.iter().map(|(k, r)| (k.clone(), raid_score(r).to_string())).collect(),
     }
 }
 
@@ -292,6 +386,7 @@ pub fn delta(s: &GalaxyState, sum: &Summary) -> Delta {
         colonies: s.colonies.iter().filter(|(k, c)| better(k, c)).map(|(k, c)| (k.clone(), c.clone())).collect(),
         blocked: (s.blocked.ts > sum.blocked_ts).then(|| s.blocked.clone()),
         homes: s.homes.iter().filter(|(p, h)| sum.homes.get(*p).is_none_or(|ts| h.ts > *ts)).map(|(p, h)| (p.clone(), h.clone())).collect(),
+        raids: s.raids.iter().filter(|(k, r)| sum.raids.get(*k).is_none_or(|sc| raid_score(r) < sc.parse().unwrap_or(u128::MAX))).map(|(k, r)| (k.clone(), r.clone())).collect(),
     }
 }
 
@@ -348,7 +443,7 @@ impl ContractInterface for Contract {
             let d: Delta = match u {
                 UpdateData::State(st) => {
                     let o: GalaxyState = de(st.as_ref())?;
-                    Delta { colonies: o.colonies, blocked: Some(o.blocked), homes: o.homes }
+                    Delta { colonies: o.colonies, blocked: Some(o.blocked), homes: o.homes, raids: o.raids }
                 }
                 UpdateData::Delta(d) => de(d.as_ref())?,
                 UpdateData::StateAndDelta { delta, .. } => de(delta.as_ref())?,
@@ -410,7 +505,7 @@ mod tests {
         hex::encode(viso_ante::make_slot(k, n, 1))
     }
     fn one(seed: &str, c: Colony) -> Delta {
-        Delta { colonies: [(seed.into(), c)].into(), blocked: None, homes: Default::default() }
+        Delta { colonies: [(seed.into(), c)].into(), blocked: None, homes: Default::default(), raids: Default::default() }
     }
 
     #[test]
@@ -483,8 +578,8 @@ mod tests {
             let sig = hex::encode(k.sign(format!("dwb1|1|{}", list.join(",")).as_bytes()).to_bytes());
             Blocklist { ts: 1, list, sig }
         };
-        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
-        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
+        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
+        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
         assert!(s.colonies.is_empty());
         apply(&admin, APP, &mut s, one(seed, good)).unwrap(); // a blocked persona cannot come back
         assert!(s.colonies.is_empty());
@@ -495,13 +590,13 @@ mod tests {
         let c = colony("v1-1_1_1", persona, "x", 1, 1); // borrow its delegation and level
         let mut h = Home {
             persona: c.persona, nick: "nick".into(), seed: seed.into(), built: built.iter().map(|(k, x)| (k.to_string(), *x)).collect(),
-            animals: vec![format!("{seed}#0")], ts, ante: c.ante, sig: String::new(), cert: c.cert,
+            animals: vec![format!("{seed}#0")], ts, peace: false, ante: c.ante, sig: String::new(), cert: c.cert,
         };
         h.sig = hex::encode(sk(100).sign(home_msg(&h).as_bytes()).to_bytes());
         h
     }
     fn homes(h: Home) -> Delta {
-        Delta { colonies: Default::default(), blocked: None, homes: [(h.persona.clone(), h)].into() }
+        Delta { colonies: Default::default(), blocked: None, homes: [(h.persona.clone(), h)].into(), raids: Default::default() }
     }
 
     #[test]
@@ -537,8 +632,72 @@ mod tests {
         // same vector as freenet/net.test.mjs
         let c = colony("v1-1_1_1", &sk(2), "x", 1, 1);
         let h = Home { persona: "ab".repeat(32), nick: "Zed".into(), seed: "v1-1_2_3.4".into(), built: vec![("house".into(), 50), ("dome".into(), -20)],
-            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, ante: String::new(), sig: String::new(), cert: c.cert };
+            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, peace: false, ante: String::new(), sig: String::new(), cert: c.cert };
         assert_eq!(home_msg(&h), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2", "ab".repeat(32)));
+        let p = Home { peace: true, ..h };
+        assert_eq!(home_msg(&p), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2|peace", "ab".repeat(32)));
+        assert!(!serde_json::to_string(&Home { peace: false, ..p.clone() }).unwrap().contains("peace"), "old homes keep their JSON");
+    }
+
+    /// A siege of `per_lane` nonces per lane by `attacker` on `target`'s home on `day`.
+    fn raid(attacker: &SigningKey, target: &SigningKey, day: u64, per_lane: u64) -> Raid {
+        let c = colony("v1-1_1_1", attacker, "x", 1, 1);
+        let mut r = Raid { attacker: c.persona, nick: "nick".into(), target: pk(target), day, nonces: vec![0; LANES], ante: c.ante, sig: String::new(), cert: c.cert };
+        r.nonces = (0..LANES).map(|i| (0..per_lane).min_by_key(|n| u64::from_be_bytes(raid_hash(&r, i, *n)[..8].try_into().unwrap())).unwrap()).collect();
+        r.sig = hex::encode(sk(100).sign(raid_msg(&r).as_bytes()).to_bytes());
+        r
+    }
+    fn raids(r: Raid) -> Delta {
+        Delta { colonies: Default::default(), blocked: None, homes: Default::default(), raids: [(raid_key(&r), r)].into() }
+    }
+
+    #[test]
+    fn raid_hash_matches_ui() {
+        // same vector as freenet/net.test.mjs
+        let c = colony("v1-1_1_1", &sk(2), "x", 1, 1);
+        let r = Raid { attacker: "ab".repeat(32), nick: "Zed".into(), target: "cd".repeat(32), day: 20000, nonces: vec![1, 2, 3, 4, 5, 6, 7, 8], ante: String::new(), sig: String::new(), cert: c.cert };
+        assert_eq!(hex::encode(raid_hash(&r, 5, 42)), "782e4f8b7edc06a6094fa0e898d387fd2aa5e2479ade126103a82bd4b519986e");
+        assert_eq!(raid_msg(&r), format!("dwr1|{}|Zed|{}|20000|1,2,3,4,5,6,7,8", "ab".repeat(32), "cd".repeat(32)));
+    }
+
+    #[test]
+    fn longer_sieges_win_and_cheats_fail() {
+        let admin = pk(&sk(1));
+        let short = raid(&sk(2), &sk(3), 20000, 1 << 18);
+        let long = raid(&sk(2), &sk(3), 20000, 1 << 20);
+        assert!(raid_score(&long) < raid_score(&short));
+        let mut s1 = GalaxyState::default();
+        apply(&admin, APP, &mut s1, raids(short.clone())).unwrap();
+        apply(&admin, APP, &mut s1, raids(long.clone())).unwrap();
+        let mut s2 = GalaxyState::default();
+        apply(&admin, APP, &mut s2, raids(long.clone())).unwrap();
+        apply(&admin, APP, &mut s2, raids(short.clone())).unwrap();
+        assert_eq!(s1, s2);
+        assert_eq!(s1.raids.len(), 1);
+        // another day is another raid
+        apply(&admin, APP, &mut s1, raids(raid(&sk(2), &sk(3), 20001, 1 << 18))).unwrap();
+        assert_eq!(s1.raids.len(), 2);
+        validate(&admin, APP, &s1).unwrap();
+        assert!(delta(&s1, &summarize(&s1)).raids.is_empty());
+        assert_eq!(delta(&s1, &Summary::default()).raids.len(), 2);
+
+        assert!(check_raid(APP, &raid(&sk(2), &sk(3), 20000, 1 << 10)).is_err(), "too short");
+        assert!(check_raid(APP, &raid(&sk(2), &sk(2), 20000, 1 << 18)).is_err(), "besieging yourself");
+        let mut moved = long.clone();
+        moved.day = 20005;
+        moved.sig = hex::encode(sk(100).sign(raid_msg(&moved).as_bytes()).to_bytes());
+        assert!(check_raid(APP, &moved).is_err(), "work bound to its day");
+        let mut retarget = long.clone();
+        retarget.target = pk(&sk(4));
+        retarget.sig = hex::encode(sk(100).sign(raid_msg(&retarget).as_bytes()).to_bytes());
+        assert!(check_raid(APP, &retarget).is_err(), "work bound to its target");
+        let mut forged = long.clone();
+        forged.nick = "other".into();
+        assert!(check_raid(APP, &forged).is_err(), "changed after signing");
+        let mut wrong_key = GalaxyState::default();
+        let d = Delta { raids: [("x".into(), long.clone())].into(), ..Default::default() };
+        apply(&admin, APP, &mut wrong_key, d).unwrap();
+        assert!(wrong_key.raids.is_empty(), "keyed by attacker, target and day");
     }
 
     #[test]

@@ -19,7 +19,7 @@ import chatWasm from './chat.wasm?url';
 import { chatMsg } from './chat.js';
 import { identityInstance, IDENTITY_CODE_HASH, readPersona } from './viso.js';
 import identityWasm from './identity.wasm?url';
-import { msg as colonyMsg, homeMsg } from './colony.js';
+import { msg as colonyMsg, homeMsg, raidMsg, raidKey } from './colony.js';
 import { connectMessage } from './connect.js';
 export { personaName } from './connect.js';
 
@@ -32,7 +32,7 @@ const bytes = (s) => Array.from(enc.encode(s));
 // FreeNames / FreeTunes admin; the signed messages are domain-separated (dwb1).
 export const ADMIN = '4498bd4c2ab992afa152bc9b968e246cf70dc4fa5a670b23c33e73b8516ce9f3';
 const APP_PATH = location.pathname; // in dev "/": a separate dev galaxy
-const EMPTY = { colonies: {}, blocked: { ts: 0, list: [], sig: '' }, homes: {} };
+const EMPTY = { colonies: {}, blocked: { ts: 0, list: [], sig: '' }, homes: {}, raids: {} };
 
 // ---------------------------------------------------------------- node connection
 const listeners = [], delegateWaiters = [];
@@ -136,13 +136,23 @@ export async function publishColony(seed, { name, nick, x, nonces, ante }) {
 }
 
 /** Publish our home planet (buildings as [kind, x in hundredths], creature ids), so others see it. */
-export async function publishHome({ nick, seed, built, animals, ante }) {
+export async function publishHome({ nick, seed, built, animals, peace, ante }) {
   const s = await session();
   if (!s) throw new Error('Sign in first.');
-  const h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ante, sig: '', cert: s.cert };
+  const h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), ante, sig: '', cert: s.cert };
   h.sig = await s.sign(homeMsg(h));
   await send({ homes: { [s.persona]: h } });
   return h;
+}
+
+/** Publish a siege of `target`'s home: the siege miner's nonces for `day`, signed for the signed-in persona. */
+export async function publishRaid({ nick, target, day, nonces, ante }) {
+  const s = await session();
+  if (!s) throw new Error('Sign in first.');
+  const r = { attacker: s.persona, nick, target, day, nonces, ante, sig: '', cert: s.cert };
+  r.sig = await s.sign(raidMsg(r));
+  await send({ raids: { [raidKey(r)]: r } });
+  return r;
 }
 
 /** Admin only: hide these stars or personas (replaces the whole blocklist); personas also leave the chat. */

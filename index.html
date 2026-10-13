@@ -66,6 +66,7 @@
   <button id="fav">☆ Save</button>
   <button id="signBtn" hidden>Sign in</button>
   <button id="plantBtn" hidden>🚩 Plant flag</button>
+  <button id="siegeBtn" hidden>⚔ Besiege</button>
   <button id="lbBtn" hidden>🏆 Leaderboard</button>
   <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
   <button id="share">Share</button>
@@ -115,6 +116,9 @@
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
     and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
+  <p>⚔ <b>Sieges</b> (Freenet): land on another explorer's home and press <b>⚔ Besiege</b> (⚡20 ⛏10). Stay there: every 2 minutes another raider joins.
+    When you attack, your raiders against their defence decide it: win and you bring back ore. Once a day per home. A besieged home fights it like a pirate raid.
+    Homes marked 🕊 Peaceful neither besiege nor get besieged.</p>
   <h3>⏳ Living worlds</h3>
   <p>Worlds age (shown as <i>age N/100</i>) and collapse, then their star gives birth to a new one. After age 70 a world is unstable:
     tremors, a red sky, meteors, but richer ore. Gravity grows too (up to ×2): you walk slower, reach less, and building costs more. If it collapses while you are there you escape, leaving half your bag behind.
@@ -701,6 +705,7 @@ function renderBuild() {
     <br>☠ Defence ${defence(H)} against pirate crews of about ${pirateThreat(H)} (from ${Math.round(pirateThreat(H) / 2)} to ${Math.round(pirateThreat(H) * 1.5)}): castles, towers, one per 5 people, one per 3 creatures. Bigger civilizations draw bigger crews.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
+    ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
@@ -711,6 +716,8 @@ function renderBuild() {
     save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
     sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
   }));
+  const pc = document.getElementById('peaceChk');
+  if (pc) pc.onchange = () => { st.home.peace = pc.checked; save(); fn?.homeChanged(); toast([pc.checked ? '🕊 Your home is peaceful.' : '⚔ Your home can besiege and be besieged.']); };
   buildDlg.querySelectorAll('[data-repair]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.repair;
     produce(st, Date.now()); // it starts producing again now
@@ -773,7 +780,7 @@ function showClaim() {
 }
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
-    world: () => world, toast, esc, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
+    world: () => world, toast, esc, save, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
     setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,

@@ -4,10 +4,10 @@
 import * as net from './net.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
-import { civLevel, civPoints, civTitle, population } from '../atlas.js';
+import { civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
-import { newMiner, mineSome, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText } from './colony.js';
+import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText, raidHash, raidScore, raidKey, today } from './colony.js';
 
 // Viso avatars as object URLs, loaded once per persona; until then a coloured dot stands in.
 const avatars = new Map();
@@ -45,15 +45,97 @@ export async function start(app) {
     homeTimer = setTimeout(async () => {
       const H = app.st().home;
       if (!H || !me || !nick || level() < COLONY_BITS) return;
-      const built = H.built.slice(-64).map((b) => [b.kind, Math.round(b.x * 100)]), animals = H.animals.slice(-64), key = JSON.stringify([H.seed, built, animals, nick]);
+      const built = H.built.slice(-64).map((b) => [b.kind, Math.round(b.x * 100)]), animals = H.animals.slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
       if (key === lastHome && galaxy.homes?.[me]) return;
-      try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, ante: anteHex() }) }; lastHome = key; }
+      try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, ante: anteHex() }) }; lastHome = key; }
       catch (e) { console.warn('home publish failed:', e); }
     }, 2000);
   }
 
   async function refreshGalaxy() {
-    try { galaxy = await net.loadGalaxy(); update(); app.refresh(); } catch (e) { console.warn('galaxy unavailable:', e); }
+    try { galaxy = await net.loadGalaxy(); update(); defend(); app.refresh(); } catch (e) { console.warn('galaxy unavailable:', e); }
+  }
+
+  // ---------------------------------------------------------------- sieges
+  // Stay on another explorer's home to besiege it: a second miner, bound to that home and the day, takes
+  // the honest rate while the siege lasts. Each 2 minutes of siege is a raider; the raid wins if the crew
+  // beats the defence of the home as published. Peaceful homes (🕊) neither besiege nor get besieged,
+  // except for a day after their owner besieged someone.
+  const siegeBtn = document.getElementById('siegeBtn');
+  let siege = null, resumed = ''; // siege: { target, day, miner }
+  const raids = () => Object.values(galaxy.raids ?? {});
+  const raidedLately = (persona) => raids().some((r) => r.attacker === persona && r.day >= today() - 1);
+  const peaceful = (h) => !!h?.peace && !raidedLately(h.persona);
+  const crewOf = (r) => siegeCrew(seconds(raidScore(r)));
+  const siegeKey = (target, day) => `siege:${target.slice(0, 16)}:${day}`;
+  /** The home on this planet we could besiege now, if any. */
+  function victim() {
+    const w = app.world(), H = app.st().home;
+    if (!me || !nick || level() < COLONY_BITS || !H || H.peace) return null;
+    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && x.persona !== me && x.built.length);
+    return h && !peaceful(h) && !galaxy.raids?.[`${me}|${h.persona}|${today()}`] ? h : null;
+  }
+  const siegeHere = (h) => siege && h && siege.target === h.persona && siege.day === today();
+  const siegeScore = () => minerScore(siege.miner);
+  setInterval(() => {
+    if (!siege || document.visibilityState !== 'visible' || !siegeHere(victim())) return;
+    const { target, day } = siege;
+    mineWith(siege.miner, (i, n) => raidHash(target, me, day, i, n), Math.round(rate / 5));
+  }, 200);
+  setInterval(() => { if (siege) net.storePut(siegeKey(siege.target, siege.day), JSON.stringify(siege.miner)); }, 10_000);
+  async function updateSiege() {
+    const h = victim();
+    siegeBtn.hidden = !h;
+    if (!h) return;
+    const k = siegeKey(h.persona, today());
+    if (!siegeHere(h) && resumed !== k) {
+      resumed = k; // a siege started earlier today (before a reload) carries on
+      const raw = await net.storeGet(k);
+      if (raw && !siegeHere(h)) siege = { target: h.persona, day: today(), miner: JSON.parse(raw) };
+    }
+    if (!siegeHere(h)) { siegeBtn.textContent = `⚔ Besiege ${h.nick} (⚡${SIEGE.fuel} ⛏${SIEGE.ore})`; return; }
+    const sc = siegeScore(), crew = sc === null ? 0 : siegeCrew(seconds(sc));
+    siegeBtn.textContent = `⚔ Attack ${h.nick}: ${crew} raiders vs defence ${defence(h)}`;
+  }
+  setInterval(updateSiege, 1000);
+  siegeBtn.onclick = async () => {
+    const h = victim(), st = app.st();
+    if (!h) return;
+    if (!siegeHere(h)) {
+      if (!canSiege(st)) return app.toast([`A siege needs ⚡${SIEGE.fuel} fuel and ⛏${SIEGE.ore} ore.`]);
+      if (!confirm(`Besiege ${h.nick}'s ${civTitle(h).toLowerCase()} (defence ${defence(h)})? It costs ⚡${SIEGE.fuel} ⛏${SIEGE.ore}. Stay here: every ${SIEGE.minutesPerRaider} minutes another raider joins, then attack.`)) return;
+      payForSiege(st); app.save();
+      siege = { target: h.persona, day: today(), miner: newMiner() };
+      return updateSiege();
+    }
+    const sc = siegeScore();
+    if (sc === null || sc > MAX_SCORE) return app.toast(['The siege has only just begun: stay a few minutes more.']);
+    siegeBtn.disabled = true;
+    try {
+      const r = await net.publishRaid({ nick, target: h.persona, day: siege.day, nonces: [...siege.miner.nonces], ante: anteHex() });
+      galaxy.raids = { ...galaxy.raids, [raidKey(r)]: r }; siege = null;
+      const crew = crewOf(r), d = defence(h);
+      if (crew > d) { st.bag.ore += siegeLoot(crew); app.save(); }
+      app.toast([crew > d ? `⚔ Your ${crew} raiders broke ${app.esc(h.nick)}'s defence (${d}): ⛏${siegeLoot(crew)} taken.` : `⚔ ${app.esc(h.nick)}'s defence (${d}) held against your ${crew} raiders.`]);
+    } catch (e) { app.toast([app.esc(e.message)]); }
+    finally { siegeBtn.disabled = false; updateSiege(); }
+  };
+  /** Sieges of our home we have not fought yet (from the last 2 days): fought like pirate raids. */
+  function defend() {
+    const st = app.st(), H = st.home;
+    if (!me || !H) return;
+    H.sieged ??= [];
+    const fresh = raids().filter((r) => r.target === me && r.day >= today() - 2 && r.day <= today() && !H.sieged.includes(raidKey(r)));
+    if (!fresh.length) return;
+    const lines = [];
+    for (const r of fresh) {
+      H.sieged = [...H.sieged, raidKey(r)].slice(-200);
+      if (H.peace && !raidedLately(me)) continue;
+      const res = besieged(st, crewOf(r), Date.now(), raidKey(r));
+      if (res) lines.push(res.won ? `⚔ ${app.esc(r.nick)} besieged your home with ${res.crew} raiders: your defence (${res.defence}) held. ⛏${res.loot} from what they left.`
+        : `⚔ ${app.esc(r.nick)} besieged your home with ${res.crew} raiders against your defence ${res.defence}.${res.damaged ? ` Your ${BUILDINGS[res.damaged].name} was damaged: repair it from 🏗 Build.` : ''} You are shielded for a day.`);
+    }
+    app.save(); if (lines.length) app.toast(lines);
   }
 
   async function loadMiner() {
@@ -77,7 +159,7 @@ export async function start(app) {
   // Background "time miner": runs while the planet is on screen. When the work wins the planet, the
   // Plant flag button appears; a colonist's own extra time is published quietly to defend the planet.
   setInterval(() => {
-    if (!miner || document.visibilityState !== 'visible' || minerSeed !== app.world().seed) return;
+    if (!miner || document.visibilityState !== 'visible' || minerSeed !== app.world().seed || siegeHere(victim())) return; // a siege takes the whole rate
     mineSome(miner, minerSeed, me, Math.round((rate * (app.boost(minerSeed) ? 3 : 1)) / 5)); // a time shard triples the rate
   }, 200);
   setInterval(async () => {

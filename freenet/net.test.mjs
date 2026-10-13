@@ -67,5 +67,18 @@ console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
   const p = 'ab'.repeat(32);
   assert.equal(homeMsg({ persona: p, nick: 'Zed', seed: 'v1-1_2_3.4', ts: 7, built: [['house', 50], ['dome', -20]], animals: ['v1-1_2_3#0', 'v1-9_9_9#2'] }),
     `dwh1|${p}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2`); // same vector as contract/src/lib.rs
+  assert.ok(homeMsg({ persona: p, nick: 'Zed', seed: 'v1-1_2_3.4', ts: 7, built: [], animals: [], peace: true }).endsWith('||peace'), 'peaceful homes sign it');
   console.log('home msg ok');
+}
+{
+  // sieges: same vectors as contract/src/lib.rs raid_hash_matches_ui
+  const { raidHash, raidMsg, raidKey, raidScore, today, mineWith, newMiner, minerScore } = await import('./colony.js');
+  const r = { attacker: 'ab'.repeat(32), nick: 'Zed', target: 'cd'.repeat(32), day: 20000, nonces: [1, 2, 3, 4, 5, 6, 7, 8] };
+  assert.equal(hex(raidHash(r.target, r.attacker, r.day, 5, 42)), '782e4f8b7edc06a6094fa0e898d387fd2aa5e2479ade126103a82bd4b519986e');
+  assert.equal(raidMsg(r), `dwr1|${r.attacker}|Zed|${r.target}|20000|1,2,3,4,5,6,7,8`);
+  assert.equal(raidKey(r), `${r.attacker}|${r.target}|20000`);
+  assert.equal(today(864e5 * 20000 + 5), 20000);
+  const m = mineWith(newMiner(), (i, n) => raidHash(r.target, r.attacker, r.day, i, n), 800);
+  assert.equal(raidScore({ ...r, nonces: m.nonces }), minerScore(m), 'the siege miner keeps the raid score');
+  console.log('raid msg ok');
 }
