@@ -62,3 +62,10 @@ console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
   assert.ok(anteBits(ed.getPublicKey(sk9), made) >= 10);
   console.log('viso ok, level', p.bits, 'bits');
 }
+{
+  const { homeMsg } = await import('./colony.js');
+  const p = 'ab'.repeat(32);
+  assert.equal(homeMsg({ persona: p, nick: 'Zed', seed: 'v1-1_2_3.4', ts: 7, built: [['house', 50], ['dome', -20]], animals: ['v1-1_2_3#0', 'v1-9_9_9#2'] }),
+    `dwh1|${p}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2`); // same vector as contract/src/lib.rs
+  console.log('home msg ok');
+}

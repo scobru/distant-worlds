@@ -17,6 +17,8 @@ export const score = (seed, persona, nonces) => nonces.reduce((s, n, i) => s + t
 export const work = (sc) => (sc > 0n ? Number((BigInt(LANES * LANES) << 64n) / sc) : Infinity);
 export const seconds = (sc) => work(sc) / HASHES_PER_SECOND;
 export const msg = (seed, c) => `dwc1|${seed}|${c.persona}|${c.name}|${c.nick}|${c.x}|${c.ts}|${c.nonces.join(',')}`;
+/** Home message, as contract/src/lib.rs home_msg(): buildings are [kind, x in hundredths]. */
+export const homeMsg = (h) => `dwh1|${h.persona}|${h.nick}|${h.seed}|${h.ts}|${h.built.map(([k, x]) => `${k}:${x}`).join(',')}|${h.animals.join(',')}`;
 const textOk = (s, max) => s.length > 0 && [...s].length <= max && s.trim() === s && !/[\u0000-\u001f\u007f|]/.test(s);
 export const validText = (name, nick) => textOk(name, 32) && textOk(nick, 24);
 

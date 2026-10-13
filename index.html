@@ -168,7 +168,7 @@ function load() {
     let n, got;
     const ach = withAchievements(st, () => { n = arriveHome(st); got = produce(st, Date.now()); });
     const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
-    save();
+    save(); if (n) fn?.homeChanged();
     toast([n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
       ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
@@ -180,14 +180,28 @@ function load() {
 
 // Captured creatures roam around the first building of the home planet.
 const worldsMemo = new Map();
-function homePets() {
-  if (st.home?.seed !== world.seed) return [];
-  const cx = st.home.built[0]?.x ?? 0.5;
-  return st.home.animals.slice(-16).map((id, k) => {
+function homePets(H = st.home?.seed === world.seed && st.home) {
+  if (!H) return [];
+  const cx = H.built[0]?.x ?? 0.5;
+  return H.animals.slice(-16).map((id, k) => {
     const [seed, i] = id.split('#'), r = rngFrom(`pet:${id}:${k}`);
     if (!worldsMemo.has(seed)) worldsMemo.set(seed, makeWorld(seed));
     return { kind: 'species', dna: worldsMemo.get(seed).species[i], x: cx - 0.3 + r() * 0.4, range: 0.1 + r() * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.03 + r() * 0.015, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
   }).filter((p) => p.dna);
+}
+
+// Homes drawn on world W: ours, then those other explorers published (pets computed once per home version).
+const othersMemo = new Map();
+function homesHere(W) {
+  const out = st.home?.seed === W.seed ? [{ built: st.home.built, pets }] : [];
+  for (const h of fn?.homesOn?.(W.seed) ?? []) {
+    if (!othersMemo.has(h.sig)) {
+      const H = { nick: h.nick, built: h.built.map(([kind, x], k) => ({ kind, x: x / 100, seed: k + 1 })), animals: h.animals };
+      othersMemo.set(h.sig, { ...H, pets: homePets(H) });
+    }
+    out.push(othersMemo.get(h.sig));
+  }
+  return out;
 }
 
 let last = 0;
@@ -333,18 +347,23 @@ function draw(t) {
         hit({ type: 'walker', ...cr, ...(take && { take, reach: near(X(x)) }) }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m);
       }
     }
-    // the home planet: what the explorer built, and the creatures they brought
-    if (i === W.layers.length - 2 && st.home?.seed === W.seed) {
-      for (const b of st.home.built) {
+    // homes on this planet, ours and other explorers' (Freenet): buildings and the creatures they brought
+    if (i === W.layers.length - 2) for (const H of homesHere(W)) {
+      for (const b of H.built) {
         const bx = X(b.x), by = Y(b.x) + 0.012 * m, s = 0.12 * m;
         if (bx < -s * 3 || bx > w + s * 3) continue;
         drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12 }, bx, by, s, { ...o, lights: true });
-        hit({ type: 'home', name: BUILDINGS[b.kind].name, kind: b.kind }, bx, by, s);
+        hit({ type: 'home', name: BUILDINGS[b.kind].name, kind: b.kind, owner: H.nick }, bx, by, s);
       }
-      for (const cr of pets) {
+      if (H.nick) { // another explorer's home: who lives here
+        const bx = X(H.built[0].x);
+        g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
+        g.fillText(`🏠 ${H.nick} · ${civTitle(H)}`, bx, Y(H.built[0].x) - 0.3 * m); g.restore();
+      }
+      for (const cr of H.pets) {
         const [x, dir] = walkerAt(cr, t), s = cr.size * m;
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, { ...co, color: L.color });
-        hit({ type: 'pet', ...cr }, X(x), Y(x) + s * 0.05, s);
+        hit({ type: 'pet', ...cr, owner: H.nick }, X(x), Y(x) + s * 0.05, s);
       }
     }
     // pickups lie on the nearest ground; only those near the middle (where you stand) can be taken
@@ -484,7 +503,7 @@ moveBtn.onclick = () => {
   const c = moveCost(st);
   if (!confirm(`Move your civilization (${st.home.built.length} buildings, ${st.home.animals.length} creatures) to ${world.name}? It costs 🌿${c.plant} ⛏${c.ore}.`)) return;
   if (!moveHome(st, world.seed)) return toast([`You need 🌿${c.plant} ⛏${c.ore} to move.`]);
-  save(); checkHome(); updateHome(); pets = homePets(); fn?.homeChanged?.();
+  save(); checkHome(); updateHome(); pets = homePets(); fn?.homeChanged();
   toast([`🚀 Your civilization moved to ${world.name}.`]);
 };
 // Collapse while you are here: emergency jump to the world the star gives birth to, half the bag left behind.
@@ -504,7 +523,7 @@ homeBtn.onclick = () => {
   if (!st.home) {
     if (!confirm(`Make ${world.name} your home planet? You build your civilization there with what you gather exploring.`)) return;
     const ach = withAchievements(st, () => { setHome(st, world.seed, Date.now()); arriveHome(st); });
-    save(); updateHome(); pets = homePets(); toast(ach.map((a) => `🏆 Achievement: ${a}`));
+    save(); updateHome(); pets = homePets(); fn?.homeChanged(); toast(ach.map((a) => `🏆 Achievement: ${a}`));
   } else if (st.home.seed !== world.seed) { location.hash = st.home.seed; return; }
   renderBuild(); buildDlg.showModal();
 };
@@ -523,7 +542,7 @@ function renderBuild() {
     let ok;
     const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, cam * L.parallax + 0.5); }); // new buildings start producing now
     if (!ok) return;
-    save(); pets = homePets(); buildDlg.close();
+    save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
     toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
   }));
 }
