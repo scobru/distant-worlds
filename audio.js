@@ -116,3 +116,31 @@ export function startAudio(M, getInterest) {
   const timer = setInterval(tick, 100);
   return () => { clearInterval(timer); ac.close(); };
 }
+
+// Sound effects, synthesized on the spot. They play even with the music off, softly.
+let sac;
+export function sfx(kind) {
+  try { sac ??= new AudioContext(); sac.resume(); } catch { return; }
+  const t = sac.currentTime + 0.02, out = sac.createGain();
+  out.gain.value = 0.3; out.connect(sac.destination);
+  const env = (at, peak, dur) => { const g = sac.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(peak, at + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, at + dur); g.connect(out); return g; };
+  const tone = (type, f, at, dur, peak, f2) => {
+    const o = sac.createOscillator(); o.type = type; o.frequency.setValueAtTime(f, at);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, at + dur * 0.8);
+    o.connect(env(at, peak, dur)); o.start(at); o.stop(at + dur + 0.05);
+  };
+  const noise = (at, dur, peak, freq, type = 'bandpass') => {
+    const b = sac.createBuffer(1, Math.ceil(sac.sampleRate * dur), sac.sampleRate), s = sac.createBufferSource(), f = sac.createBiquadFilter();
+    b.getChannelData(0).forEach((_, i, d) => (d[i] = Math.random() * 2 - 1));
+    s.buffer = b; f.type = type; f.frequency.value = freq; s.connect(f); f.connect(env(at, peak, dur)); s.start(at);
+  };
+  if (kind === 'plant') { noise(t, 0.18, 0.5, 3200); tone('sine', 880, t + 0.08, 0.25, 0.25); tone('sine', 1320, t + 0.16, 0.35, 0.2); } // rustle, then a soft chime
+  if (kind === 'creature') { tone('sine', 600, t, 0.12, 0.3, 1400); tone('sine', 700, t + 0.15, 0.12, 0.3, 1600); tone('triangle', 520, t + 0.3, 0.2, 0.25); } // two chirps and a pop
+  if (kind === 'ore') { tone('square', 1800, t, 0.08, 0.12); tone('triangle', 2700, t + 0.01, 0.25, 0.2); noise(t, 0.08, 0.4, 500, 'lowpass'); } // clink on a thud
+  if (kind === 'build') { // three hammer knocks, then a bright chord
+    for (const k of [0, 0.18, 0.36]) { noise(t + k, 0.1, 0.6, 400, 'lowpass'); tone('sine', 150, t + k, 0.12, 0.4, 60); }
+    [523, 659, 784, 1046].forEach((f, k) => tone('triangle', f, t + 0.55 + k * 0.07, 0.6, 0.18));
+  }
+  if (kind === 'move') noise(t, 0.4, 0.35, 900); // a whoosh
+  if (kind === 'pickup') [1046, 1568, 2093].forEach((f, k) => tone('sine', f, t + k * 0.06, 0.3, 0.18)); // sparkle
+}

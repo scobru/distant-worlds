@@ -123,7 +123,7 @@
 import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
-import { startAudio as startMusic } from './audio.js';
+import { startAudio as startMusic, sfx } from './audio.js';
 import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
@@ -499,7 +499,7 @@ function take(e) {
   if (!e.reach) return toast(['Walk closer to take it.']);
   const p = e.take;
   if (!collect(st, days()[0], world.seed, p, Date.now())) return toast(['You already took as many time shards as this planet gives today.']);
-  save();
+  save(); sfx(p.kind === 'plant' || p.kind === 'ore' || p.kind === 'creature' ? p.kind : 'pickup');
   toast([{ fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
     creature: `🐾 Captured ${esc(p.name)}: it will live on your home planet` }[p.kind]]);
@@ -570,14 +570,14 @@ function renderBuild() {
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();
     save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
-    toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
+    sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
   }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     let ok;
     const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, standing()); }); // new buildings start producing now
     if (!ok) return;
     save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
-    toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
+    sfx('build'); toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
   }));
 }
 document.getElementById('buildClose').onclick = () => buildDlg.close();
