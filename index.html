@@ -113,7 +113,7 @@
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and grow your camp into a village, a town, a city.</p>
   <h3>⏳ Living worlds</h3>
   <p>Worlds age (shown as <i>age N/100</i>) and collapse, then their star gives birth to a new one. After age 70 a world is unstable:
-    tremors, a red sky, meteors, but richer ore. If it collapses while you are there you escape, leaving half your bag behind.
+    tremors, a red sky, meteors, but richer ore. Gravity grows too (up to ×2): you walk slower, reach less, and building costs more. If it collapses while you are there you escape, leaving half your bag behind.
     If your home's world is dying, go to a young world and press <b>🚀 Move home here</b> before it is too late.</p>
   <h3>🏚 Heritage</h3>
   <p>A world born from a star where another one collapsed remembers it: the ruins of its buildings stand here and there, one of its species survives,
@@ -132,7 +132,7 @@ import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNea
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -149,7 +149,7 @@ function toast(lines) {
   if (!lines.length) return;
   const el = document.getElementById('toast');
   // messages close together pile up (at most 5); a newer version of a message (same start, e.g. progress) replaces it
-  const same = (x) => lines.some((l) => l.slice(0, 12) === x.slice(0, 12));
+  const stem = (l) => l.replace(/\d.*$/, ''), same = (x) => lines.some((l) => /\d/.test(l) && stem(l) === stem(x));
   shown = [...(+el.style.opacity ? shown.filter((x) => !same(x)) : []), ...lines].slice(-5);
   el.innerHTML = shown.join('<br>'); el.style.opacity = 1;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.style.opacity = 0), 3500);
@@ -157,6 +157,8 @@ function toast(lines) {
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const cv = document.getElementById('c'), g = cv.getContext('2d');
+// gravity grows with instability (1 to 2): slower steps, shorter reach, heavier building materials
+const grav = () => 1 + inst;
 let world, stars = [], ships = [], life = null, inst = 0, ev = null, evHerd = [], her = null, heirs = [];
 const EVENT_NAME = { meteors: '☄ Meteor shower', migration: '🐾 Migration', trader: '🧳 Trader' };
 // time left, readable: "3 days", "5 h", "12 min"
@@ -183,7 +185,7 @@ function load() {
   document.getElementById('name').textContent = W.name;
   const rb = document.getElementById('rarity');
   rb.textContent = W.rarity; rb.className = 'badge ' + W.rarity;
-  document.getElementById('meta').textContent = `${life ? `age ${Math.floor(life.age)}/100${inst ? ' ⚠ unstable' : ''} · ` : ''}#${seed} · ${W.culture} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.lead} · ${W.music.scaleName} ${W.music.bpm} bpm${W.region ? ' · ' + W.region : ''}`;
+  document.getElementById('meta').textContent = `${life ? `age ${Math.floor(life.age)}/100${inst ? ` ⚠ unstable · gravity ×${grav().toFixed(1)}` : ''} · ` : ''}#${seed} · ${W.culture} · ${W.era} · ${W.civ} · ${W.flora} · ${W.fauna} · ${W.style} · ${W.music.lead} · ${W.music.scaleName} ${W.music.bpm} bpm${W.region ? ' · ' + W.region : ''}`;
   updateFav(); showClaim(); fn?.onWorld();
 
   if (st.last !== seed) {
@@ -210,7 +212,7 @@ function load() {
   // the world before this one on the same star: its ruins, a surviving species, homes built there
   her = heritage(W); heirs = survivors(W, her);
   if (her) setTimeout(() => world === W && toast([`🏚 ${W.name} was born where ${her.name} once stood: its ruins remain${her.survivor ? `, and its ${her.survivor.name} survived` : ''}.`]), 1800);
-  if (inst) setTimeout(() => world === W && toast([`⚠ ${W.name} is unstable: it collapses in ${left(life.collapse - Date.now())}. Ore is richer here, but leave in time.`]), 3600);
+  if (inst) setTimeout(() => world === W && toast([`⚠ ${W.name} is unstable: it collapses in ${left(life.collapse - Date.now())}. Ore is richer here, but gravity is ×${grav().toFixed(1)}: you walk slower, reach less and building costs more.`]), 3600);
   updateHome(); pets = homePets();
   if (audio) { stopAudio(); startAudio(); }
 }
@@ -264,7 +266,7 @@ function showTip() {
 function draw(t) {
   const dt = Math.min(t - last, 100); last = t;
   // auto-walk goes the way the explorer faces; keys take over while held
-  cam += (keys ? keys * 0.3 : walking ? facing * 0.05 : 0) * dt / 1000;
+  cam += (keys ? keys * 0.3 : walking ? facing * 0.05 : 0) * dt / 1000 / grav();
   const day = days()[0];
   // Fuel for new ground only, rate-capped so dragging fast doesn't fill the tank.
   const fresh = Math.max(0, cam - explored[1]) + Math.max(0, explored[0] - cam);
@@ -277,7 +279,7 @@ function draw(t) {
   const quake = inst * inst * Math.min(w, h) * 0.006 * (0.4 + 0.6 * Math.max(0, Math.sin(t / 900) * Math.sin(t / 2300)));
   if (quake) g.translate((Math.random() - 0.5) * quake, (Math.random() - 0.5) * quake);
   // the explorer stands mid-screen: only what is near it can be taken
-  const near = (x) => Math.abs(x - w / 2) < w * 0.2;
+  const near = (x) => Math.abs(x - w / 2) < (w * 0.2) / grav();
   const W = world, sky = g.createLinearGradient(0, 0, 0, h);
   sky.addColorStop(0, W.sky.top); sky.addColorStop(1, W.sky.bottom);
   g.fillStyle = sky; g.fillRect(0, 0, w, h);
@@ -555,7 +557,7 @@ function take(e) {
   if (!e.reach) return toast([e.trade ? 'Walk to the stall to trade.' : 'Walk closer to take it.']);
   if (e.trade) return openTrade();
   const p = e.take;
-  if (!collect(st, days()[0], world.seed, p, Date.now())) return toast(['You already took as many time shards as this planet gives today.']);
+  if (!collect(st, days()[0], world.seed, p, Date.now())) return p.kind === 'time' && toast(['You already took as many time shards as this planet gives today.']);
   save(); sfx(p.kind === 'plant' || p.kind === 'ore' || p.kind === 'creature' ? p.kind : 'pickup');
   toast([{ fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
@@ -627,7 +629,7 @@ function openTrade() {
     save(); sfx('pickup'); openTrade();
     toast([`🧳 Traded: ${bagText(d.get).replace('a creature from another world', exotic ? esc(exotic.name) : '')}`]);
   }));
-  tradeDlg.showModal();
+  if (!tradeDlg.open) tradeDlg.showModal();
 }
 
 // Home planet: settle on one world, come back to it for free and build with what you gathered.
@@ -651,8 +653,9 @@ function renderBuild() {
   document.getElementById('buildTitle').textContent = `${world.name} · ${civTitle(H)}`;
   document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
-    <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k) ? '' : ' disabled'}>Build</button>
-      <b>${b.name}</b> <small style="display:inline">${costText(b.cost)} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
+    ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
+    <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
+      <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
     <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button> <b>${BUILDINGS[b.kind].name}</b>
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>` : ''}`;
@@ -663,7 +666,7 @@ function renderBuild() {
   }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     let ok;
-    const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, standing()); }); // new buildings start producing now
+    const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, standing(), grav()); }); // new buildings start producing now
     if (!ok) return;
     save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
     sfx('build'); toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
@@ -749,14 +752,14 @@ function renderMap() {
     const sx = wrapS(cx + dx), sy = wrapS(cy + dy), [rn] = regionAt(sx, sy);
     svg.push(`<rect x="${cx + dx}" y="${cy + dy}" width="1" height="1" fill="${REGION_COLOR[rn]}" opacity=".12"><title>${rn}</title></rect>`);
     for (const s of starsIn(sx, sy)) {
-      const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
+      const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy, e = eventAt(w);
       const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
       const cost = cur || st.stars.includes(s.seed) ? 0 : jumpPrice(jumpCost(here, [sx, sy], GALAXY));
       const col = fn?.colonyOf(s.seed), nm = (col ? `${w.name}, colony of ${col.nick}` : w.name) + `, age ${Math.floor(s.age)}`, dying = instability(s.age) > 0;
       svg.push(`<a href="#${s.seed}" data-cost="${cost}" data-full="${jumpCost(here, [sx, sy], GALAXY)}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${col ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}
-        ${eventAt(w) ? `<text x="${x + rad}" y="${y - rad}" font-size=".14">${EVENT_NAME[eventAt(w).kind].split(' ')[0]}</text>` : ''}
+        ${e ? `<text x="${x + rad}" y="${y - rad}" font-size=".14">${EVENT_NAME[e.kind].split(' ')[0]}</text>` : ''}
         ${dying ? `<circle cx="${x}" cy="${y}" r="${rad + 0.05}" fill="none" stroke="#f42" stroke-width=".012" stroke-dasharray=".03 .02"/>` : ''}
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
     }

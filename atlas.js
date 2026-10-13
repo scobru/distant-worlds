@@ -184,16 +184,18 @@ export function arriveHome(st) {
   return n;
 }
 
-export const canBuild = (st, kind) => {
-  const c = BUILDINGS[kind].cost;
-  return st.bag.plant >= (c.plant ?? 0) && st.bag.ore >= (c.ore ?? 0) && st.home.animals.length >= (c.animals ?? 0);
+/** What a building costs under gravity `g` (1 normal, up to 2 on a dying world): plants and ore weigh more. */
+export const costOf = (kind, g = 1) => { const c = BUILDINGS[kind].cost; return { ...c, plant: Math.ceil((c.plant ?? 0) * g), ore: Math.ceil((c.ore ?? 0) * g) }; };
+export const canBuild = (st, kind, g = 1) => {
+  const c = costOf(kind, g);
+  return st.bag.plant >= c.plant && st.bag.ore >= c.ore && st.home.animals.length >= (c.animals ?? 0);
 };
 
 /** Builds `kind` at x (on the structures' layer) if the bag pays for it. */
-export function build(st, kind, x) {
-  if (!canBuild(st, kind)) return false;
-  const c = BUILDINGS[kind].cost;
-  st.bag.plant -= c.plant ?? 0; st.bag.ore -= c.ore ?? 0;
+export function build(st, kind, x, g = 1) {
+  if (!canBuild(st, kind, g)) return false;
+  const c = costOf(kind, g);
+  st.bag.plant -= c.plant; st.bag.ore -= c.ore;
   st.home.built.push({ kind, x, seed: st.home.built.length + 1 });
   return true;
 }
