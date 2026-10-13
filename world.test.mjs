@@ -96,3 +96,12 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.ok(time > 0 && kinds.has('fuel') && kinds.has('map'));
   console.log('pickups ok:', near, 'near the start vs', far, 'far away;', time, 'time shards');
 }
+{
+  const { depositsNear } = await import('./world.js');
+  const w = makeWorld('v1-3_3_3');
+  assert.deepEqual(depositsNear(w, -5, 5), depositsNear(w, -5, 5));
+  const all = depositsNear(w, -50, 50);
+  assert.ok(all.length > 20 && all.every((d) => d.amount >= 1 && d.amount <= 3 && d.kind === 'ore'));
+  assert.equal(new Set(all.map((d) => d.id)).size, all.length, 'deposit ids are unique');
+  console.log('deposits ok:', all.length);
+}

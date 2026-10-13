@@ -112,3 +112,25 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(collect(st, 'd3', 'A', map, 0) && st.halfJump);
   console.log('pickups state ok');
 }
+{
+  // Gathering fills the bag; the home planet spends it.
+  const { collect, picked, BUILDINGS, civTitle, setHome, arriveHome, canBuild, build } = await import('./atlas.js');
+  const st = emptyState();
+  for (let i = 0; i < 14; i++) assert.ok(collect(st, 'd', 'A', { id: i, kind: 'plant' }, 0));
+  assert.ok(!collect(st, 'd', 'A', { id: 0, kind: 'plant' }, 0), 'one harvest per plant a day');
+  assert.ok(picked(st, 'd', 'A', { id: 0, kind: 'plant' }) && !picked(st, 'd2', 'A', { id: 0, kind: 'plant' }), 'plants grow back');
+  collect(st, 'd', 'A', { id: 'ore1', kind: 'ore', amount: 3 }, 0);
+  collect(st, 'd', 'A', { id: 7, kind: 'creature', dna: 'A#0' }, 0);
+  assert.deepEqual(st.bag, { plant: 14, ore: 3, creature: ['A#0'] });
+  setHome(st, 'A');
+  assert.equal(civTitle(st.home), 'Landing site');
+  assert.equal(arriveHome(st), 1);
+  assert.deepEqual([st.bag.creature, st.home.animals], [[], ['A#0']]);
+  assert.ok(!canBuild(st, 'longhouse'), 'a stable needs 2 animals at home');
+  assert.ok(build(st, 'house', 0.5) && build(st, 'windmill', 0.7));
+  assert.deepEqual([st.bag.plant, st.bag.ore], [1, 1]);
+  assert.ok(!build(st, 'castle', 0), 'not enough ore');
+  assert.equal(st.home.built.length, 2);
+  assert.equal(civTitle(st.home), 'Camp');
+  console.log('home ok');
+}

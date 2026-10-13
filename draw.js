@@ -450,3 +450,42 @@ export function drawPickup(g, x, y, s, kind, t, phase, culture, dim) {
   if (kind === 'fuel') { g.beginPath(); g.moveTo(0.06, -0.28); g.lineTo(-0.1, 0.03); g.lineTo(0.08, 0.03); g.lineTo(-0.06, 0.3); g.stroke(); }
   g.restore();
 }
+
+/** A rock with shards of ore sticking out, in the world's accent colour. */
+export function drawDeposit(g, x, y, s, seed, accent, dim) {
+  const r = rng(seed);
+  g.save(); g.translate(x, y); g.scale(s, s); g.globalAlpha = dim ? 0.7 : 1;
+  g.fillStyle = '#555'; g.beginPath(); g.ellipse(0, 0, 0.6, 0.35, 0, Math.PI, 0); g.fill();
+  g.fillStyle = g.shadowColor = accent; g.shadowBlur = 10;
+  for (let k = 0; k < 3; k++) {
+    const a = -0.35 + k * 0.35 + (r() - 0.5) * 0.1, h = 0.35 + r() * 0.35, tilt = (r() - 0.5) * 0.6;
+    g.beginPath(); g.moveTo(a - 0.08, -0.15); g.lineTo(a + tilt * h, -0.15 - h); g.lineTo(a + 0.08, -0.15); g.fill();
+  }
+  g.restore();
+}
+
+/** The explorer: looks are random per player (`seed`), legs follow the distance walked (`stride`). */
+export function drawAvatar(g, seed, x, y, s, facing, stride, moving, t) {
+  const r = rng(seed), hue = Math.floor(r() * 360), skin = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#9fe3c5', '#c9a0ff'][Math.floor(r() * 6)];
+  const suit = `hsl(${hue} 55% 45%)`, dark = `hsl(${hue} 45% 25%)`, trim = `hsl(${(hue + 150) % 360} 80% 60%)`;
+  const hat = Math.floor(r() * 4), pack = r() < 0.7, wide = 0.85 + r() * 0.3;
+  const swing = moving ? Math.sin(stride) * 0.45 : 0, bob = moving ? Math.abs(Math.cos(stride)) * 0.03 : Math.sin(t / 600) * 0.01;
+  g.save(); g.translate(x, y); g.scale(facing < 0 ? -s : s, s); g.lineCap = 'round';
+  const limb = (x0, y0, a, len, w, c) => { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.sin(a) * len, y0 + Math.cos(a) * len); g.stroke(); };
+  limb(0, -0.45, -swing, 0.45, 0.13, dark); // back leg
+  if (pack) { g.fillStyle = dark; g.beginPath(); g.roundRect(-0.27 * wide, -0.88 - bob, 0.17, 0.36, 0.05); g.fill(); }
+  limb(0, -0.82 - bob, swing, 0.36, 0.1, dark); // back arm
+  g.fillStyle = suit; g.beginPath(); g.roundRect(-0.16 * wide, -0.92 - bob, 0.32 * wide, 0.52, 0.12); g.fill();
+  g.fillStyle = trim; g.fillRect(-0.16 * wide, -0.56 - bob, 0.32 * wide, 0.05);
+  limb(0, -0.45, swing, 0.45, 0.13, suit); // front leg
+  limb(0, -0.82 - bob, -swing, 0.36, 0.1, suit); // front arm
+  const hy = -1.08 - bob;
+  g.fillStyle = skin; g.beginPath(); g.arc(0, hy, 0.15, 0, 7); g.fill();
+  g.fillStyle = '#222'; g.beginPath(); g.arc(0.07, hy - 0.02, 0.025, 0, 7); g.fill();
+  g.fillStyle = g.strokeStyle = trim; g.lineWidth = 0.04;
+  if (hat === 0) { g.globalAlpha = 0.35; g.fillStyle = '#cff'; g.beginPath(); g.arc(0, hy, 0.22, 0, 7); g.fill(); g.globalAlpha = 1; g.stroke(); } // bubble helmet
+  if (hat === 1) { g.fillStyle = dark; g.fillRect(-0.28, hy - 0.12, 0.56, 0.05); g.fillRect(-0.14, hy - 0.3, 0.28, 0.2); } // wide hat
+  if (hat === 2) { g.beginPath(); g.moveTo(0, hy - 0.15); g.lineTo(-0.05, hy - 0.38); g.stroke(); g.beginPath(); g.arc(-0.05, hy - 0.4, 0.05, 0, 7); g.fill(); } // antenna
+  if (hat === 3) { g.fillStyle = suit; g.beginPath(); g.arc(-0.02, hy - 0.03, 0.17, Math.PI * 0.95, Math.PI * 2.05); g.fill(); } // hood
+  g.restore();
+}

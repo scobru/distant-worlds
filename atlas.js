@@ -32,7 +32,8 @@ export const ACHIEVEMENTS = [
   ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
 ];
 
-export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], plants: [], stars: [], daily: { done: null, streak: 0, best: 0 } });
+export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], plants: [], stars: [], daily: { done: null, streak: 0, best: 0 },
+  bag: { plant: 0, ore: 0, creature: [] }, home: null, avatar: null });
 
 // Applies `change` to the state; returns the entries, combos and achievements it unlocked.
 function discover(st, keys, combo, change = () => {}) {
@@ -127,6 +128,47 @@ export function collect(st, day, seed, p, now) {
   // shards stack on the same planet; another planet's shard starts a new boost
   if (p.kind === 'time') st.boost = { seed, until: Math.max(now, st.boost?.seed === seed ? st.boost.until : 0) + PICKUP.boostMs };
   if (p.kind === 'map') st.halfJump = true;
+  // gathered on the way, spent on the home planet
+  if (p.kind === 'plant' || p.kind === 'ore') st.bag[p.kind] += p.amount ?? 1;
+  if (p.kind === 'creature') st.bag.creature.push(p.dna);
   return true;
 }
 export const boostOn = (st, seed, now) => st.boost?.seed === seed && now < st.boost.until;
+
+// Home planet: the explorer's own world, where gathered resources become a civilization.
+// Plants and ore are spent; animals (captured creatures, released at home) are a requirement.
+export const BUILDINGS = {
+  house: { name: 'Hut', cost: { plant: 5 } },
+  windmill: { name: 'Mill', cost: { plant: 8, ore: 2 } },
+  longhouse: { name: 'Stable', cost: { plant: 6, ore: 2, animals: 2 } },
+  factory: { name: 'Workshop', cost: { plant: 4, ore: 8 } },
+  temple: { name: 'Temple', cost: { plant: 6, ore: 12, animals: 3 } },
+  castle: { name: 'Castle', cost: { plant: 10, ore: 20 } },
+  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 } },
+  dome: { name: 'Dome', cost: { plant: 20, ore: 30, animals: 8 } },
+};
+const TITLES = [[0, 'Landing site'], [1, 'Camp'], [3, 'Village'], [6, 'Town'], [10, 'City'], [16, 'Capital']];
+export const civTitle = (home) => TITLES.findLast(([n]) => (home?.built.length ?? 0) >= n)[1];
+
+export const setHome = (st, seed) => (st.home = { seed, built: [], animals: [] });
+
+/** Releases the creatures in the bag on the home planet; returns how many. */
+export function arriveHome(st) {
+  const n = st.bag.creature.length;
+  st.home.animals.push(...st.bag.creature); st.bag.creature = [];
+  return n;
+}
+
+export const canBuild = (st, kind) => {
+  const c = BUILDINGS[kind].cost;
+  return st.bag.plant >= (c.plant ?? 0) && st.bag.ore >= (c.ore ?? 0) && st.home.animals.length >= (c.animals ?? 0);
+};
+
+/** Builds `kind` at x (on the structures' layer) if the bag pays for it. */
+export function build(st, kind, x) {
+  if (!canBuild(st, kind)) return false;
+  const c = BUILDINGS[kind].cost;
+  st.bag.plant -= c.plant ?? 0; st.bag.ore -= c.ore ?? 0;
+  st.home.built.push({ kind, x, seed: st.home.built.length + 1 });
+  return true;
+}
