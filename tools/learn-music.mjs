@@ -2,7 +2,8 @@
 //   node tools/learn-music.mjs examples/*.mid > music-model.js
 // It keeps statistics only, never the notes: which chord (scale degree) follows which, how melodies
 // move (interval sizes), the rhythm of melodic cells (2 beats), tempo and how often chords change.
-// Each file goes into a style: drums -> groove, slow (< 80 bpm) -> ballad, else dreamy.
+// Each file goes into a style: minor and fast (>= 110 bpm) -> tense (battles, danger), slow (< 80 bpm)
+// -> ballad, a steady beat (drum hits at least every beat) -> groove, else dreamy.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
@@ -53,7 +54,9 @@ const SCALE = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
 
 /** Statistics of one file. */
 export function learnOne(buf) {
-  const { div, bpm, notes } = parseMidi(buf), key = keyOf(notes), sc = SCALE[key.mode], drums = notes.some((n) => n[2] === 9);
+  const { div, notes } = parseMidi(buf), key = keyOf(notes), sc = SCALE[key.mode];
+  let { bpm } = parseMidi(buf);
+  if (bpm > 180) bpm = Math.round(bpm / 2); // written in double time
   const pitched = notes.filter((n) => n[2] !== 9), seg = div * 2, last = Math.max(...pitched.map((n) => n[0] + n[1]));
   // chords every half bar: the diatonic triad (with its 7th) that best covers the sounding pitch classes
   const degs = [];
@@ -79,7 +82,8 @@ export function learnOne(buf) {
   const chans = new Map();
   for (const n of pitched) chans.set(n[2], [...(chans.get(n[2]) ?? []), n[3]]);
   const mean = (ps) => ps.reduce((x, y) => x + y) / ps.length, highest = (cs) => cs.sort((a, b) => mean(b[1]) - mean(a[1]))[0]?.[0];
-  const lead = highest([...chans].filter(([, ps]) => ps.length >= 30 && Math.max(...ps) - Math.min(...ps) >= 7)) ?? highest([...chans]);
+  const most = Math.max(...[...chans.values()].map((ps) => ps.length)); // a melody plays a good share of the notes, not a few high accents
+  const lead = highest([...chans].filter(([, ps]) => ps.length >= Math.max(30, most * 0.2) && Math.max(...ps) - Math.min(...ps) >= 7)) ?? highest([...chans]);
   const byOnset = new Map();
   for (const n of pitched) if (n[2] === lead && (!byOnset.has(n[0]) || byOnset.get(n[0])[3] < n[3])) byOnset.set(n[0], n);
   const mel = [...byOnset.values()].sort((x, y) => x[0] - y[0]);
@@ -96,9 +100,9 @@ export function learnOne(buf) {
     const id = JSON.stringify(pts);
     cells[id] = (cells[id] ?? 0) + 1;
   }
-  const beats = last / div;
+  const beats = last / div, drums = notes.filter((n) => n[2] === 9).length / beats;
   return {
-    bpm, key, drums, style: drums ? 'groove' : bpm < 80 ? 'ballad' : 'dreamy',
+    bpm, key, drums, style: key.mode === 'minor' && bpm >= 110 ? 'tense' : bpm < 80 ? 'ballad' : drums >= 1 ? 'groove' : 'dreamy',
     chordBeats: changes ? Math.max(1, Math.min(4, Math.round((held * 2) / changes))) : 4,
     density: mel.length / beats, transitions, intervals, cells,
   };
@@ -110,15 +114,23 @@ export function learn(files) {
   for (const [name, buf] of files) {
     const s = learnOne(buf), m = (model[s.style] ??= { sources: [], bpm: [], chordBeats: [], transitions: Array.from({ length: 7 }, () => Array(7).fill(0)), intervals: {}, cells: {} });
     m.sources.push(name); m.bpm.push(s.bpm); m.chordBeats.push(s.chordBeats);
-    s.transitions.forEach((row, a) => row.forEach((c, b) => (m.transitions[a][b] += c)));
-    for (const [k, v] of Object.entries(s.intervals)) m.intervals[k] = (m.intervals[k] ?? 0) + v;
-    for (const [k, v] of Object.entries(s.cells)) m.cells[k] = (m.cells[k] ?? 0) + v;
+    // every file weighs the same (100 per table), however long or dense it is
+    const norm = (vals) => 100 / Math.max(1, vals.reduce((a, b) => a + b, 0));
+    const tn = norm(s.transitions.flat()), iv = norm(Object.values(s.intervals)), cn = norm(Object.values(s.cells));
+    s.transitions.forEach((row, a) => row.forEach((c, b) => (m.transitions[a][b] += c * tn)));
+    for (const [k, v] of Object.entries(s.intervals)) m.intervals[k] = (m.intervals[k] ?? 0) + v * iv;
+    for (const [k, v] of Object.entries(s.cells)) m.cells[k] = (m.cells[k] ?? 0) + v * cn;
   }
+  const r1 = (x) => Math.round(x * 10) / 10;
   for (const m of Object.values(model)) {
-    m.bpm = [Math.min(...m.bpm) - 4, Math.max(...m.bpm) + 4];
+    m.transitions = m.transitions.map((row) => row.map(r1));
+    for (const k in m.intervals) m.intervals[k] = r1(m.intervals[k]);
+    // the middle of the tempos (10th-90th percentile), so one odd file does not stretch the range
+    const t = [...m.bpm].sort((a, b) => a - b);
+    m.bpm = [t[Math.floor(t.length * 0.1)], t[Math.ceil(t.length * 0.9) - 1]];
     m.chordBeats = Math.round(m.chordBeats.reduce((a, b) => a + b) / m.chordBeats.length) >= 3 ? 4 : 2;
     // the 12 most used cells are enough; rare ones are often transcription noise
-    m.cells = Object.entries(m.cells).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => [JSON.parse(k), v]);
+    m.cells = Object.entries(m.cells).sort((a, b) => b[1] - a[1]).slice(0, 16).map(([k, v]) => [JSON.parse(k), r1(v)]);
   }
   return model;
 }

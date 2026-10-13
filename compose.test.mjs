@@ -4,9 +4,9 @@ import { makeSong, STYLE_NAMES } from './compose.js';
 
 const styles = new Set();
 for (let i = 0; i < 60; i++) {
-  const w = makeWorld('v1-' + i + '_7_1'), M = w.music, song = makeSong(M), again = makeSong(M);
+  const w = makeWorld('v1-' + i + '_7_1'), M = i % 5 ? w.music : { ...w.music, tense: true }, song = makeSong(M), again = makeSong(M);
   styles.add(song.style);
-  assert.ok(song.bpm >= 60 && song.bpm <= 120, song.bpm);
+  assert.ok(song.bpm >= 55 && song.bpm <= 160, song.bpm);
   const pcs = new Set(M.scale.map((x) => (M.root + x) % 12));
   for (let n = 0; n < 40; n++) {
     const b = song.bar(n, 6);
@@ -19,8 +19,8 @@ for (let i = 0; i < 60; i++) {
     const lead = b.notes.filter((x) => x.voice === 'lead');
     for (let k = 1; k < lead.length; k++) assert.ok(Math.abs(lead[k].midi - lead[k - 1].midi) <= 12, 'no wild leaps');
   }
-  // sections close on the tonic chord
-  assert.equal(song.bar(15).chords.at(-1), 0);
+  // sections close on their home chord (vi for tense music)
+  assert.equal(song.bar(15).chords.at(-1), song.style === 'tense' ? 5 : 0);
 }
 assert.deepEqual([...styles].sort(), [...STYLE_NAMES].sort(), 'every style shows up');
 console.log('compose ok:', [...styles].join(', '));

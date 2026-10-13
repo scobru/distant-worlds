@@ -574,7 +574,8 @@ function renderBuild() {
 document.getElementById('buildClose').onclick = () => buildDlg.close();
 
 let audio = null;
-function startAudio() { audio = startMusic(world.music, () => interest); setBtn(true); }
+// a world close to collapse plays tense music
+function startAudio() { audio = startMusic({ ...world.music, tense: inst > 0.3 }, () => interest); setBtn(true); }
 function stopAudio() { audio(); audio = null; setBtn(false); }
 const sb = document.getElementById('sound');
 function setBtn(on) { sb.textContent = on ? '■ Mute' : '▶ Sound'; sb.setAttribute('aria-pressed', on); }

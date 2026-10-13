@@ -92,7 +92,7 @@ export function startAudio(M, getInterest) {
   // Bars from the composer, scheduled a little ahead.
   const r = rng(M.noteSeed), beat = 60 / song.bpm;
   let next = t0 + 1, n = 0;
-  const groove = song.style === 'groove';
+  const groove = song.style === 'groove' || song.style === 'tense'; // both drive with drums
   const tick = () => {
     const interest = getInterest();
     bus.frequency.setTargetAtTime(M.cutoff * (0.7 + interest * 0.08), ac.currentTime, 2);
@@ -104,7 +104,7 @@ export function startAudio(M, getInterest) {
         if (x.voice === 'bass' && (M.bass || groove)) osc('triangle', f, t, t + dur + 0.1, amp(t, 0.16 * x.vel, 0.01, dur));
         if (x.voice === 'pad') INSTR.pad(f, t, dur);
       }
-      if (M.perc) for (let s = 0; s < 8; s++) { // 8ths: kick on 1 and 3 (and the "and" of 3 in a groove), hats, a soft snare on 2 and 4
+      if (M.perc || groove) for (let s = 0; s < 8; s++) { // 8ths: kick on 1 and 3 (and the "and" of 3 in a groove), hats, a soft snare on 2 and 4
         const t = next + (s * beat) / 2;
         if (s === 0 || s === 4 || (groove && s === 5)) { const e = amp(t, 0.35, 0.003, 0.35, master), o = osc('sine', 120, t, t + 0.4, e); o.frequency.exponentialRampToValueAtTime(45, t + 0.15); }
         if (r() < (groove ? 0.9 : 0.5)) { const sn = ac.createBufferSource(), hp = ac.createBiquadFilter(), e = amp(t, s % 2 ? 0.03 : 0.045, 0.001, 0.05, master); sn.buffer = noise; hp.type = 'highpass'; hp.frequency.value = 7000; sn.connect(hp); hp.connect(e); sn.start(t, r()); sn.stop(t + 0.1); }
