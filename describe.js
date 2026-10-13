@@ -22,6 +22,11 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
 /** `e`: { type: 'thing' | 'walker' | 'flyer' | 'beacon', ...the drawn entity }; `w`: the world;
  *  `known`: { relic(kind), species(id) } — whether the explorer already has it in the atlas. */
 export function describe(e, w, known) {
+  if (e.type === 'pickup') return {
+    title: { fuel: '⚡ Fuel cell', time: '⏳ Time shard', map: '🧭 Map fragment' }[e.kind],
+    lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],
+      e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
+  };
   if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };
   if (e.type === 'colonist') return { title: `${e.label}'s people`, lines: [`${e.dna.name}: settlers who follow ${e.label} from planet to planet.`, parts(e.dna)] };
@@ -56,6 +61,11 @@ export function boxOf(e, x, y, s) {
     return [x - 0.6 * s, y - 0.5 * s, x + 0.6 * s, y + 1.3 * s];
   }
   if (e.type === 'walker' || e.type === 'colonist') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
+  if (e.type === 'pickup') return {
+    title: { fuel: '⚡ Fuel cell', time: '⏳ Time shard', map: '🧭 Map fragment' }[e.kind],
+    lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],
+      e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
+  };
   if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return [x - 0.2 * s, y - 2.3 * s, x + 1 * s, y];
   if (e.kind === 'arch') return [x - 3 * s, y - 3 * s, x + 3 * s, y];

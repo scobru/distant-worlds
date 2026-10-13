@@ -472,3 +472,19 @@ export function makePlant(worldSeed, k, family) {
     rarity: bloom && (tall > 1.35 || wide > 1.2) ? 'rare' : 'common',
   };
 }
+
+// Pickups along the walk: the same for everyone on a given day (seeded by world, day and chunk),
+// rarer near the arrival point. Fuel cells are common, time shards (only where colonies exist:
+// `time` true, or 'boosted' on a planet someone else holds) speed up the time miner, map fragments
+// halve the next jump.
+export function pickupsNear(w, day, x0, x1, time) {
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:pickups:${day}:${k}`);
+    if (r() > Math.min(0.65, 0.12 + 0.07 * Math.abs(k))) continue;
+    const roll = r();
+    const kind = roll < 0.04 ? 'map' : time && roll < (time === 'boosted' ? 0.45 : 0.25) ? 'time' : 'fuel';
+    out.push({ id: `${k}`, kind, x: k + 0.1 + r() * 0.8, phase: r() * 7 });
+  }
+  return out;
+}

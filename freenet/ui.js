@@ -62,7 +62,7 @@ export async function start(app) {
   // Plant flag button appears; a colonist's own extra time is published quietly to defend the planet.
   setInterval(() => {
     if (!miner || document.visibilityState !== 'visible' || minerSeed !== app.world().seed) return;
-    mineSome(miner, minerSeed, me, Math.round(rate / 5));
+    mineSome(miner, minerSeed, me, Math.round((rate * (app.boost(minerSeed) ? 3 : 1)) / 5)); // a time shard triples the rate
   }, 200);
   setInterval(async () => {
     if (!miner) return;
@@ -260,6 +260,8 @@ export async function start(app) {
       else {
         const here = timeHere();
         parts.push(`🕒 You: ${fmt(here)}`);
+        const b = app.st().boost;
+        if (app.boost(w.seed)) parts.push(`⏳ ×3 for ${fmt((b.until - Date.now()) / 1000)}`);
         if (!mineCol) {
           parts.push(`🎯 ${col ? 'Beat ' : 'Colonize at ~'}${fmt(goal)}`);
           if (level() < COLONY_BITS) parts.push(`Viso level ${level()}/${COLONY_BITS}: raise it to colonize`);

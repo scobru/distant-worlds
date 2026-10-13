@@ -111,3 +111,22 @@ export function jumpCost(from, to, size) {
   const d = (a, b) => Math.min(Math.abs(a - b), size - Math.abs(a - b)); // the galaxy wraps around
   return Math.min(FUEL.random, 20 + 15 * Math.max(d(from[0], to[0]), d(from[1], to[1])));
 }
+
+// Pickups: each one can be collected once a day per explorer; at most 3 time shards a day per planet.
+export const PICKUP = { fuel: 15, boost: 3, boostMs: 90_000, timePerPlanetDay: 3 };
+const pickKey = (seed, p) => `${seed}|${p.id}|${p.kind}`;
+export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.ids.includes(pickKey(seed, p));
+
+/** Collect pickup `p` on planet `seed`; returns false if already taken or over today's limit. */
+export function collect(st, day, seed, p, now) {
+  if (st.picked?.day !== day) st.picked = { day, ids: [] };
+  if (picked(st, day, seed, p)) return false;
+  if (p.kind === 'time' && st.picked.ids.filter((k) => k.startsWith(seed + '|') && k.endsWith('|time')).length >= PICKUP.timePerPlanetDay) return false;
+  st.picked.ids.push(pickKey(seed, p));
+  if (p.kind === 'fuel') addFuel(st, PICKUP.fuel);
+  // shards stack on the same planet; another planet's shard starts a new boost
+  if (p.kind === 'time') st.boost = { seed, until: Math.max(now, st.boost?.seed === seed ? st.boost.until : 0) + PICKUP.boostMs };
+  if (p.kind === 'map') st.halfJump = true;
+  return true;
+}
+export const boostOn = (st, seed, now) => st.boost?.seed === seed && now < st.boost.until;
