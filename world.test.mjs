@@ -77,3 +77,22 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.deepEqual([...shapes].sort(), ['dunes', 'mesas', 'peaks', 'rolling', 'spires']);
   console.log('relief ok:', [...shapes].join(', '));
 }
+
+// Pickups: deterministic per day, new each day, denser away from the start, no time shards offline.
+{
+  const { pickupsNear } = await import('./world.js');
+  const w = makeWorld('v1-3_3_3');
+  assert.deepEqual(pickupsNear(w, '2026-10-13', -5, 5, true), pickupsNear(w, '2026-10-13', -5, 5, true));
+  assert.notDeepEqual(pickupsNear(w, '2026-10-13', -50, 50, true), pickupsNear(w, '2026-10-14', -50, 50, true));
+  let near = 0, far = 0, time = 0, kinds = new Set();
+  for (let i = 0; i < 200; i++) {
+    const v = makeWorld('pk' + i);
+    near += pickupsNear(v, 'd', 0, 0, false).filter((p) => Math.abs(Math.floor(p.x)) <= 1).length;
+    far += pickupsNear(v, 'd', 20, 20, false).filter((p) => Math.floor(p.x) >= 19 && Math.floor(p.x) <= 21).length;
+    for (const p of pickupsNear(v, 'd', -10, 10, false)) { kinds.add(p.kind); assert.ok(p.kind !== 'time'); }
+    time += pickupsNear(v, 'd', -10, 10, true).filter((p) => p.kind === 'time').length;
+  }
+  assert.ok(far > near * 2, `${far} vs ${near}`);
+  assert.ok(time > 0 && kinds.has('fuel') && kinds.has('map'));
+  console.log('pickups ok:', near, 'near the start vs', far, 'far away;', time, 'time shards');
+}

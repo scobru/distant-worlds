@@ -92,3 +92,23 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   for (let i = 0; i < 100; i++) { const p = makeWorld('p' + i).plants; for (const pl of p) assert.ok(/^[A-Z][a-z]+ [a-z]+$/.test(pl.name), pl.name); }
   console.log('herbarium ok:', makePlant('x', 0, 'blossoms').name);
 }
+
+// Pickups: once a day each, 3 time shards per planet per day, boosts stack per planet.
+{
+  const { emptyState, collect, picked, boostOn, PICKUP } = await import('./atlas.js');
+  const st = emptyState(); st.fuel = 10;
+  const fuel = { id: '3', kind: 'fuel' }, map = { id: '9', kind: 'map' };
+  assert.ok(collect(st, 'd1', 'A', fuel, 0)); assert.equal(st.fuel, 10 + PICKUP.fuel);
+  assert.ok(!collect(st, 'd1', 'A', fuel, 0), 'once a day');
+  assert.ok(picked(st, 'd1', 'A', fuel) && !picked(st, 'd1', 'B', fuel));
+  assert.ok(collect(st, 'd2', 'A', fuel, 0), 'back the next day');
+  for (let i = 0; i < 3; i++) assert.ok(collect(st, 'd2', 'A', { id: 't' + i, kind: 'time' }, 1000));
+  assert.ok(!collect(st, 'd2', 'A', { id: 't9', kind: 'time' }, 1000), 'three shards a day per planet');
+  assert.ok(collect(st, 'd2', 'B', { id: 't9', kind: 'time' }, 1000), 'another planet has its own three');
+  assert.ok(boostOn(st, 'B', 1000 + PICKUP.boostMs - 1) && !boostOn(st, 'A', 1000) && !boostOn(st, 'B', 1000 + PICKUP.boostMs));
+  st.boost = null;
+  collect(st, 'd3', 'A', { id: 'x', kind: 'time' }, 0); collect(st, 'd3', 'A', { id: 'y', kind: 'time' }, 0);
+  assert.equal(st.boost.until, 2 * PICKUP.boostMs, 'shards stack on the same planet');
+  assert.ok(collect(st, 'd3', 'A', map, 0) && st.halfJump);
+  console.log('pickups state ok');
+}
