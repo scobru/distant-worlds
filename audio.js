@@ -1,10 +1,12 @@
 import { rng } from './world.js';
+import { makeSong } from './compose.js';
 
 // Generative soundtrack. Each world picks a lead instrument, a drone, optional pad / bass /
 // soft percussion and a reverb size (see makeWorld's `music`), so worlds differ in timbre,
-// not only in notes. `getInterest()` (0..12) is how busy the screen is.
+// not only in notes; compose.js writes the harmony, melody, accompaniment and bass bar by bar.
+// `getInterest()` (0..12) is how busy the screen is.
 export function startAudio(M, getInterest) {
-  const ac = new AudioContext(), t0 = ac.currentTime;
+  const ac = new AudioContext(), t0 = ac.currentTime, song = makeSong(M);
   const master = ac.createGain();
   master.gain.setValueAtTime(0, t0); master.gain.linearRampToValueAtTime(0.6, t0 + 3);
   master.connect(ac.destination);
@@ -17,7 +19,7 @@ export function startAudio(M, getInterest) {
   const wet = ac.createGain(); wet.gain.value = 0.45; verb.connect(wet); wet.connect(master);
   const bus = ac.createBiquadFilter(); bus.frequency.value = M.cutoff; bus.connect(master); bus.connect(verb);
   const echo = ac.createDelay(), fb = ac.createGain();
-  echo.delayTime.value = 60 / M.bpm * 0.75; fb.gain.value = 0.35; echo.connect(fb); fb.connect(echo); echo.connect(bus);
+  echo.delayTime.value = 60 / song.bpm * 0.75; fb.gain.value = 0.35; echo.connect(fb); fb.connect(echo); echo.connect(bus);
 
   const noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
   noise.getChannelData(0).forEach((_, i, d) => (d[i] = Math.random() * 2 - 1));
@@ -57,6 +59,10 @@ export function startAudio(M, getInterest) {
       n.buffer = noise; bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 2; n.connect(bp); bp.connect(ne); n.start(t); n.stop(t + dur + 0.2);
       e.connect(echo);
     },
+    piano(f, t, dur, vel = 0.5) { // a few decaying harmonics; low notes ring longer
+      const ring = Math.min(3, 0.6 + 120 / f);
+      [1, 2, 3, 4].forEach((h, k) => osc('sine', f * h, t, t + ring + 0.1, amp(t, (0.06 * vel) / (1 + k * 1.6), 0.004, ring / (1 + k * 0.7))));
+    },
     pad(f, t, dur) {
       const e = amp(t, 0.05, 0.8, dur + 1.5), lp = ac.createBiquadFilter(); lp.frequency.value = 900; lp.connect(e);
       for (const d of [-8, 8]) osc('sawtooth', f, t, t + dur + 2.5, lp).detune.value = d;
@@ -65,8 +71,9 @@ export function startAudio(M, getInterest) {
 
   // Drone underneath everything.
   const drone = [];
+  // drones are quieter than they used to be: the chords move above them now
   if (M.drone === 'organ') for (const [s, d] of [[0, -4], [7, 4], [12, 0]]) {
-    const g = ac.createGain(); g.gain.value = 0.09; g.connect(bus); drone.push(osc('sine', hz(M.root + s), t0, 0, g)); drone.at(-1).detune.value = d;
+    const g = ac.createGain(); g.gain.value = 0.04; g.connect(bus); drone.push(osc('sine', hz(M.root + s), t0, 0, g)); drone.at(-1).detune.value = d;
   }
   if (M.drone === 'wind') {
     const n = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(), lfo = ac.createGain();
@@ -75,46 +82,35 @@ export function startAudio(M, getInterest) {
     n.connect(bp); bp.connect(g); g.connect(bus); n.start(t0); drone.push(n);
   }
   if (M.drone === 'choir') { // sawtooth through two vowel formants
-    const g = ac.createGain(); g.gain.value = 0.05; g.connect(bus);
+    const g = ac.createGain(); g.gain.value = 0.025; g.connect(bus);
     for (const fq of [700, 1150]) {
       const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = 6; bp.connect(g);
       for (const s of [0, 7, 12]) drone.push(osc('sawtooth', hz(M.root + 12 + s), t0, 0, bp));
     }
   }
 
-  // Lead plays a seeded 16-step motif that mutates a little on each repeat.
-  const r = rng(M.noteSeed), step = 60 / M.bpm / 2, deg = (d) => M.root + 24 + 12 * Math.floor(d / M.scale.length) + M.scale[((d % M.scale.length) + M.scale.length) % M.scale.length];
-  let d = 0;
-  const motif = Array.from({ length: 16 }, () => (r() < M.density ? (d += Math.round((r() - 0.5) * 4)) : null));
-  let next = t0 + 1, n = 0, chord = 0;
+  // Bars from the composer, scheduled a little ahead.
+  const r = rng(M.noteSeed), beat = 60 / song.bpm;
+  let next = t0 + 1, n = 0;
+  const groove = song.style === 'groove';
   const tick = () => {
     const interest = getInterest();
     bus.frequency.setTargetAtTime(M.cutoff * (0.7 + interest * 0.08), ac.currentTime, 2);
-    while (next < ac.currentTime + 0.5) {
-      const i = n % 16;
-      if (i === 0 && r() < 0.3) motif[Math.floor(r() * 16)] = r() < 0.7 ? Math.round((r() - 0.3) * 7) : null;
-      // Busier landscapes fill the gaps.
-      const note = motif[i] ?? (r() < interest * 0.03 ? Math.floor(r() * 7) : null);
-      if (note !== null && r() < 0.85) {
-        const f = hz(deg(note)) * (M.microtonal ? 2 ** ((r() - 0.5) * 0.05) : 1);
-        INSTR[M.lead](f, next, step * 2);
+    while (next < ac.currentTime + 1) {
+      for (const x of song.bar(n, interest).notes) {
+        const t = next + x.beat * beat, f = hz(x.midi) * (M.microtonal && x.voice === 'lead' ? 2 ** ((r() - 0.5) * 0.05) : 1), dur = x.dur * beat;
+        if (x.voice === 'lead') INSTR[M.lead](f, t, dur);
+        if (x.voice === 'comp') groove ? INSTR.pluck(f, t) : INSTR.piano(f, t, dur, x.vel * (0.6 + interest * 0.04));
+        if (x.voice === 'bass' && (M.bass || groove)) osc('triangle', f, t, t + dur + 0.1, amp(t, 0.16 * x.vel, 0.01, dur));
+        if (x.voice === 'pad') INSTR.pad(f, t, dur);
       }
-      if (M.bass && i % 8 === 0) { const e = amp(next, 0.14, 0.02, step * 6); osc('triangle', hz(deg(chord) - 24), next, next + step * 7, e); }
-      if (M.pad && i === 0) {
-        chord = [0, 3, 4, 5][Math.floor(r() * 4)];
-        for (const k of [0, 2, 4]) INSTR.pad(hz(deg(chord + k) - 12), next, step * 14);
+      if (M.perc) for (let s = 0; s < 8; s++) { // 8ths: kick on 1 and 3 (and the "and" of 3 in a groove), hats, a soft snare on 2 and 4
+        const t = next + (s * beat) / 2;
+        if (s === 0 || s === 4 || (groove && s === 5)) { const e = amp(t, 0.35, 0.003, 0.35, master), o = osc('sine', 120, t, t + 0.4, e); o.frequency.exponentialRampToValueAtTime(45, t + 0.15); }
+        if (r() < (groove ? 0.9 : 0.5)) { const sn = ac.createBufferSource(), hp = ac.createBiquadFilter(), e = amp(t, s % 2 ? 0.03 : 0.045, 0.001, 0.05, master); sn.buffer = noise; hp.type = 'highpass'; hp.frequency.value = 7000; sn.connect(hp); hp.connect(e); sn.start(t, r()); sn.stop(t + 0.1); }
+        if (groove && (s === 2 || s === 6)) { const sn = ac.createBufferSource(), bp = ac.createBiquadFilter(), e = amp(t, 0.12, 0.002, 0.14, master); sn.buffer = noise; bp.type = 'bandpass'; bp.frequency.value = 1800; sn.connect(bp); bp.connect(e); sn.start(t, r()); sn.stop(t + 0.2); }
       }
-      if (M.perc) {
-        if (i % 8 === 0) { // soft kick
-          const e = amp(next, 0.35, 0.003, 0.35, master), o = osc('sine', 120, next, next + 0.4, e);
-          o.frequency.exponentialRampToValueAtTime(45, next + 0.15);
-        }
-        if (i % 2 === 1 && r() < 0.6) { // hat
-          const s = ac.createBufferSource(), hp = ac.createBiquadFilter(), e = amp(next, 0.04, 0.001, 0.05, master);
-          s.buffer = noise; hp.type = 'highpass'; hp.frequency.value = 7000; s.connect(hp); hp.connect(e); s.start(next, r()); s.stop(next + 0.1);
-        }
-      }
-      next += step; n++;
+      next += 4 * beat; n++;
     }
   };
   const timer = setInterval(tick, 100);

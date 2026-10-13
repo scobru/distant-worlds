@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node world.test.mjs && node atlas.test.mjs && node freenet/net.test.mjs"
+    "test": "node world.test.mjs && node atlas.test.mjs && node compose.test.mjs && node freenet/net.test.mjs"
   },
   "dependencies": {
     "@freenetorg/freenet-stdlib": "^0.4.0",
