@@ -172,6 +172,12 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual(st.bag.creature, ['x', 'y', 'z', 'a', 'b'], 'creatures escape');
   evacuate(st);
   assert.deepEqual(st.bag, { plant: 2, ore: 2, creature: ['x', 'y'] });
+  // gravity on a dying world: building costs more
+  const { costOf } = await import('./atlas.js');
+  assert.deepEqual([costOf('windmill', 1).plant, costOf('windmill', 2).plant, costOf('windmill', 1.5).ore], [8, 16, 3]);
+  const s2 = emptyState(); setHome(s2, 'A'); s2.bag = { plant: 9, ore: 9, creature: [] };
+  assert.ok(!build(s2, 'house', 0, 2), 'a hut needs 10 plants at gravity 2');
+  assert.ok(build(s2, 'house', 0, 1.5) && s2.bag.plant === 1);
   console.log('exodus ok');
 }
 {
