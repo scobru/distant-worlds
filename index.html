@@ -272,7 +272,7 @@ function draw(t) {
   const fresh = Math.max(0, cam - explored[1]) + Math.max(0, explored[0] - cam);
   explored = [Math.min(explored[0], cam), Math.max(explored[1], cam)];
   if (fresh) addFuel(st, Math.min(fresh * FUEL.perScreen, FUEL.maxPerSecond * dt / 1000));
-  document.getElementById('pos').textContent = `${ev ? EVENT_NAME[ev.kind] + ' · ' : ''}📍 ${cam.toFixed(1)} · 🌿${Math.floor(st.bag.plant)} ⛏${Math.floor(st.bag.ore)} 🐾${st.bag.creature.length}`;
+  document.getElementById('pos').textContent = `${ev ? eventHint() + ' · ' : ''}📍 ${cam.toFixed(1)} · 🌿${Math.floor(st.bag.plant)} ⛏${Math.floor(st.bag.ore)} 🐾${st.bag.creature.length}`;
   const w = cv.width = innerWidth * devicePixelRatio, h = cv.height = innerHeight * devicePixelRatio;
   hits = [];
   // tremors on a dying world
@@ -455,6 +455,11 @@ function draw(t) {
         g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
         g.fillText('🧳 Trader', tx, ty - s * 1.6); g.restore();
         hits.push([[tx - s, ty - s * 1.4, tx + s * 1.4, ty], { type: 'trader', trade: true, reach, end: ev.end }]);
+        if (tx < 0 || tx > w) { // off screen: an arrow at the edge shows the way
+          const ex = tx < 0 ? 0.04 * w : 0.96 * w;
+          g.save(); g.font = `${14 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = tx < 0 ? 'left' : 'right'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
+          g.fillText(tx < 0 ? '◀ 🧳 Trader' : '🧳 Trader ▶', ex, h * 0.45); g.restore();
+        }
       }
       const time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
       for (const p of pickupsNear(W, day, off - 0.5, off + 1.5, time)) {
@@ -590,6 +595,12 @@ moveBtn.onclick = () => {
   save(); checkHome(); updateHome(); pets = homePets(); fn?.homeChanged();
   toast([`🚀 Your civilization moved to ${world.name}.`]);
 };
+// The event label under the world's name; for the trader, which way to walk.
+function eventHint() {
+  if (ev.kind !== 'trader') return EVENT_NAME[ev.kind];
+  const dx = ev.x - (cam * world.layers.at(-1).parallax + 0.5);
+  return Math.abs(dx) < 0.15 ? '🧳 Trader here: press E' : `🧳 Trader ${dx < 0 ? '←' : '→'} ${Math.abs(dx).toFixed(1)} screens`;
+}
 // Events on this world (world.js eventAt): announced when they start or when you arrive.
 function checkEvent() {
   const e = eventAt(world);
@@ -599,7 +610,7 @@ function checkEvent() {
   const until = new Date(ev.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   toast([{ meteors: `☄ Meteor shower on ${world.name} until ${until}: meteorites full of ore have fallen.`,
     migration: `🐾 A herd is migrating through ${world.name} from ${esc(ev.fromName)} until ${until}.`,
-    trader: `🧳 A trader has set up on ${world.name} until ${until}: walk to the stall.` }[ev.kind]]);
+    trader: `🧳 A trader has set up on ${world.name} until ${until}: follow the 🧳 arrow to the stall.` }[ev.kind]]);
 }
 // Collapse while you are here: emergency jump to the world the star gives birth to, half the bag left behind.
 setInterval(() => {
