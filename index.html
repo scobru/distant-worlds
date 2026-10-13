@@ -217,15 +217,15 @@ function load() {
   if (audio) { stopAudio(); startAudio(); }
 }
 
-// Captured creatures roam around the first building of the home planet.
+// Captured creatures roam among the buildings of the home planet (around the arrival point before any is built).
 const worldsMemo = new Map();
 function homePets(H = st.home?.seed === world.seed && st.home) {
   if (!H) return [];
-  const cx = H.built[0]?.x ?? 0.5;
-  return H.animals.slice(-16).map((id, k) => {
+  const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.2, span = Math.max(0.8, ...xs) + 0.2 - lo;
+  return H.animals.slice(-24).map((id, k) => {
     const [seed, i] = id.split('#'), r = rngFrom(`pet:${id}:${k}`);
     if (!worldsMemo.has(seed)) worldsMemo.set(seed, makeWorld(seed));
-    return { kind: 'species', dna: worldsMemo.get(seed).species[i], x: cx - 0.3 + r() * 0.4, range: 0.1 + r() * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.03 + r() * 0.015, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
+    return { kind: 'species', dna: worldsMemo.get(seed).species[i], x: lo + r() * span * 0.8, range: 0.15 + r() * span * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.04 + r() * 0.02, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
   }).filter((p) => p.dna);
 }
 
@@ -399,9 +399,11 @@ function draw(t) {
         g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
         g.fillText(`🏠 ${H.nick} · ${civTitle(H)}`, bx, Y(H.built[0].x) - 0.3 * m); g.restore();
       }
+      // home animals in a warm colour of their own, so they stand out from the ground (and at night)
+      const pc = { ...co, color: `hsl(32 45% ${W.night ? 45 : 40}%)`, accent: '#ffd27a', lights: true };
       for (const cr of H.pets) {
         const [x, dir] = walkerAt(cr, t), s = cr.size * m;
-        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, { ...co, color: L.color });
+        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, pc);
         hit({ type: 'pet', ...cr, owner: H.nick }, X(x), Y(x) + s * 0.05, s);
       }
     }
@@ -731,7 +733,7 @@ function showClaim() {
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
     world: () => world, toast, esc, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
-    setSt: (s) => { st = { ...emptyState(), ...s }; save(); },
+    setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
   }))
