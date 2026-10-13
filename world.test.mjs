@@ -147,3 +147,22 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.equal(eventAt(makeWorld('custom'), t0 + EVENT_SLOT)?.kind === 'migration', false, 'off-map worlds get no migrants');
   console.log('events ok:', JSON.stringify(kinds));
 }
+{
+  const { prevSeed, heritage, ruinsNear, survivors } = await import('./world.js');
+  assert.equal(prevSeed('v1-1_2_3'), null);
+  assert.equal(prevSeed('v1-1_2_3.1'), 'v1-1_2_3');
+  assert.equal(prevSeed('v1-1_2_3.7'), 'v1-1_2_3.6');
+  let ruins = 0, surv = 0;
+  for (let i = 0; i < 100; i++) {
+    const w = makeWorld(`v1-${i}_4_2.3`), her = heritage(w);
+    assert.equal(her.seed, `v1-${i}_4_2.2`);
+    const rs = ruinsNear(w, her, 0, 5);
+    assert.deepEqual(rs, ruinsNear(w, her, 0, 5));
+    ruins += rs.length; assert.ok(rs.every((x) => x.broken && her.structs.includes(x.kind)));
+    const sv = survivors(w, her); surv += sv.length;
+    assert.ok(sv.every((c) => c.dna.id.startsWith(her.seed + '#')), 'survivors keep their species id');
+  }
+  assert.ok(ruins > 50 && surv > 50, `${ruins} ${surv}`);
+  assert.equal(heritage(makeWorld('v1-1_2_3')), null, 'first worlds have no past');
+  console.log('heritage ok:', ruins, 'ruins,', surv, 'survivors');
+}

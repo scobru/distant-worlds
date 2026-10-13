@@ -207,10 +207,12 @@ export function moveHome(st, seed) {
   st.bag.plant -= c.plant; st.bag.ore -= c.ore; st.home.seed = seed;
   return true;
 }
-/** The home world collapsed: the buildings are lost, the creatures escape into the bag. */
+/** The home world collapsed: the buildings are lost (their ruins stay in the next world of that star),
+ *  the creatures escape into the bag. */
 export function loseHome(st) {
   st.bag.creature.push(...st.home.animals);
   const lost = st.home; st.home = null;
+  st.ruins = [...(st.ruins ?? []), { seed: lost.seed, built: lost.built }].slice(-20);
   return lost;
 }
 /** Evacuating a collapsing world: half of what is in the bag is left behind. */
