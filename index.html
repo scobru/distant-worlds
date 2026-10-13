@@ -109,7 +109,7 @@
   <p><b>New world</b> jumps to a random star (100⚡); the <b>Map</b> shows nearby stars (closer = cheaper, visited = free). <b>World of the day</b> and shared links are free.</p>
   <h3>🏠 Home</h3>
   <p>On a world you like, press <b>🏠 Settle here</b>. From anywhere, <b>🏠 Go home</b> brings you back for free.
-    Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand:
+    Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and grow your camp into a village, a town, a city.</p>
   <h3>⏳ Living worlds</h3>
   <p>Worlds age (shown as <i>age N/100</i>) and collapse, then their star gives birth to a new one. After age 70 a world is unstable:
@@ -555,17 +555,26 @@ homeBtn.onclick = () => {
 const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
   b.jump && `jumps ${b.jump * 100}% cheaper`].filter(Boolean).join(' · ');
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
+// where the explorer stands, on the buildings' layer
+const standing = () => cam * world.layers.at(-2).parallax + 0.5;
 function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · ${civTitle(H)}`;
   document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k) ? '' : ' disabled'}>Build</button>
-      <b>${b.name}</b> <small style="display:inline">${costText(b.cost)} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>`;
+      <b>${b.name}</b> <small style="display:inline">${costText(b.cost)} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
+    ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
+    <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button> <b>${BUILDINGS[b.kind].name}</b>
+      <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>` : ''}`;
+  buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
+    st.home.built[+b.dataset.move].x = standing();
+    save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
+    toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
+  }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
-    const L = world.layers.at(-2);
     let ok;
-    const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, cam * L.parallax + 0.5); }); // new buildings start producing now
+    const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, standing()); }); // new buildings start producing now
     if (!ok) return;
     save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
     toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
