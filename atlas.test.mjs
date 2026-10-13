@@ -121,7 +121,7 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(picked(st, 'd', 'A', { id: 0, kind: 'plant' }) && !picked(st, 'd2', 'A', { id: 0, kind: 'plant' }), 'plants grow back');
   collect(st, 'd', 'A', { id: 'ore1', kind: 'ore', amount: 3 }, 0);
   collect(st, 'd', 'A', { id: 7, kind: 'creature', dna: 'A#0' }, 0);
-  assert.deepEqual(st.bag, { plant: 14, ore: 3, creature: ['A#0'] });
+  assert.deepEqual(st.bag, { plant: 14, ore: 3, creature: ['A#0'], seeds: [] });
   setHome(st, 'A');
   assert.equal(civTitle(st.home), 'Landing site');
   assert.equal(arriveHome(st), 1);
@@ -195,6 +195,14 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   const s2 = emptyState(); setHome(s2, 'A'); s2.bag = { plant: 9, ore: 9, creature: [] };
   assert.ok(!build(s2, 'house', 0, 2), 'a hut needs 10 plants at gravity 2');
   assert.ok(build(s2, 'house', 0, 1.5) && s2.bag.plant === 1);
+  // seeds: one per species, sown at home
+  const { collect: col, sow } = await import('./atlas.js');
+  const s3 = emptyState(); setHome(s3, 'H');
+  col(s3, 'd', 'A', { id: 1, kind: 'plant', species: 'A~0' }, 0); col(s3, 'd', 'A', { id: 2, kind: 'plant', species: 'A~0' }, 0); col(s3, 'd', 'A', { id: 3, kind: 'plant', species: 'A~1' }, 0);
+  assert.deepEqual(s3.bag.seeds, ['A~0', 'A~1']);
+  assert.equal(sow(s3), 2); assert.deepEqual([s3.home.garden, s3.bag.seeds], [['A~0', 'A~1'], []]);
+  col(s3, 'd2', 'A', { id: 1, kind: 'plant', species: 'A~0' }, 0);
+  assert.deepEqual(s3.bag.seeds, [], 'already in the garden');
   console.log('exodus ok');
 }
 {

@@ -119,6 +119,8 @@
   <h3>🏚 Heritage</h3>
   <p>A world born from a star where another one collapsed remembers it: the ruins of its buildings stand here and there, one of its species survives,
     and the homes explorers built there (yours too) are left as ruins.</p>
+  <h3>🌱 Garden</h3>
+  <p>The first time you harvest a plant species you also get its seeds. At home they are sown in your garden, so the plants you discover grow among your buildings.</p>
   <h3>✨ Events</h3>
   <p>Worlds have events on a clock everyone shares, lasting an hour or two: a <b>☄ meteor shower</b> leaves meteorites full of ore,
     a <b>🐾 migration</b> brings a herd from a nearby star to capture, a <b>🧳 trader</b> swaps plants and ore for ore, fuel or a creature from another world.
@@ -133,7 +135,7 @@ import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNea
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -203,10 +205,11 @@ function load() {
   document.title = `${world.name} — Distant Worlds`;
   if (st.home?.seed === seed) {
     let n, got;
-    const ach = withAchievements(st, () => { n = arriveHome(st); got = produce(st, Date.now()); });
+    let sown;
+    const ach = withAchievements(st, () => { n = arriveHome(st); sown = sow(st); got = produce(st, Date.now()); });
     const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
-    save(); if (n) fn?.homeChanged();
-    toast([n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
+    save(); if (n || sown) fn?.homeChanged();
+    toast([n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in your garden`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
       ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   checkHome(); ev = null; checkEvent();
@@ -214,7 +217,7 @@ function load() {
   her = heritage(W); heirs = survivors(W, her);
   if (her) setTimeout(() => world === W && toast([`🏚 ${W.name} was born where ${her.name} once stood: its ruins remain${her.survivor ? `, and its ${her.survivor.name} survived` : ''}.`]), 1800);
   if (inst) setTimeout(() => world === W && toast([`⚠ ${W.name} is unstable: it collapses in ${left(life.collapse - Date.now())}. Ore is richer here, but gravity is ×${grav().toFixed(1)}: you walk slower, reach less and building costs more.`]), 3600);
-  updateHome(); pets = homePets();
+  updateHome(); pets = homePets(); garden = homeGarden();
   if (audio) { stopAudio(); startAudio(); }
 }
 
@@ -230,14 +233,26 @@ function homePets(H = st.home?.seed === world.seed && st.home) {
   }).filter((p) => p.dna);
 }
 
+// The garden: every species whose seeds were sown, a few plants each, among the buildings.
+function homeGarden(H = st.home?.seed === world.seed && st.home) {
+  if (!H?.garden?.length) return [];
+  const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.3, span = Math.max(0.8, ...xs) + 0.3 - lo;
+  return H.garden.slice(-30).flatMap((id, k) => {
+    const [seed, i] = id.split('~'), r = rngFrom(`garden:${id}:${k}`);
+    if (!worldsMemo.has(seed)) worldsMemo.set(seed, makeWorld(seed));
+    const pl = worldsMemo.get(seed).plants[i];
+    return pl ? Array.from({ length: 2 + Math.floor(r() * 2) }, () => ({ kind: pl.family, plant: pl, x: lo + r() * span, size: 0.03 + r() * 0.03, seed: Math.floor(r() * 2 ** 32) })) : [];
+  }).sort((a, b) => b.size - a.size);
+}
+let garden = [];
 // Homes drawn on world W: ours, then those other explorers published (pets computed once per home version).
 const othersMemo = new Map();
 function homesHere(W) {
-  const out = st.home?.seed === W.seed ? [{ built: st.home.built, pets }] : [];
+  const out = st.home?.seed === W.seed ? [{ built: st.home.built, pets, garden }] : [];
   for (const h of fn?.homesOn?.(W.seed) ?? []) {
     if (!othersMemo.has(h.sig)) {
       const H = { nick: h.nick, built: h.built.map(([kind, x], k) => ({ kind, x: x / 100, seed: k + 1 })), animals: h.animals };
-      othersMemo.set(h.sig, { ...H, pets: homePets(H) });
+      othersMemo.set(h.sig, { ...H, pets: homePets(H), garden: [] });
     }
     out.push(othersMemo.get(h.sig));
   }
@@ -370,7 +385,7 @@ function draw(t) {
       next.set(key, ch);
       // Sink things slightly into the ground so slopes don't leave them floating.
       for (const th of ch.things) {
-        const take = th.plant && { id: th.seed, kind: 'plant', name: th.plant.name };
+        const take = th.plant && { id: th.seed, kind: 'plant', name: th.plant.name, species: th.plant.id };
         if (take && picked(st, day, W.seed, take)) continue; // harvested today
         drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
         hit({ type: 'thing', ...th, ...(take && { take, reach: near(X(th.x)) }) }, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m);
@@ -389,6 +404,14 @@ function draw(t) {
     }
     // homes on this planet, ours and other explorers' (Freenet): buildings and the creatures they brought
     if (i === W.layers.length - 2) for (const H of homesHere(W)) {
+      // the garden, greener than the wild so it reads as tended
+      const go = { ...o, color: `hsl(110 30% ${W.night ? 28 : 32}%)` };
+      for (const th of H.garden) {
+        const gx = X(th.x);
+        if (gx < -w * 0.2 || gx > w * 1.2) continue;
+        drawThing(g, th, gx, Y(th.x) + th.size * m * 0.1, th.size * m, go);
+        hit({ type: 'thing', ...th, garden: true }, gx, Y(th.x) + th.size * m * 0.1, th.size * m);
+      }
       for (const b of H.built) {
         const bx = X(b.x), by = Y(b.x) + 0.012 * m, s = 0.12 * m;
         if (bx < -s * 3 || bx > w + s * 3) continue;
@@ -595,7 +618,7 @@ moveBtn.onclick = () => {
   const c = moveCost(st);
   if (!confirm(`Move your civilization (${st.home.built.length} buildings, ${st.home.animals.length} creatures) to ${world.name}? It costs 🌿${c.plant} ⛏${c.ore}.`)) return;
   if (!moveHome(st, world.seed)) return toast([`You need 🌿${c.plant} ⛏${c.ore} to move.`]);
-  save(); checkHome(); updateHome(); pets = homePets(); fn?.homeChanged();
+  save(); checkHome(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged();
   toast([`🚀 Your civilization moved to ${world.name}.`]);
 };
 // The event label under the world's name; for the trader, which way to walk.
@@ -652,8 +675,8 @@ function updateHome() { homeBtn.textContent = !st.home ? '🏠 Settle here' : st
 homeBtn.onclick = () => {
   if (!st.home) {
     if (!confirm(`Make ${world.name} your home planet? You build your civilization there with what you gather exploring.`)) return;
-    const ach = withAchievements(st, () => { setHome(st, world.seed, Date.now()); arriveHome(st); });
-    save(); updateHome(); pets = homePets(); fn?.homeChanged(); toast(ach.map((a) => `🏆 Achievement: ${a}`));
+    const ach = withAchievements(st, () => { setHome(st, world.seed, Date.now()); arriveHome(st); sow(st); });
+    save(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); toast(ach.map((a) => `🏆 Achievement: ${a}`));
   } else if (st.home.seed !== world.seed) { location.hash = st.home.seed; return; }
   renderBuild(); buildDlg.showModal();
 };
@@ -676,14 +699,14 @@ function renderBuild() {
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>` : ''}`;
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();
-    save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
+    save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
     sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
   }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     let ok;
     const ach = withAchievements(st, () => { produce(st, Date.now()); ok = build(st, b.dataset.k, standing(), grav()); }); // new buildings start producing now
     if (!ok) return;
-    save(); pets = homePets(); fn?.homeChanged(); buildDlg.close();
+    save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
     sfx('build'); toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
   }));
 }
@@ -735,7 +758,7 @@ function showClaim() {
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
     world: () => world, toast, esc, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
-    setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); }, // progress kept in the node replaces this browser's
+    setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
   }))
