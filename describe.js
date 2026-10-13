@@ -30,6 +30,8 @@ export function describe(e, w, known) {
   };
   if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.'] };
   if (e.type === 'pet') return { title: e.dna.name, lines: [e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', parts(e.dna)] };
+  if (e.type === 'trader') return { title: '🧳 Trader', lines: [`Trades plants and ore until ${new Date(e.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`, e.reach ? 'Click (or press E) to trade.' : 'Walk to the stall to trade.'] };
+  if (e.type === 'ore' && e.meteor) return { title: '☄ Meteorite', lines: [`${e.amount} rare ore, fallen from the sky.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
   if (e.type === 'ore') return { title: '⛏ Ore deposit', lines: [`${e.amount} raw material for your home planet.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
   if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };
@@ -43,6 +45,7 @@ export function describe(e, w, known) {
       title: d.name, rarity: d.rarity,
       lines: [
         parts(d),
+        e.migrant ? `Migrating from ${e.migrant}.` : '',
         known.species(d.id) ? '✓ In your bestiary' : 'New species',
         hint(e, 'capture'),
       ],

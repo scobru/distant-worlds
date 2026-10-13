@@ -127,3 +127,23 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   for (let i = 0; i < 50; i++) { const l = lifeOf(i, 1, 0, t0), n = lifeOf(i, 1, 0, l.collapse + 1); assert.ok(n.collapse - l.collapse >= 30 * DAY - 1 && n.collapse - l.collapse <= 120 * DAY + 1); }
   console.log('life ok:', a.seed, a.age.toFixed(1));
 }
+{
+  const { eventAt, meteoritesNear, migrants, deals, EVENT_SLOT, EPOCH } = await import('./world.js');
+  const kinds = {}, t0 = EPOCH + 20 * 864e5;
+  for (let i = 0; i < 300; i++) {
+    const w = makeWorld(`v1-${i}_${i}_1`);
+    for (let h = 0; h < 48; h++) {
+      const now = t0 + h * 3600e3, ev = eventAt(w, now);
+      assert.deepEqual(ev, eventAt(w, now), 'the same for everyone');
+      if (!ev) continue;
+      kinds[ev.kind] = (kinds[ev.kind] ?? 0) + 1;
+      assert.ok(now >= ev.start && now < ev.end && ev.end - ev.start <= 2 * 3600e3);
+      if (ev.kind === 'meteors') assert.ok(meteoritesNear(w, ev, -3, 3).every((m) => m.amount >= 4 && m.id.startsWith('met')));
+      if (ev.kind === 'migration') { const m = migrants(ev); assert.ok(m.length >= 8 && m.every((c) => c.dna.id.startsWith(ev.from + '#'))); }
+      if (ev.kind === 'trader') assert.equal(deals(w, ev).length, 3);
+    }
+  }
+  assert.ok(kinds.meteors && kinds.migration && kinds.trader, JSON.stringify(kinds));
+  assert.equal(eventAt(makeWorld('custom'), t0 + EVENT_SLOT)?.kind === 'migration', false, 'off-map worlds get no migrants');
+  console.log('events ok:', JSON.stringify(kinds));
+}

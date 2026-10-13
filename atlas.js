@@ -218,3 +218,14 @@ export function evacuate(st) {
   st.bag.plant = Math.floor(st.bag.plant / 2); st.bag.ore = Math.floor(st.bag.ore / 2);
   st.bag.creature = st.bag.creature.slice(0, Math.floor(st.bag.creature.length / 2));
 }
+
+/** A trader's deal: pay `give` from the bag, get ore, fuel or a creature (`creatureId`). */
+export function trade(st, deal, creatureId) {
+  const g = deal.give, x = deal.get;
+  if (st.bag.plant < (g.plant ?? 0) || st.bag.ore < (g.ore ?? 0) || (x.creature && !creatureId)) return false;
+  st.bag.plant -= g.plant ?? 0; st.bag.ore -= g.ore ?? 0;
+  if (x.ore) st.bag.ore += x.ore;
+  if (x.fuel) addFuel(st, x.fuel);
+  if (x.creature) st.bag.creature.push(creatureId);
+  return true;
+}
