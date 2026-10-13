@@ -36,6 +36,21 @@ export async function start(app) {
   const colScore = (seed, c) => score(seed, c.persona, c.nonces);
   const signBtn = document.getElementById('signBtn'), plantBtn = document.getElementById('plantBtn');
 
+  // Our home, published when it changes (and once after sign-in), so other explorers see it.
+  // shortcut: limits as in the contract (64 buildings, 64 creatures); older ones are left out.
+  let homeTimer, lastHome = '';
+  function homeChanged() {
+    clearTimeout(homeTimer);
+    homeTimer = setTimeout(async () => {
+      const H = app.st().home;
+      if (!H || !me || !nick || level() < COLONY_BITS) return;
+      const built = H.built.slice(-64).map((b) => [b.kind, Math.round(b.x * 100)]), animals = H.animals.slice(-64), key = JSON.stringify([H.seed, built, animals, nick]);
+      if (key === lastHome && galaxy.homes?.[me]) return;
+      try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, ante: anteHex() }) }; lastHome = key; }
+      catch (e) { console.warn('home publish failed:', e); }
+    }, 2000);
+  }
+
   async function refreshGalaxy() {
     try { galaxy = await net.loadGalaxy(); update(); app.refresh(); } catch (e) { console.warn('galaxy unavailable:', e); }
   }
@@ -125,7 +140,7 @@ export async function start(app) {
       if (n === null) break;
       if (validText('x', n.trim())) { nick = n.trim(); await net.storePut('nick', nick); }
     }
-    await loadMiner(); update();
+    await loadMiner(); update(); homeChanged();
   }
 
   function update() {
@@ -281,6 +296,9 @@ export async function start(app) {
       return { x: c.x / 100, hue: hueOf(c.persona), label: c.nick, people: peopleCache.people };
     },
     colonyOf,
+    homeChanged,
+    /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
+    homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length),
     atlasHtml() {
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);
       const av = (p) => { const u = avatar(p, () => {}); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };

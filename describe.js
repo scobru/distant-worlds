@@ -28,8 +28,8 @@ export function describe(e, w, known) {
     lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],
       e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
   };
-  if (e.type === 'home') return { title: e.name, lines: ['Built by you on your home planet.'] };
-  if (e.type === 'pet') return { title: e.dna.name, lines: ['Lives on your home planet.', parts(e.dna)] };
+  if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.'] };
+  if (e.type === 'pet') return { title: e.dna.name, lines: [e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', parts(e.dna)] };
   if (e.type === 'ore') return { title: '⛏ Ore deposit', lines: [`${e.amount} raw material for your home planet.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
   if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };

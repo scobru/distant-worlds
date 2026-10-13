@@ -134,3 +134,42 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.equal(civTitle(st.home), 'Camp');
   console.log('home ok');
 }
+{
+  // Buildings: gathering bonus, production while away, cheaper jumps, achievements.
+  const { collect, setHome, build, produce, gatherBonus, jumpDiscount, withAchievements } = await import('./atlas.js');
+  const st = emptyState();
+  assert.deepEqual(withAchievements(st, () => setHome(st, 'H', 0)), ['Settler']);
+  st.bag = { plant: 100, ore: 200, creature: [] }; st.home.animals = Array(10).fill('H#0');
+  build(st, 'windmill', 0); build(st, 'longhouse', 0);
+  assert.equal(gatherBonus(st, 'plant'), 1);
+  collect(st, 'd', 'A', { id: 1, kind: 'plant' }, 0);
+  collect(st, 'd', 'A', { id: 2, kind: 'creature', dna: 'A#0' }, 0);
+  assert.equal(st.bag.creature.length, 2, 'a stable doubles captures');
+  const plants = st.bag.plant, fuel = st.fuel = 0;
+  build(st, 'temple', 0);
+  assert.deepEqual(produce(st, 3 * 3.6e6), { plant: 3, ore: 0, fuel: 15 }, 'mill 1/h, temple 5 fuel/h');
+  assert.equal(st.bag.plant, plants - 6 + 3);
+  assert.deepEqual(produce(st, 100 * 3.6e6), { plant: 24, ore: 0, fuel: 120 }, 'at most a day');
+  assert.equal(st.fuel, 100, 'the tank stays capped');
+  for (let i = 0; i < 7; i++) st.home.built.push({ kind: 'tower' });
+  assert.equal(jumpDiscount(st), 0.5);
+  assert.ok(withAchievements(st, () => {}).length === 0);
+  console.log('buildings ok');
+}
+{
+  const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'A'); st.bag = { plant: 20, ore: 10, creature: ['x', 'y', 'z'] };
+  build(st, 'house', 0); build(st, 'house', 0); // 10 plants spent
+  assert.deepEqual(moveCost(st), { plant: 6, ore: 6 });
+  assert.ok(moveHome(st, 'B') && st.home.seed === 'B' && st.home.built.length === 2);
+  assert.deepEqual([st.bag.plant, st.bag.ore], [4, 4]);
+  assert.ok(!moveHome(st, 'C'), 'not enough to move again');
+  st.home.animals = ['a', 'b'];
+  assert.equal(loseHome(st).built.length, 2);
+  assert.equal(st.home, null);
+  assert.deepEqual(st.bag.creature, ['x', 'y', 'z', 'a', 'b'], 'creatures escape');
+  evacuate(st);
+  assert.deepEqual(st.bag, { plant: 2, ore: 2, creature: ['x', 'y'] });
+  console.log('exodus ok');
+}

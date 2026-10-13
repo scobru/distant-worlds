@@ -45,18 +45,39 @@ export function rngFrom(str) {
 export const VERSION = 'v1';
 
 // Galaxy: a GALAXY x GALAXY torus of sectors, each holding a few stars; a star's seed is
-// "v1-<sx>_<sy>_<i>". Seeds of other shapes still make worlds, they just aren't on the map.
+// "v1-<sx>_<sy>_<i>", or "v1-<sx>_<sy>_<i>.<g>" for the g-th world born from that star (see lifeOf).
+// Seeds of other shapes still make worlds, they just aren't on the map.
 export const GALAXY = 10000;
 export const wrapS = (v) => ((v % GALAXY) + GALAXY) % GALAXY;
-export function starsIn(sx, sy) {
+const STAR = /^v1-(\d+)_(\d+)_(\d+)(?:\.([1-9]\d*))?$/;
+export function starsIn(sx, sy, now = Date.now()) {
   const r = rngFrom(`${VERSION}:settore:${sx}:${sy}`);
-  return Array.from({ length: 4 + Math.floor(r() * 6) }, (_, i) => ({ seed: `${VERSION}-${sx}_${sy}_${i}`, x: sx + r(), y: sy + r() }));
+  return Array.from({ length: 4 + Math.floor(r() * 6) }, (_, i) => ({ ...lifeOf(sx, sy, i, now), x: sx + r(), y: sy + r() }));
 }
-export const sectorOf = (seed) => { const m = /^v1-(\d+)_(\d+)_\d+$/.exec(seed); return m && [+m[1], +m[2]]; };
-export function randomSeed(rand = Math.random) {
-  const sx = Math.floor(rand() * GALAXY), sy = Math.floor(rand() * GALAXY), stars = starsIn(sx, sy);
+export const sectorOf = (seed) => { const m = STAR.exec(seed); return m && [+m[1], +m[2]]; };
+export function randomSeed(rand = Math.random, now = Date.now()) {
+  const sx = Math.floor(rand() * GALAXY), sy = Math.floor(rand() * GALAXY), stars = starsIn(sx, sy, now);
   return stars[Math.floor(rand() * stars.length)].seed;
 }
+
+// Worlds are born, age and collapse; then their star makes a new one. The clock is the same for
+// everyone: each star has its own lifespan (30-120 days) and phase, counted from EPOCH.
+export const EPOCH = Date.UTC(2026, 9, 1), DAY = 864e5;
+/** The world star (sx, sy, i) holds at `now`: its seed, age (0-100) and when it collapses. */
+export function lifeOf(sx, sy, i, now = Date.now()) {
+  const r = rngFrom(`life:${sx}_${sy}_${i}`), span = (30 + r() * 90) * DAY, off = r() * span;
+  const u = (now - EPOCH + off) / span, gen = Math.max(0, Math.floor(u));
+  return { seed: `${VERSION}-${sx}_${sy}_${i}${gen ? '.' + gen : ''}`, gen, age: (u - gen) * 100, collapse: EPOCH - off + (gen + 1) * span };
+}
+/** Life of the world `seed`: null off the map; `dead` (with the star's current world) once it collapsed. */
+export function ageOf(seed, now = Date.now()) {
+  const m = STAR.exec(seed);
+  if (!m) return null;
+  const cur = lifeOf(+m[1], +m[2], +m[3], now), gen = +(m[4] ?? 0);
+  return gen === cur.gen ? cur : { ...cur, dead: gen < cur.gen, unborn: gen > cur.gen, next: cur.seed };
+}
+/** 0 while a world is young, rising to 1 as it nears collapse (from age 70). */
+export const instability = (age) => Math.max(0, Math.min(1, (age - 70) / 30));
 
 // Regions span 4x4 sectors and bias what their worlds are made of.
 export const REGIONS = [

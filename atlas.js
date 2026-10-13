@@ -30,7 +30,14 @@ export const ACHIEVEMENTS = [
   ['Herbalist', 'Press 10 plants in your herbarium', (st) => (st.plants ?? []).length >= 10],
   ['Explorer', 'Explore 100 worlds', (st) => st.count >= 100],
   ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
+  ['Settler', 'Choose a home planet', (st) => !!st.home],
+  ['Founder', 'Grow your home into a village', (st) => (st.home?.built.length ?? 0) >= 3],
+  ['Mayor', 'Grow your home into a city', (st) => (st.home?.built.length ?? 0) >= 10],
+  ['Architect', 'Build every kind of building', (st) => Object.keys(BUILDINGS).every((k) => st.home?.built.some((b) => b.kind === k))],
+  ['Rancher', 'Bring 10 creatures home', (st) => (st.home?.animals.length ?? 0) >= 10],
 ];
+/** Runs `change` and returns the achievements it unlocked. */
+export const withAchievements = (st, change) => discover(st, [], null, change).achievements;
 
 export const emptyState = () => ({ fuel: 100, seen: [], combos: [], count: 0, favs: [], species: [], plants: [], stars: [], daily: { done: null, streak: 0, best: 0 },
   bag: { plant: 0, ore: 0, creature: [] }, home: null, avatar: null });
@@ -129,28 +136,46 @@ export function collect(st, day, seed, p, now) {
   if (p.kind === 'time') st.boost = { seed, until: Math.max(now, st.boost?.seed === seed ? st.boost.until : 0) + PICKUP.boostMs };
   if (p.kind === 'map') st.halfJump = true;
   // gathered on the way, spent on the home planet
-  if (p.kind === 'plant' || p.kind === 'ore') st.bag[p.kind] += p.amount ?? 1;
-  if (p.kind === 'creature') st.bag.creature.push(p.dna);
+  // home buildings make gathering richer
+  if (p.kind === 'plant' || p.kind === 'ore') st.bag[p.kind] += (p.amount ?? 1) + gatherBonus(st, p.kind);
+  if (p.kind === 'creature') for (let k = 1 + gatherBonus(st, 'creature'); k--;) st.bag.creature.push(p.dna);
   return true;
 }
 export const boostOn = (st, seed, now) => st.boost?.seed === seed && now < st.boost.until;
 
 // Home planet: the explorer's own world, where gathered resources become a civilization.
 // Plants and ore are spent; animals (captured creatures, released at home) are a requirement.
+// `gather`: extra per plant / ore / creature taken; `hour`: produced while you are away; `jump`: cheaper jumps.
 export const BUILDINGS = {
-  house: { name: 'Hut', cost: { plant: 5 } },
-  windmill: { name: 'Mill', cost: { plant: 8, ore: 2 } },
-  longhouse: { name: 'Stable', cost: { plant: 6, ore: 2, animals: 2 } },
-  factory: { name: 'Workshop', cost: { plant: 4, ore: 8 } },
-  temple: { name: 'Temple', cost: { plant: 6, ore: 12, animals: 3 } },
-  castle: { name: 'Castle', cost: { plant: 10, ore: 20 } },
-  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 } },
-  dome: { name: 'Dome', cost: { plant: 20, ore: 30, animals: 8 } },
+  house: { name: 'Hut', cost: { plant: 5 }, hour: { plant: 1 } },
+  windmill: { name: 'Mill', cost: { plant: 8, ore: 2 }, gather: 'plant', hour: { plant: 1 } },
+  longhouse: { name: 'Stable', cost: { plant: 6, ore: 2, animals: 2 }, gather: 'creature' },
+  factory: { name: 'Workshop', cost: { plant: 4, ore: 8 }, gather: 'ore', hour: { ore: 1 } },
+  temple: { name: 'Temple', cost: { plant: 6, ore: 12, animals: 3 }, hour: { fuel: 5 } },
+  castle: { name: 'Castle', cost: { plant: 10, ore: 20 }, hour: { ore: 2 } },
+  tower: { name: 'Tower', cost: { plant: 5, ore: 30, animals: 5 }, jump: 0.1 },
+  dome: { name: 'Dome', cost: { plant: 20, ore: 30, animals: 8 }, hour: { plant: 2, ore: 2, fuel: 5 } },
 };
+const builtOf = (st, k) => st.home?.built.filter((b) => b.kind === k).length ?? 0;
+// +1 per building of that kind, at most +3 (creatures: at most one extra)
+export const gatherBonus = (st, kind) => Math.min(kind === 'creature' ? 1 : 3,
+  Object.entries(BUILDINGS).filter(([, b]) => b.gather === kind).reduce((a, [k]) => a + builtOf(st, k), 0));
+// each tower takes 10% off jumps, at most 50%
+export const jumpDiscount = (st) => Math.min(0.5, builtOf(st, 'tower') * BUILDINGS.tower.jump);
+
+/** What the home produced since the last visit (at most a day's worth), added to bag and tank. */
+export function produce(st, now) {
+  const H = st.home, hours = Math.min(24, Math.max(0, (now - (H.prod ?? now)) / 3.6e6)), got = { plant: 0, ore: 0, fuel: 0 };
+  H.prod = now;
+  for (const b of H.built) for (const [r, n] of Object.entries(BUILDINGS[b.kind].hour ?? {})) got[r] += n * hours;
+  for (const r in got) got[r] = Math.floor(got[r]);
+  st.bag.plant += got.plant; st.bag.ore += got.ore; addFuel(st, got.fuel);
+  return got;
+}
 const TITLES = [[0, 'Landing site'], [1, 'Camp'], [3, 'Village'], [6, 'Town'], [10, 'City'], [16, 'Capital']];
 export const civTitle = (home) => TITLES.findLast(([n]) => (home?.built.length ?? 0) >= n)[1];
 
-export const setHome = (st, seed) => (st.home = { seed, built: [], animals: [] });
+export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now });
 
 /** Releases the creatures in the bag on the home planet; returns how many. */
 export function arriveHome(st) {
@@ -171,4 +196,25 @@ export function build(st, kind, x) {
   st.bag.plant -= c.plant ?? 0; st.bag.ore -= c.ore ?? 0;
   st.home.built.push({ kind, x, seed: st.home.built.length + 1 });
   return true;
+}
+
+// Exodus: a home whose world is dying can move, buildings and creatures included, for a price per building.
+export const MOVE_COST = { plant: 3, ore: 3 };
+export const moveCost = (st) => ({ plant: MOVE_COST.plant * st.home.built.length, ore: MOVE_COST.ore * st.home.built.length });
+export function moveHome(st, seed) {
+  const c = moveCost(st);
+  if (st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
+  st.bag.plant -= c.plant; st.bag.ore -= c.ore; st.home.seed = seed;
+  return true;
+}
+/** The home world collapsed: the buildings are lost, the creatures escape into the bag. */
+export function loseHome(st) {
+  st.bag.creature.push(...st.home.animals);
+  const lost = st.home; st.home = null;
+  return lost;
+}
+/** Evacuating a collapsing world: half of what is in the bag is left behind. */
+export function evacuate(st) {
+  st.bag.plant = Math.floor(st.bag.plant / 2); st.bag.ore = Math.floor(st.bag.ore / 2);
+  st.bag.creature = st.bag.creature.slice(0, Math.floor(st.bag.creature.length / 2));
 }

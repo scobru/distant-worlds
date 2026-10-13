@@ -11,6 +11,10 @@
 //! names the planet and plants a beacon at `x`. A colonist must also show a Viso persona level: the
 //! persona's own `ante` slot (a self-signed proof of work, see viso-ante), at least MIN_ANTE_BITS.
 //! Admin-signed blocklist hides stars or personas.
+//!
+//! Homes: each persona can publish its home planet (buildings and creatures), signed like a colony,
+//! so other explorers see it. The newest signed home of a persona wins. What a home holds is
+//! self-declared (resources are gathered in the client); MAX_BUILT and MAX_ANIMALS bound it.
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -25,6 +29,10 @@ pub const MIN_ANTE_BITS: u32 = 20;
 pub const MAX_SCORE: u128 = 1 << 50;
 pub const MAX_COLONIES: usize = 20_000;
 const GALAXY: u32 = 10_000;
+pub const MAX_HOMES: usize = 20_000;
+pub const MAX_BUILT: usize = 64;
+pub const MAX_ANIMALS: usize = 64;
+pub const BUILDINGS: [&str; 8] = ["house", "windmill", "longhouse", "factory", "temple", "castle", "tower", "dome"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Colony {
@@ -39,6 +47,19 @@ pub struct Colony {
     pub cert: Cert,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Home {
+    pub persona: String,
+    pub nick: String,
+    pub seed: String,              // the home planet
+    pub built: Vec<(String, i64)>, // (building kind, position in hundredths of a screen)
+    pub animals: Vec<String>,      // species ids "<star seed>#<k>"
+    pub ts: u64,                   // self-declared (ms); the newest home of a persona wins
+    pub ante: String,
+    pub sig: String, // by the delegated app key over `home_msg()`
+    pub cert: Cert,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Blocklist {
     pub ts: u64,
@@ -50,12 +71,16 @@ pub struct Blocklist {
 pub struct GalaxyState {
     pub colonies: BTreeMap<String, Colony>, // seed -> colony
     pub blocked: Blocklist,
+    #[serde(default)]
+    pub homes: BTreeMap<String, Home>, // persona -> home
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Summary {
     pub colonies: BTreeMap<String, (String, u64)>, // seed -> (score as decimal string, ts)
     pub blocked_ts: u64,
+    #[serde(default)]
+    pub homes: BTreeMap<String, u64>, // persona -> ts
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -64,6 +89,8 @@ pub struct Delta {
     pub colonies: BTreeMap<String, Colony>,
     #[serde(default)]
     pub blocked: Option<Blocklist>,
+    #[serde(default)]
+    pub homes: BTreeMap<String, Home>,
 }
 
 type R<T> = Result<T, String>;
@@ -91,14 +118,51 @@ fn rank(seed: &str, c: &Colony) -> (u128, std::cmp::Reverse<u64>, String) {
     (score(seed, c), std::cmp::Reverse(c.ts), c.sig.clone())
 }
 
-/// `v1-<x>_<y>_<n>` with x, y < GALAXY and n a single digit (sectors hold at most 9 stars).
+/// `v1-<x>_<y>_<n>` with x, y < GALAXY and n a single digit (sectors hold at most 9 stars), optionally
+/// `.<g>` (g ≥ 1): the g-th world born from that star after the earlier ones collapsed.
 pub fn is_star(seed: &str) -> bool {
     let Some(rest) = seed.strip_prefix("v1-") else { return false };
-    let p: Vec<&str> = rest.split('_').collect();
     let num = |s: &str, max: u32| {
-        !s.is_empty() && s.len() <= 4 && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0')) && s.parse::<u32>().is_ok_and(|v| v < max)
+        !s.is_empty() && s.len() <= 6 && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0')) && s.parse::<u32>().is_ok_and(|v| v < max)
     };
-    p.len() == 3 && num(p[0], GALAXY) && num(p[1], GALAXY) && num(p[2], 10)
+    let (star, gen) = match rest.split_once('.') {
+        Some((s, g)) => (s, Some(g)),
+        None => (rest, None),
+    };
+    let p: Vec<&str> = star.split('_').collect();
+    p.len() == 3 && num(p[0], GALAXY) && num(p[1], GALAXY) && num(p[2], 10) && gen.is_none_or(|g| g != "0" && num(g, 1_000_000))
+}
+
+pub fn home_msg(h: &Home) -> String {
+    let b: Vec<String> = h.built.iter().map(|(k, x)| format!("{k}:{x}")).collect();
+    format!("dwh1|{}|{}|{}|{}|{}|{}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
+}
+
+fn is_animal(a: &str) -> bool {
+    a.split_once('#').is_some_and(|(seed, k)| is_star(seed) && !k.is_empty() && k.len() <= 2 && k.bytes().all(|b| b.is_ascii_digit()))
+}
+
+pub fn check_home(app: &str, h: &Home) -> R<()> {
+    if !is_persona(&h.persona) || !is_star(&h.seed) || !text_ok(&h.nick, 24) {
+        return Err("bad home".into());
+    }
+    if h.built.len() > MAX_BUILT || h.animals.len() > MAX_ANIMALS {
+        return Err("home too big".into());
+    }
+    if !h.built.iter().all(|(k, x)| BUILDINGS.contains(&k.as_str()) && x.abs() <= 1_000_000_000) || !h.animals.iter().all(|a| is_animal(a)) {
+        return Err("bad home fields".into());
+    }
+    let ante = hex::decode(&h.ante).map_err(|e| e.to_string())?;
+    if viso_ante::verify_slot(&key(&h.persona)?, &ante)? < MIN_ANTE_BITS {
+        return Err("persona level too low".into());
+    }
+    let app_key = check(&h.persona, app, &h.cert)?;
+    verify(&app_key, home_msg(h).as_bytes(), &h.sig)
+}
+
+/// Newest first; equal ts falls back to the signature, so every merge order converges.
+fn home_rank(h: &Home) -> (u64, &str) {
+    (h.ts, &h.sig)
 }
 
 fn is_persona(s: &str) -> bool {
@@ -154,12 +218,32 @@ fn prune(colonies: &mut BTreeMap<String, Colony>) {
     }
 }
 
+/// Keep the MAX_HOMES newest homes.
+fn prune_homes(homes: &mut BTreeMap<String, Home>) {
+    if homes.len() <= MAX_HOMES {
+        return;
+    }
+    let mut order: Vec<_> = homes.iter().map(|(p, h)| (std::cmp::Reverse((h.ts, h.sig.clone())), p.clone())).collect();
+    order.sort();
+    for (_, p) in order.into_iter().skip(MAX_HOMES) {
+        homes.remove(&p);
+    }
+}
+
+fn home_blocked(b: &Blocklist, h: &Home) -> bool {
+    b.list.iter().any(|x| *x == h.persona || *x == h.seed)
+}
+
 pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
     check_blocklist(admin, &s.blocked)?;
     if s.colonies.len() > MAX_COLONIES || s.colonies.iter().any(|(k, c)| blocked(&s.blocked, k, c)) {
         return Err("state out of bounds".into());
     }
-    s.colonies.iter().try_for_each(|(k, c)| check_colony(app, k, c))
+    if s.homes.len() > MAX_HOMES || s.homes.iter().any(|(p, h)| *p != h.persona || home_blocked(&s.blocked, h)) {
+        return Err("homes out of bounds".into());
+    }
+    s.colonies.iter().try_for_each(|(k, c)| check_colony(app, k, c))?;
+    s.homes.values().try_for_each(|h| check_home(app, h))
 }
 
 pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
@@ -176,14 +260,27 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         check_colony(app, &seed, &c)?;
         s.colonies.insert(seed, c);
     }
+    for (persona, h) in d.homes {
+        if persona != h.persona || home_blocked(&s.blocked, &h) || s.homes.get(&persona).is_some_and(|old| home_rank(old) >= home_rank(&h)) {
+            continue;
+        }
+        check_home(app, &h)?;
+        s.homes.insert(persona, h);
+    }
     let b = s.blocked.clone();
     s.colonies.retain(|k, c| !blocked(&b, k, c));
+    s.homes.retain(|_, h| !home_blocked(&b, h));
     prune(&mut s.colonies);
+    prune_homes(&mut s.homes);
     Ok(())
 }
 
 pub fn summarize(s: &GalaxyState) -> Summary {
-    Summary { colonies: s.colonies.iter().map(|(k, c)| (k.clone(), (score(k, c).to_string(), c.ts))).collect(), blocked_ts: s.blocked.ts }
+    Summary {
+        colonies: s.colonies.iter().map(|(k, c)| (k.clone(), (score(k, c).to_string(), c.ts))).collect(),
+        blocked_ts: s.blocked.ts,
+        homes: s.homes.iter().map(|(p, h)| (p.clone(), h.ts)).collect(),
+    }
 }
 
 pub fn delta(s: &GalaxyState, sum: &Summary) -> Delta {
@@ -194,6 +291,7 @@ pub fn delta(s: &GalaxyState, sum: &Summary) -> Delta {
     Delta {
         colonies: s.colonies.iter().filter(|(k, c)| better(k, c)).map(|(k, c)| (k.clone(), c.clone())).collect(),
         blocked: (s.blocked.ts > sum.blocked_ts).then(|| s.blocked.clone()),
+        homes: s.homes.iter().filter(|(p, h)| sum.homes.get(*p).is_none_or(|ts| h.ts > *ts)).map(|(p, h)| (p.clone(), h.clone())).collect(),
     }
 }
 
@@ -250,7 +348,7 @@ impl ContractInterface for Contract {
             let d: Delta = match u {
                 UpdateData::State(st) => {
                     let o: GalaxyState = de(st.as_ref())?;
-                    Delta { colonies: o.colonies, blocked: Some(o.blocked) }
+                    Delta { colonies: o.colonies, blocked: Some(o.blocked), homes: o.homes }
                 }
                 UpdateData::Delta(d) => de(d.as_ref())?,
                 UpdateData::StateAndDelta { delta, .. } => de(delta.as_ref())?,
@@ -312,7 +410,7 @@ mod tests {
         hex::encode(viso_ante::make_slot(k, n, 1))
     }
     fn one(seed: &str, c: Colony) -> Delta {
-        Delta { colonies: [(seed.into(), c)].into(), blocked: None }
+        Delta { colonies: [(seed.into(), c)].into(), blocked: None, homes: Default::default() }
     }
 
     #[test]
@@ -385,20 +483,70 @@ mod tests {
             let sig = hex::encode(k.sign(format!("dwb1|1|{}", list.join(",")).as_bytes()).to_bytes());
             Blocklist { ts: 1, list, sig }
         };
-        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
-        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
+        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
+        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
         assert!(s.colonies.is_empty());
         apply(&admin, APP, &mut s, one(seed, good)).unwrap(); // a blocked persona cannot come back
         assert!(s.colonies.is_empty());
         validate(&admin, APP, &s).unwrap();
     }
 
+    fn home(persona: &SigningKey, seed: &str, built: &[(&str, i64)], ts: u64) -> Home {
+        let c = colony("v1-1_1_1", persona, "x", 1, 1); // borrow its delegation and level
+        let mut h = Home {
+            persona: c.persona, nick: "nick".into(), seed: seed.into(), built: built.iter().map(|(k, x)| (k.to_string(), *x)).collect(),
+            animals: vec![format!("{seed}#0")], ts, ante: c.ante, sig: String::new(), cert: c.cert,
+        };
+        h.sig = hex::encode(sk(100).sign(home_msg(&h).as_bytes()).to_bytes());
+        h
+    }
+    fn homes(h: Home) -> Delta {
+        Delta { colonies: Default::default(), blocked: None, homes: [(h.persona.clone(), h)].into() }
+    }
+
+    #[test]
+    fn homes_newest_wins_and_cheats_fail() {
+        let admin = pk(&sk(1));
+        let old = home(&sk(2), "v1-5_5_5", &[("house", 50)], 1);
+        let new = home(&sk(2), "v1-5_5_5.2", &[("house", 50), ("castle", 80)], 2);
+        let mut s1 = GalaxyState::default();
+        apply(&admin, APP, &mut s1, homes(old.clone())).unwrap();
+        apply(&admin, APP, &mut s1, homes(new.clone())).unwrap();
+        let mut s2 = GalaxyState::default();
+        apply(&admin, APP, &mut s2, homes(new.clone())).unwrap();
+        apply(&admin, APP, &mut s2, homes(old.clone())).unwrap();
+        assert_eq!(s1, s2);
+        assert_eq!(s1.homes[&new.persona].built.len(), 2);
+        validate(&admin, APP, &s1).unwrap();
+        assert!(delta(&s1, &summarize(&s1)).homes.is_empty());
+        assert!(delta(&s1, &Summary::default()).homes.contains_key(&new.persona));
+
+        let mut forged = new.clone();
+        forged.built.push(("dome".into(), 0));
+        assert!(check_home(APP, &forged).is_err(), "changed after signing");
+        assert!(check_home(APP, &home(&sk(2), "v1-5_5_5", &[("palace", 0)], 3)).is_err(), "unknown building");
+        assert!(check_home(APP, &home(&sk(2), "v1-5_5_5", &vec![("house", 0); MAX_BUILT + 1], 3)).is_err(), "too many buildings");
+        assert!(check_home(APP, &home(&sk(2), "my-world", &[], 3)).is_err(), "not a star");
+        let mut stolen = new.clone();
+        stolen.persona = pk(&sk(3));
+        assert!(apply(&admin, APP, &mut GalaxyState::default(), homes(stolen)).is_err());
+    }
+
+    #[test]
+    fn home_msg_matches_ui() {
+        // same vector as freenet/net.test.mjs
+        let c = colony("v1-1_1_1", &sk(2), "x", 1, 1);
+        let h = Home { persona: "ab".repeat(32), nick: "Zed".into(), seed: "v1-1_2_3.4".into(), built: vec![("house".into(), 50), ("dome".into(), -20)],
+            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, ante: String::new(), sig: String::new(), cert: c.cert };
+        assert_eq!(home_msg(&h), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2", "ab".repeat(32)));
+    }
+
     #[test]
     fn seeds() {
-        for ok in ["v1-0_0_0", "v1-9999_9999_9", "v1-8393_2007_4"] {
+        for ok in ["v1-0_0_0", "v1-9999_9999_9", "v1-8393_2007_4", "v1-1_2_3.1", "v1-1_2_3.999999"] {
             assert!(is_star(ok), "{ok}");
         }
-        for bad in ["v1-10000_0_0", "v1-01_0_0", "v1-1_2_10", "v1-1_2", "v2-1_2_3", "v1-abc", "v1--1_2_3", "v1-1_2_3_4", ""] {
+        for bad in ["v1-10000_0_0", "v1-01_0_0", "v1-1_2_10", "v1-1_2", "v2-1_2_3", "v1-abc", "v1--1_2_3", "v1-1_2_3_4", "", "v1-1_2_3.0", "v1-1_2_3.01", "v1-1_2_3.", "v1-1_2_3.1.2", "v1-1_2_3.1000000"] {
             assert!(!is_star(bad), "{bad}");
         }
     }
