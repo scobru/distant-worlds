@@ -379,7 +379,7 @@ if (onFreenet) import('./freenet/ui.js')
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
   }))
-  .then((h) => { fn = h; showClaim(); setInterval(showClaim, 2000); })
+  .then((h) => { fn = h; showClaim(); setInterval(showClaim, 1000); })
   .catch((e) => console.warn('Freenet features unavailable:', e));
 
 const favBtn = document.getElementById('fav');
