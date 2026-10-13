@@ -535,8 +535,19 @@ export function eventAt(w, now = Date.now()) {
   if (roll >= 2) return { kind: 'meteors', id, start, end };
   if (roll < 1) return { kind: 'trader', id, start, end, x: (r() - 0.5) * 3 };
   // migrants come from a star of the same sector that has animals
-  const sector = sectorOf(w.seed), from = sector && starsIn(...sector, now).map((s) => makeWorld(s.seed)).find((o) => o.species.length && o.seed !== w.seed);
+  const sector = sectorOf(w.seed), from = sector && starsIn(...sector, now).map((s) => withAnimals(s.seed)).find((o) => o && o.seed !== w.seed);
   return from ? { kind: 'migration', id, start, end, from: from.seed, fromName: from.name } : { kind: 'meteors', id, start, end };
+}
+// eventAt runs every second and for every star on the map: remember which worlds have animals.
+// shortcut: cleared when it reaches 5000 worlds, enough for a long session.
+const animalsMemo = new Map();
+function withAnimals(seed) {
+  if (!animalsMemo.has(seed)) {
+    if (animalsMemo.size >= 5000) animalsMemo.clear();
+    const o = makeWorld(seed);
+    animalsMemo.set(seed, o.species.length ? { seed, name: o.name } : null);
+  }
+  return animalsMemo.get(seed);
 }
 
 /** Rich ore the meteors left, around the arrival point: [{ id, kind: 'ore', x, amount, seed }]. */

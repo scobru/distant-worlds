@@ -149,7 +149,7 @@ function toast(lines) {
   if (!lines.length) return;
   const el = document.getElementById('toast');
   // messages close together pile up (at most 5); a newer version of a message (same start, e.g. progress) replaces it
-  const same = (x) => lines.some((l) => l.slice(0, 12) === x.slice(0, 12));
+  const stem = (l) => l.replace(/\d.*$/, ''), same = (x) => lines.some((l) => /\d/.test(l) && stem(l) === stem(x));
   shown = [...(+el.style.opacity ? shown.filter((x) => !same(x)) : []), ...lines].slice(-5);
   el.innerHTML = shown.join('<br>'); el.style.opacity = 1;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.style.opacity = 0), 3500);
@@ -555,7 +555,7 @@ function take(e) {
   if (!e.reach) return toast([e.trade ? 'Walk to the stall to trade.' : 'Walk closer to take it.']);
   if (e.trade) return openTrade();
   const p = e.take;
-  if (!collect(st, days()[0], world.seed, p, Date.now())) return toast(['You already took as many time shards as this planet gives today.']);
+  if (!collect(st, days()[0], world.seed, p, Date.now())) return p.kind === 'time' && toast(['You already took as many time shards as this planet gives today.']);
   save(); sfx(p.kind === 'plant' || p.kind === 'ore' || p.kind === 'creature' ? p.kind : 'pickup');
   toast([{ fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
@@ -627,7 +627,7 @@ function openTrade() {
     save(); sfx('pickup'); openTrade();
     toast([`🧳 Traded: ${bagText(d.get).replace('a creature from another world', exotic ? esc(exotic.name) : '')}`]);
   }));
-  tradeDlg.showModal();
+  if (!tradeDlg.open) tradeDlg.showModal();
 }
 
 // Home planet: settle on one world, come back to it for free and build with what you gathered.
@@ -749,14 +749,14 @@ function renderMap() {
     const sx = wrapS(cx + dx), sy = wrapS(cy + dy), [rn] = regionAt(sx, sy);
     svg.push(`<rect x="${cx + dx}" y="${cy + dy}" width="1" height="1" fill="${REGION_COLOR[rn]}" opacity=".12"><title>${rn}</title></rect>`);
     for (const s of starsIn(sx, sy)) {
-      const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy;
+      const w = makeWorld(s.seed), x = cx + dx + s.x - sx, y = cy + dy + s.y - sy, e = eventAt(w);
       const rad = 0.05 + ['common', 'rare', 'epic', 'legendary'].indexOf(w.rarity) * 0.025, cur = s.seed === world.seed;
       const cost = cur || st.stars.includes(s.seed) ? 0 : jumpPrice(jumpCost(here, [sx, sy], GALAXY));
       const col = fn?.colonyOf(s.seed), nm = (col ? `${w.name}, colony of ${col.nick}` : w.name) + `, age ${Math.floor(s.age)}`, dying = instability(s.age) > 0;
       svg.push(`<a href="#${s.seed}" data-cost="${cost}" data-full="${jumpCost(here, [sx, sy], GALAXY)}" aria-label="${esc(nm)}, ${w.rarity}, ${cost ? cost + ' fuel' : 'free'}"><title>${esc(nm)} · ${w.rarity} · ${w.era} · ${w.civ} · ${cost ? cost + '⚡' : 'free'}</title>
         <circle cx="${x}" cy="${y}" r="${rad}" fill="${w.sun.color}"${cost > st.fuel ? ' opacity=".35"' : ''}${st.stars.includes(s.seed) ? ' stroke="#fff" stroke-width=".02"' : ''}/>
         ${col ? `<circle cx="${x}" cy="${y}" r="${rad + 0.035}" fill="none" stroke="#fc5" stroke-width=".015"/>` : ''}
-        ${eventAt(w) ? `<text x="${x + rad}" y="${y - rad}" font-size=".14">${EVENT_NAME[eventAt(w).kind].split(' ')[0]}</text>` : ''}
+        ${e ? `<text x="${x + rad}" y="${y - rad}" font-size=".14">${EVENT_NAME[e.kind].split(' ')[0]}</text>` : ''}
         ${dying ? `<circle cx="${x}" cy="${y}" r="${rad + 0.05}" fill="none" stroke="#f42" stroke-width=".012" stroke-dasharray=".03 .02"/>` : ''}
         ${cur ? `<circle cx="${x}" cy="${y}" r="${rad + 0.07}" fill="none" stroke="#fff" stroke-width=".03"/>` : ''}</a>`);
     }
