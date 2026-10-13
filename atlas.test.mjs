@@ -229,6 +229,31 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   console.log('sieges ok');
 }
 {
+  // Breeding: a stable, two wild species at home, plants and ore; one young per stable a day.
+  const { setHome, breedAt, breedsLeft, BREED } = await import('./atlas.js');
+  const { speciesOf, makeWorld, randomSeed, rng } = await import('./world.js');
+  const st = emptyState(), wilds = [];
+  for (let k = 0; wilds.length < 3; k++) { const w = makeWorld(randomSeed(rng(k))); if (w.species.length) wilds.push(w.species[0].id); }
+  const [a, b, c] = wilds;
+  setHome(st, 'H', 0); st.home.animals = [a, b, c];
+  st.bag = { plant: 100, ore: 100, creature: [] };
+  assert.equal(breedAt(st, a, b, 'd1'), null, 'no stable');
+  st.home.built = [{ kind: 'longhouse', x: 0 }];
+  assert.equal(breedAt(st, a, a, 'd1'), null, 'two different species');
+  const young = breedAt(st, b, a, 'd1');
+  assert.equal(young, [a, b].sort().join('+'));
+  assert.deepEqual([st.bag.plant, st.bag.ore], [100 - BREED.plant, 100 - BREED.ore]);
+  assert.equal(breedsLeft(st, 'd1'), 0);
+  assert.equal(breedAt(st, a, c, 'd1'), null, 'one a day per stable');
+  assert.equal(breedAt(st, young, c, 'd2'), null, 'only wild species breed');
+  assert.ok(breedAt(st, a, c, 'd2'));
+  const sp = speciesOf(young), again = speciesOf([b, a].join('+'));
+  assert.ok(sp.bred && sp.name && sp.legs && sp.id === young);
+  assert.deepEqual({ ...again, id: sp.id }, sp, 'the same parents, the same young');
+  assert.equal(speciesOf(`${young}+${c}`), null);
+  console.log('breeding ok');
+}
+{
   const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');
   const st = emptyState();
   setHome(st, 'A'); st.bag = { plant: 20, ore: 10, creature: ['x', 'y', 'z'] };

@@ -38,14 +38,15 @@ export async function start(app) {
   const signBtn = document.getElementById('signBtn'), plantBtn = document.getElementById('plantBtn');
 
   // Our home, published when it changes (and once after sign-in), so other explorers see it.
-  // shortcut: limits as in the contract (64 buildings, 64 creatures); older ones are left out.
+  // shortcut: limits as in the contract (64 buildings, 64 creatures); older ones are left out, and bred young
+  // ("<id>+<id>") are not published: the contract takes wild species ids only. Widen is_animal to share them.
   let homeTimer, lastHome = '';
   function homeChanged() {
     clearTimeout(homeTimer);
     homeTimer = setTimeout(async () => {
       const H = app.st().home;
       if (!H || !me || !nick || level() < COLONY_BITS) return;
-      const built = H.built.slice(-64).map((b) => [b.kind, Math.round(b.x * 100)]), animals = H.animals.slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
+      const built = H.built.slice(-64).map((b) => [b.kind, Math.round(b.x * 100)]), animals = H.animals.filter((id) => !id.includes('+')).slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
       if (key === lastHome && galaxy.homes?.[me]) return;
       try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, ante: anteHex() }) }; lastHome = key; }
       catch (e) { console.warn('home publish failed:', e); }
