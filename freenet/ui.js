@@ -17,7 +17,8 @@ function avatar(persona, onReady) {
   }
   return avatars.get(persona);
 }
-const fmt = (s) => (!isFinite(s) ? '—' : s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${(s / 3600).toFixed(1)}h`);
+// whole seconds first, so 239.6 s reads 3m 59s, never 3m 60s
+const fmt = (s) => { if (!isFinite(s)) return '—'; const t = Math.floor(s); return t < 60 ? `${t}s` : t < 3600 ? `${Math.floor(t / 60)}m ${t % 60}s` : `${(t / 3600).toFixed(1)}h`; };
 const hueOf = (persona) => parseInt(persona.slice(0, 4), 16) % 360;
 const storeKey = (seed, persona) => `mine:${seed.replaceAll('_', '-')}:${persona.slice(0, 16)}`;
 
@@ -42,7 +43,8 @@ export async function start(app) {
   async function loadMiner() {
     const w = app.world();
     if (!me || !w.sector) { miner = null; minerSeed = null; return; }
-    minerSeed = w.seed;
+    // no miner while the new planet's one loads: the old one must not mine with this planet's seed
+    miner = null; minerSeed = w.seed;
     const raw = await net.storeGet(storeKey(w.seed, me));
     if (minerSeed === w.seed) miner = raw ? JSON.parse(raw) : newMiner();
   }
@@ -72,10 +74,16 @@ export async function start(app) {
     } catch (e) { console.warn('colony publish failed:', e); }
   }, 10_000);
 
-  /** Can the signed-in explorer plant a flag here now (enough time, level, and more time than the colonist)? */
+  /** Exact time mined on the planet on screen (hashes / honest rate): it ticks, unlike the proof's estimate. */
+  const timeHere = () => (miner && minerSeed === app.world().seed ? miner.next.reduce((x, y) => x + y, 0) / HASHES_PER_SECOND : 0);
+  /** The time shown as the goal: about the minimum for a free planet, the colonist's for a taken one. */
+  const target = (w, col) => (col ? seconds(colScore(w.seed, col)) : seconds(MAX_SCORE));
+  /** Can the signed-in explorer plant a flag here now? The proof must pass the contract's rule, and the
+   *  timer must have reached the goal shown, so what the player sees and the rule always agree. */
   function canPlant() {
     const w = app.world(), col = colonyOf(w.seed), mine = miner && minerSeed === w.seed ? minerScore(miner) : null;
-    return !!(me && nick && mine !== null && mine <= MAX_SCORE && level() >= COLONY_BITS && (!col || (col.persona !== me && mine < colScore(w.seed, col))));
+    if (!me || !nick || mine === null || level() < COLONY_BITS || (col && col.persona === me) || timeHere() < target(w, col)) return false;
+    return mine <= MAX_SCORE && (!col || mine < colScore(w.seed, col));
   }
   setInterval(() => {
     const ready = canPlant();
@@ -242,15 +250,24 @@ export async function start(app) {
 
   return {
     onWorld: () => { saveMiner(); loadMiner().then(update); update(); },
+    /** Status line: your time here (ticking), the time to reach (minimum or the colonist's), readiness. */
     status(w) {
-      const col = colonyOf(w.seed), mine = miner && minerSeed === w.seed ? minerScore(miner) : null;
-      const yours = mine === null ? 0 : seconds(mine);
-      let s = col ? `${app.esc(w.name)}, colony of ${app.esc(col.nick)}${col.persona === me ? ' (you)' : ''} · ${fmt(seconds(colScore(w.seed, col)))} here · ` : (w.sector ? 'uncolonized · ' : '');
-      if (me && w.sector && !(col && col.persona === me)) s += `your time ${fmt(yours)} / ${fmt(col ? seconds(colScore(w.seed, col)) : seconds(MAX_SCORE))} to colonize · `;
-      if (canPlant()) s += '🚩 you can plant your flag · ';
-      if (me && w.sector && level() < COLONY_BITS) s += `Viso level ${level()}/${COLONY_BITS}: raise it in Viso to colonize · `;
-      if (!me && w.sector) s += 'sign in to colonize · ';
-      return s;
+      if (!w.sector) return '';
+      const col = colonyOf(w.seed), mineCol = col && col.persona === me, goal = target(w, col);
+      const parts = [col ? (mineCol ? '🚩 Your colony' : `🚩 Colony of ${app.esc(col.nick)} (${fmt(goal)})`) : 'Uncolonized'];
+      if (!me) parts.push(col ? `stay longer than ${fmt(goal)} to take it: sign in` : `stay ~${fmt(goal)} to colonize: sign in`);
+      else if (!profile) parts.push('preparing your explorer…');
+      else {
+        const here = timeHere();
+        parts.push(`🕒 You: ${fmt(here)}`);
+        if (!mineCol) {
+          parts.push(`🎯 ${col ? 'Beat ' : 'Colonize at ~'}${fmt(goal)}`);
+          if (level() < COLONY_BITS) parts.push(`Viso level ${level()}/${COLONY_BITS}: raise it to colonize`);
+          else if (canPlant()) parts.push('✅ Ready: plant your flag!');
+          else if (here >= goal) parts.push('⏳ proof still settling, keep staying'); // the proof is noisier than the timer
+        }
+      }
+      return parts.join(' · ') + ' · ';
     },
     /** Beacon of the planet's colony: position in layer coordinates, colour, label. */
     /** The planet's colony as drawn: flag position, colour, label and the colonist's people around it. */
