@@ -168,6 +168,7 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   st.home.animals = ['a', 'b'];
   assert.equal(loseHome(st).built.length, 2);
   assert.equal(st.home, null);
+  assert.deepEqual(st.ruins.map((r) => [r.seed, r.built.length]), [['B', 2]], 'its ruins are remembered');
   assert.deepEqual(st.bag.creature, ['x', 'y', 'z', 'a', 'b'], 'creatures escape');
   evacuate(st);
   assert.deepEqual(st.bag, { plant: 2, ore: 2, creature: ['x', 'y'] });

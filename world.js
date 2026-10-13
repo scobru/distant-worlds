@@ -568,3 +568,36 @@ export function deals(w, ev) {
     { give: { plant: n(10, 16), ore: n(4, 8) }, get: { creature: 1 } },
   ];
 }
+
+// Heritage: a world born from a star remembers the one before it. Ruins of its buildings stand
+// here and there, and one of its species survives. Pure, so every explorer sees the same past.
+export function prevSeed(seed) {
+  const m = STAR.exec(seed);
+  if (!m?.[4]) return null;
+  const g = +m[4] - 1;
+  return `v1-${m[1]}_${m[2]}_${m[3]}${g ? '.' + g : ''}`;
+}
+export function heritage(w) {
+  const p = prevSeed(w.seed);
+  if (!p) return null;
+  const pw = makeWorld(p);
+  return { seed: p, name: pw.name, structs: pw.pop.structs, survivor: pw.species[0] ?? null };
+}
+/** Ruins of the previous world's buildings on the structures' layer. */
+export function ruinsNear(w, her, x0, x1) {
+  if (!her?.structs) return [];
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:ruins:${k}`);
+    if (r() < 0.35) out.push({ kind: her.structs[Math.floor(r() * her.structs.length)], x: k + 0.1 + r() * 0.8, size: 0.06 + r() * 0.07, seed: Math.floor(r() * 2 ** 32), broken: true });
+  }
+  return out;
+}
+/** The surviving species of the previous world: a small herd near the arrival point. */
+export function survivors(w, her) {
+  if (!her?.survivor) return [];
+  const r = rngFrom(`${w.seed}:survivors`), sp = her.survivor, speed = (2 + r() * 3) * 1e-6 * sp.pace;
+  return Array.from({ length: 3 + Math.floor(r() * 4) }, () => ({
+    kind: 'species', dna: sp, x: -0.8 + r() * 1.2, range: 0.4 + r() * 0.4, speed, size: 0.03 + r() * 0.02, phase: r() * 2, seed: Math.floor(r() * 2 ** 32),
+  }));
+}
