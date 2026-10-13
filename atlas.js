@@ -256,16 +256,39 @@ export function pirates(st, now) {
   for (let slot = Math.floor(from / PIRATES.slot); slot * PIRATES.slot < now; slot++) {
     const raid = raidAt(H, slot);
     if (!raid || raid.at < from || raid.at >= now || raid.at < (H.shield ?? 0)) continue;
-    const d = defence(H), won = d >= raid.crew, res = { ...raid, defence: d, won };
-    if (won) { res.loot = 2 + Math.floor(raid.crew / 3); st.bag.ore += res.loot; }
-    else {
-      const ok = H.built.filter((b) => !b.damaged);
-      if (ok.length) { const b = ok[Math.floor(rngFrom(`${H.seed}:hit:${slot}`)() * ok.length)]; b.damaged = true; res.damaged = b.kind; }
-      H.shield = raid.at + PIRATES.shield;
-    }
-    out.push(res);
+    out.push(fight(st, raid, slot));
   }
   return out;
+}
+// A raid on our home: won, it leaves ore; lost, a building (picked from `key`) is damaged and a day of shield follows.
+function fight(st, raid, key) {
+  const H = st.home, d = defence(H), won = d >= raid.crew, res = { ...raid, defence: d, won };
+  if (won) { res.loot = 2 + Math.floor(raid.crew / 3); st.bag.ore += res.loot; }
+  else {
+    const ok = H.built.filter((b) => !b.damaged);
+    if (ok.length) { const b = ok[Math.floor(rngFrom(`${H.seed}:hit:${key}`)() * ok.length)]; b.damaged = true; res.damaged = b.kind; }
+    H.shield = raid.at + PIRATES.shield;
+  }
+  return res;
+}
+
+// Sieges (Freenet): an explorer spends time on another explorer's home; each 2 minutes of siege is one
+// raider. A siege costs fuel and ore to start; a won one brings back ore from the defeated home.
+export const SIEGE = { fuel: 20, ore: 10, minutesPerRaider: 2 };
+export const siegeCrew = (seconds) => Math.floor(seconds / 60 / SIEGE.minutesPerRaider);
+export const siegeLoot = (crew) => 5 + Math.floor(crew / 2);
+export const canSiege = (st) => (st.fuel ?? 0) >= SIEGE.fuel && st.bag.ore >= SIEGE.ore;
+export function payForSiege(st) {
+  if (!canSiege(st)) return false;
+  st.fuel -= SIEGE.fuel; st.bag.ore -= SIEGE.ore;
+  return true;
+}
+/** Another explorer besieged our home with `crew` raiders at time `at` (`key` identifies the raid): fought
+ *  like pirates, unless the home is new or shielded after a lost raid (then null). */
+export function besieged(st, crew, at, key) {
+  const H = st.home;
+  if (!H || at < (H.since ?? 0) + PIRATES.grace || at < (H.shield ?? 0)) return null;
+  return fight(st, { at, crew }, key);
 }
 /** Repairing a damaged building costs half of building it. */
 export const repairCost = (kind, g = 1) => { const c = costOf(kind, g); return { plant: Math.ceil(c.plant / 2), ore: Math.ceil(c.ore / 2) }; };

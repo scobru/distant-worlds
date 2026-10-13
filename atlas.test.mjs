@@ -208,6 +208,27 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   console.log('pirates ok');
 }
 {
+  // Sieges (Freenet): paid for in fuel and ore, fought by the defender like a pirate raid.
+  const { setHome, besieged, siegeCrew, siegeLoot, payForSiege, SIEGE } = await import('./atlas.js');
+  const st = emptyState(), day = 864e5;
+  st.bag.ore = SIEGE.ore - 1;
+  assert.ok(!payForSiege(st), 'not enough ore');
+  st.bag.ore = SIEGE.ore;
+  assert.ok(payForSiege(st) && st.bag.ore === 0 && st.fuel === 100 - SIEGE.fuel);
+  assert.equal(siegeCrew(30 * 60), 15, 'one raider per 2 minutes');
+  assert.ok(siegeLoot(10) > siegeLoot(2));
+  assert.equal(besieged(st, 5, day, 'k'), null, 'no home, nothing to fight');
+  setHome(st, 'S', 0);
+  st.home.built = [{ kind: 'castle', x: 0 }];
+  assert.equal(besieged(st, 50, day, 'k'), null, 'new homes are spared');
+  const held = besieged(st, 3, 4 * day, 'a');
+  assert.ok(held.won && held.loot > 0);
+  const lost = besieged(st, 50, 4 * day, 'b');
+  assert.ok(!lost.won && lost.damaged === 'castle' && st.home.built[0].damaged);
+  assert.equal(besieged(st, 50, 4.5 * day, 'c'), null, 'shielded for a day');
+  console.log('sieges ok');
+}
+{
   const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');
   const st = emptyState();
   setHome(st, 'A'); st.bag = { plant: 20, ore: 10, creature: ['x', 'y', 'z'] };
