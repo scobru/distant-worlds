@@ -112,6 +112,9 @@
     Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and house and feed your people (huts and castles house them, mills and domes feed them; the more people, the more your home produces).
     Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
+  <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
+    Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
+    and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
   <h3>⏳ Living worlds</h3>
   <p>Worlds age (shown as <i>age N/100</i>) and collapse, then their star gives birth to a new one. After age 70 a world is unstable:
     tremors, a red sky, meteors, but richer ore. Gravity grows too (up to ×2): you walk slower, reach less, and building costs more. If it collapses while you are there you escape, leaving half your bag behind.
@@ -135,7 +138,7 @@ import { makeWorld, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNea
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -205,11 +208,14 @@ function load() {
   document.title = `${world.name} — Distant Worlds`;
   if (st.home?.seed === seed) {
     let n, got;
-    let sown;
-    const ach = withAchievements(st, () => { n = arriveHome(st); sown = sow(st); got = produce(st, Date.now()); });
+    let sown, raids;
+    const ach = withAchievements(st, () => { n = arriveHome(st); sown = sow(st); raids = pirates(st, Date.now()); got = produce(st, Date.now()); });
     const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
     save(); if (n || sown) fn?.homeChanged();
-    toast([n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in your garden`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
+    const when = (r) => new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    toast([...raids.map((r) => r.won ? `☠ Pirates attacked at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}. Driven off! ⛏${r.loot} from their wreck.`
+      : `☠ Pirates raided your home at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}.${r.damaged ? ` Your ${BUILDINGS[r.damaged].name} was damaged: repair it from 🏗 Build.` : ''} They will leave you alone for a day.`),
+      n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in your garden`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
       ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   checkHome(); ev = null; checkEvent();
@@ -415,8 +421,10 @@ function draw(t) {
       for (const b of H.built) {
         const bx = X(b.x), by = Y(b.x) + 0.012 * m, s = 0.12 * m;
         if (bx < -s * 3 || bx > w + s * 3) continue;
-        drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12 }, bx, by, s, { ...o, lights: true });
-        hit({ type: 'home', name: BUILDINGS[b.kind].name, kind: b.kind, owner: H.nick }, bx, by, s);
+        if (b.damaged) g.globalAlpha = 0.45; // raided by pirates: dark and dim until repaired
+        drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12 }, bx, by, s, { ...o, lights: !b.damaged });
+        g.globalAlpha = 1;
+        hit({ type: 'home', name: BUILDINGS[b.kind].name, kind: b.kind, owner: H.nick, damaged: b.damaged }, bx, by, s);
       }
       if (H.nick) { // another explorer's home: who lives here
         const bx = X(H.built[0].x);
@@ -681,7 +689,7 @@ homeBtn.onclick = () => {
   renderBuild(); buildDlg.showModal();
 };
 const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
-  b.jump && `jumps ${b.jump * 100}% cheaper`, b.house && `houses ${b.house}`, b.food && `feeds ${b.food}`].filter(Boolean).join(' · ');
+  b.jump && `jumps ${b.jump * 100}% cheaper`, b.house && `houses ${b.house}`, b.food && `feeds ${b.food}`, b.guard && `guards ${b.guard}`].filter(Boolean).join(' · ');
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
@@ -690,17 +698,25 @@ function renderBuild() {
   document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
   document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
     <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double).
+    <br>☠ Defence ${defence(H)} against pirate crews of about ${pirateThreat(H)} (from ${Math.round(pirateThreat(H) / 2)} to ${Math.round(pirateThreat(H) * 1.5)}): castles, towers, one per 5 people, one per 3 creatures. Bigger civilizations draw bigger crews.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
-    <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button> <b>${BUILDINGS[b.kind].name}</b>
+    <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b.kind, grav()))}</button>` : ''} <b>${BUILDINGS[b.kind].name}</b>${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>` : ''}`;
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();
     save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
     sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
+  }));
+  buildDlg.querySelectorAll('[data-repair]').forEach((b) => (b.onclick = () => {
+    const i = +b.dataset.repair;
+    produce(st, Date.now()); // it starts producing again now
+    if (!repair(st, i, grav())) return toast([`You need ${costText(repairCost(st.home.built[i].kind, grav()))} to repair it.`]);
+    save(); renderBuild();
+    sfx('build'); toast([`🔧 ${BUILDINGS[st.home.built[i].kind].name} repaired`]);
   }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     let ok;
