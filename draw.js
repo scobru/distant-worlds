@@ -480,11 +480,13 @@ export function drawPickup(g, x, y, s, kind, t, phase, culture, dim) {
   g.save();
   g.translate(x, y - s * 0.6 - Math.sin(t / 400 + phase) * s * 0.15);
   g.scale(s, s);
-  const color = kind === 'time' ? '#6ef' : kind === 'map' ? '#f4e3b1' : '#ffcc33';
+  const color = kind === 'time' ? '#6ef' : kind === 'map' ? '#f4e3b1' : kind === 'page' ? '#fffaf0' : '#ffcc33';
   g.fillStyle = g.shadowColor = color; g.shadowBlur = 14; g.globalAlpha = dim ? 0.6 : 1;
   g.beginPath();
   if (kind === 'time') { // hourglass
     g.moveTo(-0.35, -0.5); g.lineTo(0.35, -0.5); g.lineTo(0.05, 0); g.lineTo(0.35, 0.5); g.lineTo(-0.35, 0.5); g.lineTo(-0.05, 0); g.closePath();
+  } else if (kind === 'page') { // a diary page
+    g.rotate(0.1); g.rect(-0.3, -0.42, 0.6, 0.84);
   } else if (kind === 'map') { // folded parchment
     g.rotate(-0.15); g.rect(-0.45, -0.32, 0.9, 0.64);
   } else if (culture === 'japanese') { // sake gourd
@@ -499,6 +501,7 @@ export function drawPickup(g, x, y, s, kind, t, phase, culture, dim) {
   g.fill();
   g.shadowBlur = 0; g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 0.07;
   if (kind === 'map') { g.beginPath(); g.moveTo(-0.3, -0.1); g.lineTo(0.1, 0.12); g.lineTo(0.3, -0.15); g.stroke(); }
+  if (kind === 'page') { g.beginPath(); for (const y of [-0.2, 0, 0.2]) { g.moveTo(-0.18, y); g.lineTo(0.18, y); } g.stroke(); }
   if (kind === 'fuel') { g.beginPath(); g.moveTo(0.06, -0.28); g.lineTo(-0.1, 0.03); g.lineTo(0.08, 0.03); g.lineTo(-0.06, 0.3); g.stroke(); }
   g.restore();
 }

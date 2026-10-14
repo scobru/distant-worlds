@@ -660,6 +660,14 @@ export function pickupsNear(w, day, x0, x1, time) {
   return out;
 }
 
+// Diary pages (diary.js): one world in four keeps one, at a fixed spot near the arrival point.
+export function pageNear(w, x0, x1) {
+  const r = rngFrom(`${w.seed}:page`);
+  if (r() > 0.25) return [];
+  const x = (r() < 0.5 ? -1 : 1) * (1 + r() * 2);
+  return x > x0 - 1 && x < x1 + 1 ? [{ id: 'page', kind: 'page', x, phase: r() * 7 }] : [];
+}
+
 // Raw material deposits: a rock with shards of the world's ore, permanent per world (taken ones
 // grow back the next day). Own rng, so v1 worlds and their chunks stay unchanged.
 export function depositsNear(w, x0, x1) {

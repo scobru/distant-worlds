@@ -404,6 +404,20 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual(s.expeditions, [4]);
   assert.equal(checkExpedition(s, fake(ex.stages[0]), t), null, 'nothing left this season');
   assert.ok(A.find(([n]) => n === 'Pathfinder')[2](s));
+  // Ilen's diary: a world's page once, pages in order, Reader at the end.
+  const { collect, hasPage } = await import('./atlas.js');
+  const { PAGES } = await import('./diary.js');
+  const { pageNear, makeWorld: mw } = await import('./world.js');
+  const d = es(), pg = { id: 'page', kind: 'page' };
+  assert.ok(collect(d, 'x', 'v1-1_1_1', pg) && !collect(d, 'y', 'v1-1_1_1', pg), 'one page per world, whatever the day');
+  for (let i = 0; i < PAGES.length; i++) collect(d, 'x', `v1-9_9_${i}`, pg);
+  assert.equal(d.diary.length, PAGES.length);
+  assert.ok(hasPage(d, 'v1-5_5_5'), 'no pages left after the last one');
+  assert.ok(A.find(([n]) => n === 'Reader')[2](d));
+  const withPage = Array.from({ length: 400 }, (_, i) => pageNear(mw(`v1-${i}_3_1`), -4, 4)).filter((p) => p.length);
+  assert.ok(withPage.length > 60 && withPage.length < 140, 'about one world in four');
+  assert.deepEqual(pageNear(mw('v1-7_3_1'), -4, 4), pageNear(mw('v1-7_3_1'), -4, 4));
+  assert.ok(withPage.every(([p]) => Math.abs(p.x) >= 1 && Math.abs(p.x) <= 3));
   // Languages: words per language, capped; uninhabited worlds teach nothing.
   const l = es();
   assert.equal(learn(l, { civ: 'uninhabited', culture: 'nordic' }, 1), 0);

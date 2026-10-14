@@ -1,5 +1,6 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
+import { PAGES } from './diary.js';
 import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf, makeWorld, ageOf, instability, sectorOf, GALAXY } from './world.js';
 
 // Every discoverable entry, as "trait:value".
@@ -36,6 +37,7 @@ export const ACHIEVEMENTS = [
   ['Founder', 'Grow your home into a village', (st) => civLevel(st.home) >= 3],
   ['Mayor', 'Grow your home into a city', (st) => civLevel(st.home) >= 6],
   ['Architect', 'Build every kind of building', (st) => Object.keys(BUILDINGS).every((k) => st.home?.built.some((b) => partsOf(b).includes(k)))],
+  ['Reader', "Find every page of Ilen's diary", (st) => (st.diary ?? []).length >= PAGES.length],
   ['Rancher', 'Bring 10 creatures home', (st) => (st.home?.animals.length ?? 0) >= 10],
 ];
 /** Runs `change` and returns the achievements it unlocked. */
@@ -157,8 +159,16 @@ export const PICKUP = { fuel: 15, boost: 3, boostMs: 90_000, timePerPlanetDay: 3
 const pickKey = (seed, p) => `${seed}|${p.id}|${p.kind}`;
 export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.ids.includes(pickKey(seed, p));
 
+// Ilen's diary: each world's page can be taken once, and the n-th page found is page n.
+export const hasPage = (st, seed) => (st.diary ?? []).includes(seed) || (st.diary ?? []).length >= PAGES.length;
+export function readPage(st, seed) {
+  if (hasPage(st, seed)) return false;
+  (st.diary ??= []).push(seed);
+  return true;
+}
 /** Collect pickup `p` on planet `seed`; returns false if already taken or over today's limit. */
 export function collect(st, day, seed, p, now) {
+  if (p.kind === 'page') return readPage(st, seed);
   if (st.picked?.day !== day) st.picked = { day, ids: [] };
   if (picked(st, day, seed, p)) return false;
   if (p.kind === 'time' && st.picked.ids.filter((k) => k.startsWith(seed + '|') && k.endsWith('|time')).length >= PICKUP.timePerPlanetDay) return false;
