@@ -517,10 +517,17 @@ export function drawDeposit(g, x, y, s, seed, accent, dim) {
 }
 
 /** The explorer: looks are random per player (`seed`), legs follow the distance walked (`stride`). */
-export function drawAvatar(g, seed, x, y, s, facing, stride, moving, t) {
-  const r = rng(seed), hue = Math.floor(r() * 360), skin = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#9fe3c5', '#c9a0ff'][Math.floor(r() * 6)];
+export const SKINS = ['#f1c27d', '#c68642', '#8d5524', '#e0ac69', '#9fe3c5', '#c9a0ff'];
+export const HATS = ['Bubble helmet', 'Wide hat', 'Antenna', 'Hood', 'Nothing'];
+/** The explorer's look: random from `seed`, then whatever the player chose in `look` ({ hue, skin, hat, pack }). */
+export function avatarLook(seed, look = {}) {
+  const r = rng(seed), d = { hue: Math.floor(r() * 360), skin: Math.floor(r() * 6) };
+  d.hat = Math.floor(r() * 4); d.pack = r() < 0.7; d.wide = 0.85 + r() * 0.3;
+  return { ...d, ...look };
+}
+export function drawAvatar(g, seed, x, y, s, facing, stride, moving, t, look) {
+  const { hue, hat, pack, wide, ...L } = avatarLook(seed, look), skin = SKINS[L.skin];
   const suit = `hsl(${hue} 55% 45%)`, dark = `hsl(${hue} 45% 25%)`, trim = `hsl(${(hue + 150) % 360} 80% 60%)`;
-  const hat = Math.floor(r() * 4), pack = r() < 0.7, wide = 0.85 + r() * 0.3;
   const swing = moving ? Math.sin(stride) * 0.45 : 0, bob = moving ? Math.abs(Math.cos(stride)) * 0.03 : Math.sin(t / 600) * 0.01;
   g.save(); g.translate(x, y); g.scale(facing < 0 ? -s : s, s); g.lineCap = 'round';
   const limb = (x0, y0, a, len, w, c) => { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.sin(a) * len, y0 + Math.cos(a) * len); g.stroke(); };
