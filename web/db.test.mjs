@@ -83,3 +83,8 @@ db.applyChat({ blocked: bl });
 const g = JSON.parse(db.galaxy());
 assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(g.names).length, Object.keys(JSON.parse(db.chat()).messages).length], [0, 0, 0, 0]);
 console.log('web db ok');
+
+// a delta is a few records, not thousands (web only)
+assert.throws(() => db.applyGalaxy({ names: Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, {}])) }), /delta too big/);
+assert.throws(() => db.applyChat({ messages: Array.from({ length: 51 }, () => ({})) }), /delta too big/);
+console.log('delta limits ok');

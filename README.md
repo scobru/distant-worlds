@@ -112,6 +112,8 @@ The same multiplayer game without Freenet: a small Node server keeps the galaxy 
 
 - Same records, same rules: `web/db.js` ports the contracts' checks (signatures, the whoiam delegation, the persona level, the proof of work, limits) and merge rules, so the client code (`freenet/ui.js`) is unchanged. `web/net.js` replaces `freenet/net.js` in the web build (`vite --mode web`).
 - No Viso: explorers create or import a key in the game (kept in `localStorage`, backed up from the Atlas). Its level is built in the browser as on Freenet.
+- Same checks on both sides of the wire: the checks live in `freenet/check.js` (pure, no node or browser imports), which `web/db.js` runs on every record it takes and the client (`freenet/ui.js`) runs again before it shows or acts on any record another explorer published: a lying server or node cannot make you see a flag, home, name or message that was not signed, or damage your home with a forged siege. This works on Freenet too. See `SECURITY.md`.
+- Web-only defences (not part of the contracts): security headers (a CSP, no framing, no sniffing), a rate limit per client (10 posts in a burst then 30 a minute; 30 reads then 120 a minute), at most 20 event streams per client and 2000 in all, request bodies up to 64 KB, at most 50 records per delta, slow requests dropped, state JSON compressed once per change. Behind a reverse proxy you control, set `TRUST_PROXY=1` so the limits use the client address from `X-Forwarded-For`.
 - Live updates through server-sent events (`/api/events`); `GET`/`POST /api/galaxy` and `/api/chat` read the state and send deltas, in the contracts' JSON shapes.
 
 ```bash
