@@ -3,7 +3,7 @@
 // (whoiam delegation, Viso level, proof of work), same merge rules; state JSON keeps the contracts' shape.
 // The checks themselves live in freenet/check.js, shared with the client.
 import { DatabaseSync } from 'node:sqlite';
-import { score, raidScore, raidKey, blockMsg } from '../freenet/colony.js';
+import { score, raidScore, raidKey, blockMsg, unfitSeeds } from '../freenet/colony.js';
 import { checkColony, checkHome, checkRaid, checkName, checkMessage, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
 export { isStar, isAnimal, anteLevel, checkColony, checkHome, checkRaid, checkName, checkMessage };
 // Web only (the contracts take whatever the network lets through): a delta carries a few records, not thousands,
@@ -85,6 +85,10 @@ export function open(file, { admin, app = '/' }) {
         for (const [k, c] of all('colony')) if (bl.has(k) || bl.has(c.persona)) delQ.run('colony', k);
         for (const [k, h] of all('home')) if (bl.has(k) || bl.has(h.seed)) delQ.run('home', k);
         for (const [k, r] of all('raid')) if (bl.has(r.attacker) || bl.has(r.target)) delQ.run('raid', k);
+        // a persona holds only the colonies its work pays for (see colonyLimit)
+        const held = {};
+        for (const [k, c] of all('colony')) (held[c.persona] ??= []).push([k, score(k, c.persona, c.nonces)]);
+        for (const list of Object.values(held)) for (const k of unfitSeeds(list)) delQ.run('colony', k);
         cap('colony', ([a, x], [b, y]) => lexi(colonyRank(a, x), colonyRank(b, y)));
         cap('home', ([, x], [, y]) => lexi([y.ts, y.sig], [x.ts, x.sig]));
         cap('name', ([, x], [, y]) => lexi([x.ts, x.sig], [y.ts, y.sig]));

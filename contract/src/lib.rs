@@ -404,6 +404,37 @@ fn prune(colonies: &mut BTreeMap<String, Colony>) {
     }
 }
 
+/// Work a persona's k-th colony (counting from its weakest) must show: the first one MAX_SCORE, then 1.5x more each.
+pub fn colony_limit(k: usize) -> u128 {
+    let k = k.min(40) as u32;
+    MAX_SCORE * 2u128.pow(k) / 3u128.pow(k)
+}
+
+/// Of one persona's colonies, given as (score, seed), those that do not fit: weakest first, a colony stays
+/// while its score is within the limit of the number kept so far. Depends only on the set, so merge order
+/// does not matter, and a new colony that meets the limit for the number held never pushes an old one out.
+fn unfit(mut held: Vec<(u128, String)>) -> Vec<String> {
+    held.sort_by(|a, b| b.cmp(a));
+    let mut kept = 0;
+    let mut out = vec![];
+    for (sc, seed) in held {
+        if sc <= colony_limit(kept) {
+            kept += 1;
+        } else {
+            out.push(seed);
+        }
+    }
+    out
+}
+
+fn unfit_colonies(colonies: &BTreeMap<String, Colony>) -> Vec<String> {
+    let mut by: BTreeMap<&str, Vec<(u128, String)>> = BTreeMap::new();
+    for (seed, c) in colonies {
+        by.entry(&c.persona).or_default().push((score(seed, c), seed.clone()));
+    }
+    by.into_values().flat_map(unfit).collect()
+}
+
 /// Keep the MAX_HOMES newest homes.
 fn prune_homes(homes: &mut BTreeMap<String, Home>) {
     if homes.len() <= MAX_HOMES {
@@ -435,6 +466,9 @@ pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
         return Err("names out of bounds".into());
     }
     s.colonies.iter().try_for_each(|(k, c)| check_colony(app, k, c))?;
+    if !unfit_colonies(&s.colonies).is_empty() {
+        return Err("colonies need more work".into());
+    }
     s.homes.values().try_for_each(|h| check_home(app, h))?;
     s.raids.values().try_for_each(|r| check_raid(app, r))?;
     s.names.values().try_for_each(|n| check_name(app, n))
@@ -479,6 +513,9 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
     s.colonies.retain(|k, c| !blocked(&b, k, c));
     s.homes.retain(|_, h| !home_blocked(&b, h));
     s.raids.retain(|_, r| !raid_blocked(&b, r));
+    for seed in unfit_colonies(&s.colonies) {
+        s.colonies.remove(&seed);
+    }
     prune(&mut s.colonies);
     prune_homes(&mut s.homes);
     prune_raids(&mut s.raids);
@@ -596,6 +633,25 @@ mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use whoiam_delegation::connect_message;
+
+    #[test]
+    fn more_colonies_need_more_work() {
+        assert_eq!(colony_limit(0), MAX_SCORE);
+        assert_eq!(colony_limit(1), MAX_SCORE * 2 / 3);
+        assert!(colony_limit(5) < colony_limit(4));
+        let held = |v: &[u128]| v.iter().enumerate().map(|(i, s)| (*s, format!("s{i}"))).collect::<Vec<_>>();
+        // one colony at the minimum fits; a second at the same work does not
+        assert!(unfit(held(&[MAX_SCORE])).is_empty());
+        assert_eq!(unfit(held(&[MAX_SCORE, MAX_SCORE])).len(), 1);
+        // with 1.5x the work the second fits; any order of the input gives the same answer
+        let ok = [MAX_SCORE, colony_limit(1)];
+        assert!(unfit(held(&ok)).is_empty());
+        assert!(unfit(held(&[ok[1], ok[0]])).is_empty());
+        // a colony stronger than the others never pushes them out
+        assert!(unfit(held(&[MAX_SCORE, colony_limit(1), colony_limit(2) / 4])).is_empty());
+        // three equal weak ones: only the first stays
+        assert_eq!(unfit(held(&[MAX_SCORE; 3])).len(), 2);
+    }
 
     const APP: &str = "/v1/contract/web/Worlds1/";
 
