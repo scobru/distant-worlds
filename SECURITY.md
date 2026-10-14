@@ -35,7 +35,8 @@ Open (documented, not fixed):
 
 - **Pre-mined colonies.** The proof of work is bound to the planet and the persona, not to a moment, so work can be
   done in advance for many planets. It measures work, not time (already in the README).
-- **Self-declared times.** Names go to the earliest declared time (it can be backdated) and chat times are the author's.
+- **Self-declared times.** Names go to the earliest declared time (it can be backdated) and chat and presence times are the author's.
+- **Presence is public.** Whoever plays signed in tells everyone the planet and spot they are on (every 20 s to a minute) unless they turn off ☰ 👁. A presence with a time in the future stays at the top for its persona (only that persona's own record, and the cap of 100 bounds how many such records a crowd of personas can pin).
 - **Homes are self-declared**: resources are gathered in the browser, so a bigger home can be published (at most 64
   buildings and 64 animals). A cap tied to the persona's Viso level was considered and left out: the level most players
   hold (20 bits) would then limit them to a small home, which hurts honest play more than it stops a cheat that only

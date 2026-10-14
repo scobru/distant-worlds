@@ -3,7 +3,7 @@
 // exactly as on Freenet; there is no Viso here, explorers create or import a key kept in localStorage.
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
-import { chatMsg } from '../freenet/chat.js';
+import { chatMsg, hereMsg } from '../freenet/chat.js';
 import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg, blockMsg } from '../freenet/colony.js';
 import { connectMessage } from '../freenet/connect.js';
 export { personaName } from '../freenet/connect.js';
@@ -58,6 +58,12 @@ export async function postMessage(text, world, nick, ante) {
   m.sig = await s.sign(chatMsg(m));
   await call('chat', { messages: [m] });
   return m;
+}
+export async function postHere(world, nick, ante) {
+  const s = await signedIn(), h = { persona: s.persona, nick, world, ts: Date.now(), ante, sig: '', cert: s.cert };
+  h.sig = await s.sign(hereMsg(h));
+  await call('chat', { here: [h] });
+  return h;
 }
 export async function publishColony(seed, { name, nick, x, nonces, ante }) {
   const s = await signedIn(), c = { persona: s.persona, name, nick, x: Math.round(x * 100), ts: Date.now(), nonces, ante, sig: '', cert: s.cert };

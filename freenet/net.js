@@ -16,7 +16,7 @@ import {
 } from '@freenetorg/freenet-stdlib/client-request';
 import galaxyWasm from './galaxy.wasm?url';
 import chatWasm from './chat.wasm?url';
-import { chatMsg } from './chat.js';
+import { chatMsg, hereMsg } from './chat.js';
 import { identityInstance, IDENTITY_CODE_HASH, readPersona } from './viso.js';
 import identityWasm from './identity.wasm?url';
 import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg, blockMsg } from './colony.js';
@@ -97,7 +97,7 @@ function shared(wasmUrl, empty) {
     },
   };
 }
-const galaxy = shared(galaxyWasm, EMPTY), chat = shared(chatWasm, { messages: {}, blocked: { ts: 0, list: [], sig: '' } });
+const galaxy = shared(galaxyWasm, EMPTY), chat = shared(chatWasm, { messages: {}, blocked: { ts: 0, list: [], sig: '' }, here: {} });
 export const loadGalaxy = () => galaxy.load();
 export const loadChat = () => chat.load();
 const send = (d) => galaxy.send(d);
@@ -111,6 +111,15 @@ export async function postMessage(text, world, nick, ante) {
   m.sig = await s.sign(chatMsg(m));
   await chat.send({ messages: [m] });
   return m;
+}
+/** Say where we are now (`world` is `<seed>@<position>`): others see us there for a couple of minutes. */
+export async function postHere(world, nick, ante) {
+  const s = await session();
+  if (!s) throw new Error('Sign in first.');
+  const h = { persona: s.persona, nick, world, ts: Date.now(), ante, sig: '', cert: s.cert };
+  h.sig = await s.sign(hereMsg(h));
+  await chat.send({ here: [h] });
+  return h;
 }
 
 // ---------------------------------------------------------------- Viso personas (read only)

@@ -4,13 +4,13 @@
 // The checks themselves live in freenet/check.js, shared with the client.
 import { DatabaseSync } from 'node:sqlite';
 import { score, raidScore, raidKey, blockMsg, unfitSeeds } from '../freenet/colony.js';
-import { checkColony, checkHome, checkRaid, checkName, checkMessage, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
-export { isStar, isAnimal, anteLevel, checkColony, checkHome, checkRaid, checkName, checkMessage };
+import { checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
+export { isStar, isAnimal, anteLevel, checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere };
 // Web only (the contracts take whatever the network lets through): a delta carries a few records, not thousands,
 // since each costs three signature checks and a pass over its table.
 const MAX_DELTA = 50;
 const tooBig = (d, keys) => { for (const k of keys) if (d[k] && Object.keys(d[k]).length > MAX_DELTA) fail('delta too big'); };
-const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000 }, MAX_MESSAGES = 50, MAX_PER_PERSONA = 3;
+const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000, here: 100 }, MAX_MESSAGES = 50, MAX_PER_PERSONA = 3;
 const EMPTY_BLOCK = { ts: 0, list: [], sig: '' };
 
 function checkBlocklist(admin, kind, b, personasOnly) {
@@ -52,7 +52,7 @@ export function open(file, { admin, app = '/' }) {
     galaxy: () => (cache.galaxy ??= JSON.stringify({
       colonies: Object.fromEntries(all('colony')), blocked: blocklist('galaxy'), homes: Object.fromEntries(all('home')), raids: Object.fromEntries(all('raid')), names: Object.fromEntries(all('name')),
     })),
-    chat: () => (cache.chat ??= JSON.stringify({ messages: Object.fromEntries(all('msg')), blocked: blocklist('chat') })),
+    chat: () => (cache.chat ??= JSON.stringify({ messages: Object.fromEntries(all('msg')), blocked: blocklist('chat'), here: Object.fromEntries(all('here')) })),
 
     /** contract apply(): a whole delta or nothing. */
     applyGalaxy(d) {
@@ -97,7 +97,7 @@ export function open(file, { admin, app = '/' }) {
     },
 
     applyChat(d) {
-      tooBig(d, ['messages']);
+      tooBig(d, ['messages', 'here']);
       tx('chat', () => {
         setBlocked('chat', d.blocked, true);
         const bl = new Set(blocklist('chat').list);
@@ -106,6 +106,14 @@ export function open(file, { admin, app = '/' }) {
           const v = checkMessage(app, m);
           put('msg', v.sig, v);
         }
+        // presence: one per persona, the newer (ts, sig) wins
+        for (const h of d.here ?? []) {
+          if (!h || bl.has(h.persona)) continue;
+          const old = get('here', h.persona), v = checkHere(app, h);
+          if (!old || lexi([v.ts, v.sig], [old.ts, old.sig]) > 0) put('here', v.persona, v);
+        }
+        for (const [k] of all('here')) if (bl.has(k)) delQ.run('here', k);
+        cap('here', ([, x], [, y]) => lexi([y.ts, y.sig], [x.ts, x.sig]));
         // blocked personas leave; newest MAX_PER_PERSONA per persona, newest MAX_MESSAGES overall
         const rows = all('msg').sort(([a, x], [b, y]) => cmp(y.ts, x.ts) || cmp(b, a)), per = {};
         let kept = 0;
