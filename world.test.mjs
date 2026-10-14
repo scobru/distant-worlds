@@ -207,4 +207,10 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.ok(deep > 60 && deep < 140, 'about one in six');
   assert.equal(makeWorld('v1-5_9_2').view, makeWorld('v1-5_9_2').view);
   console.log('paths ok');
+  // Ambience comes from the traits alone.
+  const wet = Array.from({ length: 300 }, (_, i) => makeWorld(`v1-${i}_3_2`)), has = (w, a) => w.music.ambience.includes(a);
+  assert.ok(wet.every((w) => !w.traits.sea || has(w, 'waves')) && wet.every((w) => !w.volcanoes || has(w, 'rumble')));
+  assert.ok(wet.some((w) => has(w, 'crickets')) && wet.some((w) => has(w, 'birds')) && wet.some((w) => has(w, 'brook')));
+  assert.ok(wet.every((w) => !(has(w, 'crickets') && has(w, 'birds'))), 'no birds at night');
+  console.log('ambience ok');
 }

@@ -422,6 +422,8 @@ export function makeWorld(seedStr) {
       bass: r() < 0.5,
       perc: cult.perc || r() < (eraIdx >= 2 ? 0.45 : 0.12),
       space: 1.5 + r() * 4.5, // reverb seconds
+      // sounds of the place under the music, from the traits alone (no random draw: v1 worlds keep everything else)
+      ambience: [sea && 'waves', rivers && 'brook', night ? 'crickets' : fauna === 'birds' && 'birds', volcanoes && 'rumble'].filter(Boolean),
     },
   };
 }

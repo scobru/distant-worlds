@@ -775,7 +775,7 @@ function take(e) {
   let ok;
   const won = withAchievements(st, () => (ok = collect(st, days()[0], world.seed, p, Date.now())));
   if (!ok) return p.kind === 'time' && toast(['You already took as many time shards as this planet gives today.']);
-  save(); sfx(p.kind === 'plant' || p.kind === 'ore' || p.kind === 'creature' ? p.kind : 'pickup');
+  save(); sfx(['plant', 'ore', 'creature', 'page'].includes(p.kind) ? p.kind : 'pickup');
   const n = (st.diary ?? []).length;
   toast([{ page: `📜 Ilen's diary, page ${n}/${PAGES.length}: "${esc(PAGES[n - 1])}"`, fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
@@ -891,15 +891,15 @@ function endFight(msg) {
 function strike(act) {
   const b = battle, name = esc(b.foe.name), lv = battleLevel(st);
   if (act === 'heal') st.bag.plant -= BATTLE.heal.plant;
-  b.log.push(...battleRound(b, act)); sfx(act === 'heal' ? 'plant' : 'ore');
+  b.log.push(...battleRound(b, act)); sfx(act === 'heal' ? 'heal' : act === 'capture' ? 'creature' : 'hit');
   if (b.caught) {
     collect(st, days()[0], world.seed, { id: b.take.id, kind: 'creature', dna: b.foe.id, name: b.foe.name }, Date.now());
     endFight(`🐾 You captured the ${name}: it will live on your home planet`);
   } else if (b.hp <= 0) {
-    let n; const won = withAchievements(st, () => (n = winBattle(st, b)));
+    let n; const won = withAchievements(st, () => (n = winBattle(st, b))); setTimeout(() => sfx('win'), 150);
     endFight([`🗡 You beat the ${name}! ⛏ +${n}`, battleLevel(st) > lv && `⭐ Battle level ${battleLevel(st)}: more life, harder blows`, ...won.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
-  else if (b.team[0].hp <= 0) { evacuate(st); endFight(`💫 The ${name} beat you. You got away, leaving half your bag behind.`); }
+  else if (b.team[0].hp <= 0) { evacuate(st); setTimeout(() => sfx('lose'), 150); endFight(`💫 The ${name} beat you. You got away, leaving half your bag behind.`); }
   else renderBattle();
 }
 for (const [id, act] of [['battleHit', 'attack'], ['battleSpecial', 'special'], ['battleHeal', 'heal'], ['battleCatch', 'capture']]) document.getElementById(id).onclick = () => strike(act);
