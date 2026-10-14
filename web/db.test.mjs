@@ -29,6 +29,9 @@ db.applyChat({ messages: [m] });
 assert.equal(Object.keys(JSON.parse(db.chat()).messages).length, 1);
 assert.throws(() => db.applyChat({ messages: [{ ...m, text: 'forged', sig: sign(chatMsg({ ...m, text: 'forged' }), b.sk) }] }), /bad signature/);
 const resign = (x) => ({ ...x, sig: sign(chatMsg(x)) });
+// the chat is a live buffer: each persona keeps only its newest 3 messages
+for (let ts = 100; ts < 105; ts++) db.applyChat({ messages: [resign({ ...m, text: `hi ${ts}`, ts })] });
+assert.deepEqual(Object.values(JSON.parse(db.chat()).messages).map((x) => x.ts).sort(), [102, 103, 104]);
 assert.throws(() => db.applyChat({ messages: [resign({ ...m, persona: b.persona, cert: b.cert })] }), /level too low/);
 assert.throws(() => db.applyChat({ messages: [resign({ ...m, ts: 6, cert: { ...a.cert, base: 'http://x/other/' } })] }), /another app/);
 

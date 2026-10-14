@@ -4,8 +4,9 @@
 //! carries the persona's Viso level (its `ante` slot, a self-signed proof of work; at least
 //! MIN_ANTE_BITS) instead of a per-message proof: a persona that costs something to make is the
 //! anti-spam. It may share a world (a star seed, optionally with a
-//! position). The state keeps the newest MAX_PER_PERSONA messages of each persona and the newest
-//! MAX_MESSAGES overall (order: ts, then signature). Both are "keep the top k" rules, so every merge
+//! position). The chat is live, not an archive: the state is only a small relay buffer, keeping the
+//! newest MAX_PER_PERSONA messages of each persona and the newest MAX_MESSAGES overall (order: ts,
+//! then signature); clients show only the last few minutes (CHAT_LIVE in freenet/chat.js). Both are "keep the top k" rules, so every merge
 //! order converges. There is no trusted clock: `ts` is the author's, and clients hide messages from the
 //! future; the per-persona cap bounds what one persona can do with fake times. Admin-signed blocklist
 //! (`dwb1|<ts>|<personas joined by ,>`) removes personas.
@@ -15,8 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use whoiam_delegation::{check, key, verify, Cert};
 
 pub const MIN_ANTE_BITS: u32 = 16;
-pub const MAX_MESSAGES: usize = 500;
-pub const MAX_PER_PERSONA: usize = 20;
+pub const MAX_MESSAGES: usize = 50;
+pub const MAX_PER_PERSONA: usize = 3;
 const MAX_TEXT: usize = 280;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

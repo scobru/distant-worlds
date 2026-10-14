@@ -44,8 +44,7 @@ console.log('compose ok:', [...styles].join(', '));
   assert.deepEqual([s.key.tonic, s.key.mode], [0, 'major']);
   assert.ok(s.transitions[0][3] && s.transitions[3][4] && s.transitions[4][0], JSON.stringify(s.transitions));
   assert.ok(Object.keys(s.cells).length && s.bpm === 120);
-  // the same file wrapped in a RIFF/RMID header learns the same
-  const rmid = new Uint8Array([...'RIFF'].map((c) => c.charCodeAt(0)).concat(u32(midi.length + 12).reverse(), [...'RMIDdata'].map((c) => c.charCodeAt(0)), u32(midi.length).reverse(), [...midi]));
-  assert.deepEqual(learnOne(rmid), s);
+  const tag = (x) => [...x].map((c) => c.charCodeAt(0)), le = (n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, n >>> 24]; // RMID: the same file in a RIFF wrapper
+  assert.deepEqual(learnOne(new Uint8Array([...tag('RIFF'), ...le(midi.length + 12), ...tag('RMIDdata'), ...le(midi.length), ...midi])), s, 'RMID');
   console.log('learn ok');
 }

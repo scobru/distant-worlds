@@ -43,6 +43,7 @@ export function describe(e, w, known) {
   };
   if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.', e.damaged && 'Damaged by pirates: repair it from 🏗 Build.'].filter(Boolean) };
   if (e.type === 'pet') return { title: e.dna.name, lines: [named(known, e.dna.id), e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', e.dna.bred ? 'Bred in a stable.' : '', e.dna.flyer ? FLYER[e.dna.flyer]?.[0] ?? '' : parts(e.dna)] };
+  if (e.type === 'citizen') return { title: '👥 Inhabitant', lines: [e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet. Each one eats plants: keep the bag stocked, or some starve.'] };
   if (e.type === 'ruin') return { title: e.owner ? `Ruins of ${e.owner}` : `Ruins of ${e.prev}`, lines: [e.owner ? `Built on ${e.prev}, the world that stood here before it collapsed.` : `Left by ${e.prev}, the world that stood here before.`] };
   if (e.type === 'trader') return { title: '🧳 Trader', lines: [`Trades plants and ore until ${new Date(e.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`, e.reach ? 'Click (or press E) to trade.' : 'Walk to the stall to trade.'] };
   if (e.type === 'ore' && e.meteor) return { title: '☄ Meteorite', lines: [`${e.amount} rare ore, fallen from the sky.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
@@ -89,7 +90,7 @@ export function boxOf(e, x, y, s) {
     if (e.kind === 'whale') return [x - 1.4 * s, y - 0.4 * s, x + 1.4 * s, y + 0.4 * s];
     return [x - 0.6 * s, y - 0.5 * s, x + 0.6 * s, y + 1.3 * s];
   }
-  if (e.type === 'walker' || e.type === 'colonist' || e.type === 'pet') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
+  if (e.type === 'walker' || e.type === 'colonist' || e.type === 'pet' || e.type === 'citizen') return [x - 0.9 * s, y - 1.2 * s, x + 0.9 * s, y];
   if (e.type === 'pickup') return {
     title: { fuel: '⚡ Fuel cell', time: '⏳ Time shard', map: '🧭 Map fragment' }[e.kind],
     lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.' }[e.kind],

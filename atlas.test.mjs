@@ -147,14 +147,31 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.equal(st.bag.creature.length, 2, 'a stable doubles captures');
   const plants = st.bag.plant, fuel = st.fuel = 0;
   build(st, 'temple', 0);
-  assert.deepEqual(produce(st, 3 * 3.6e6), { plant: 3, ore: 0, fuel: 15 }, 'mill 1/h, temple 5 fuel/h');
-  assert.equal(st.bag.plant, plants - 6 + 3);
-  assert.deepEqual(produce(st, 100 * 3.6e6), { plant: 26, ore: 0, fuel: 120 }, 'at most a day, +10% from 5 workers');
+  assert.deepEqual(produce(st, 3 * 3.6e6), { plant: 3, ore: 0, fuel: 15, eaten: 2, starved: 0 }, 'mill 1/h, temple 5 fuel/h, 5 people eat 0.1/h each');
+  assert.equal(st.bag.plant, plants - 6 + 3 - 2);
+  assert.deepEqual(produce(st, 100 * 3.6e6), { plant: 26, ore: 0, fuel: 120, eaten: 12, starved: 0 }, 'at most a day, +10% from 5 workers');
   assert.equal(st.fuel, 100, 'the tank stays capped');
   for (let i = 0; i < 7; i++) st.home.built.push({ kind: 'tower' });
   assert.equal(jumpDiscount(st), 0.5);
   assert.ok(withAchievements(st, () => {}).length === 0);
   console.log('buildings ok');
+}
+{
+  // Hunger: people eat plants from the bag; with nothing to eat some starve, and come back once fed.
+  const { setHome, produce, population } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'H', 0);
+  st.home.built = Array(5).fill({ kind: 'castle' }); // 40 beds, the land feeds 6, no plants made
+  st.bag.plant = 0;
+  assert.equal(population(st.home), 6);
+  const got = produce(st, 10 * 3.6e6);
+  assert.deepEqual([got.eaten, got.starved, population(st.home)], [0, 6, 0], 'an empty bag: everyone starves');
+  st.bag.plant = 100;
+  produce(st, 22 * 3.6e6);
+  assert.equal(population(st.home), 3, '12 hours fed: 3 of 6 came back');
+  produce(st, 46 * 3.6e6);
+  assert.ok(population(st.home) === 6 && !('lost' in st.home), 'fed long enough: all back');
+  console.log('hunger ok');
 }
 {
   // Population: shelter limited by food; civilization level from people, buildings, variety, creatures.

@@ -127,6 +127,8 @@
   <p>On a world you like, press <b>🏠 Settle here</b>. From anywhere, <b>🏠 Go home</b> brings you back for free.
     Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and house and feed your people (huts and castles house them, mills and domes feed them; the more people, the more your home produces).
+    Your people walk among your buildings, and they eat: each one 🌿0.1 an hour from your bag while you are away. With no plants to eat, some starve; once fed again, the empty homes slowly fill.</p>
+  <p>
     Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
@@ -162,7 +164,7 @@ import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, i
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -256,6 +258,7 @@ function load() {
     toast([...raids.map((r) => r.won ? `☠ Pirates attacked at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}. Driven off! ⛏${r.loot} from their wreck.`
       : `☠ Pirates raided your home at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}.${r.damaged ? ` Your ${BUILDINGS[r.damaged].name} was damaged: repair it from 🏗 Build.` : ''} They will leave you alone for a day.`),
       n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in your garden`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
+      got.eaten && `👥 Your people ate 🌿${got.eaten}`, got.starved && `💀 ${got.starved} of your people starved: bring plants home (🌿 in your bag) to feed them. The empty homes fill again once everyone eats.`,
       ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   checkHome(); ev = null; checkEvent();
@@ -287,15 +290,23 @@ function homeGarden(H = st.home?.seed === world.seed && st.home) {
     return pl ? Array.from({ length: 2 + Math.floor(r() * 2) }, () => ({ kind: pl.family, plant: pl, x: lo + r() * span, size: (0.03 + r() * 0.03) * Math.min(2.5, pl.scale ?? 1), seed: Math.floor(r() * 2 ** 32) })) : [];
   }).sort((a, b) => b.size - a.size);
 }
+// The people living at home, all alike, walking among the buildings (at most 30 drawn).
+function homePeople(H) {
+  const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.15, span = Math.max(0.8, ...xs) + 0.15 - lo;
+  return Array.from({ length: Math.min(30, population(H)) }, (_, k) => {
+    const r = rngFrom(`citizen:${k}`);
+    return { kind: 'human', x: lo + r() * span * 0.8, range: 0.05 + r() * span * 0.3, speed: (3 + r() * 4) * 1e-6, size: 0.03, phase: r() * 2, seed: 1 };
+  });
+}
 let garden = [];
 // Homes drawn on world W: ours, then those other explorers published (pets computed once per home version).
 const othersMemo = new Map();
 function homesHere(W) {
-  const out = st.home?.seed === W.seed ? [{ built: st.home.built, pets, garden }] : [];
+  const out = st.home?.seed === W.seed ? [{ built: st.home.built, pets, garden, people: homePeople(st.home) }] : [];
   for (const h of fn?.homesOn?.(W.seed) ?? []) {
     if (!othersMemo.has(h.sig)) {
       const H = { nick: h.nick, built: h.built.map(([kind, x], k) => ({ kind, x: x / 100, seed: k + 1 })), animals: h.animals };
-      othersMemo.set(h.sig, { ...H, pets: homePets(H), garden: [] });
+      othersMemo.set(h.sig, { ...H, pets: homePets(H), garden: [], people: homePeople(H) });
     }
     out.push(othersMemo.get(h.sig));
   }
@@ -477,6 +488,7 @@ function draw(t) {
         if (take && picked(st, day, W.seed, take)) continue; // captured today
         const [x, dir] = walkerAt(cr, t);
         if (X(x) > 0 && X(x) < w) { seen++; if (cr.dna && !seenNow.has(cr.dna.id)) { seenNow.add(cr.dna.id); species(cr.dna); } }
+        if (cr.titan) { drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + 0.015 * m, cr.size * m, { ...co, color: L.color, t: t / 4 }); continue; } // too big to click: slow strides, only its legs on screen
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m, { ...co, color: L.color });
         hit({ type: 'walker', ...cr, ...(take && { take, reach: near(X(x)) }) }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m);
       }
@@ -504,6 +516,13 @@ function draw(t) {
         const bx = X(H.built[0].x);
         g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
         g.fillText(`🏠 ${H.nick} · ${civTitle(H)}`, bx, Y(H.built[0].x) - 0.3 * m); g.restore();
+      }
+      // its people, all alike, in a cool colour so they read apart from the animals
+      const peo = { ...co, color: `hsl(205 45% ${W.night ? 62 : 48}%)`, accent: '#cfe8ff', lights: true };
+      for (const cr of H.people) {
+        const [x, dir] = walkerAt(cr, t), s = cr.size * m;
+        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, peo);
+        hit({ type: 'citizen', owner: H.nick }, X(x), Y(x) + s * 0.05, s);
       }
       // home animals in a warm colour of their own, so they stand out from the ground (and at night)
       const pc = { ...co, color: `hsl(32 45% ${W.night ? 45 : 40}%)`, accent: '#ffd27a', lights: true };
@@ -805,7 +824,7 @@ function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
   document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
-    <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double).
+    <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double), and eats 🌿${EAT} an hour from your bag (🌿${Math.round(population(H) * EAT * 24)} a day): with no plants, some starve.${H.lost ? ` 💀 ${Math.ceil(H.lost)} starved: one comes back every ${REGROW} hours everyone eats.` : ''}
     <br>☠ Defence ${defence(H)} against pirate crews of about ${pirateThreat(H)} (from ${Math.round(pirateThreat(H) / 2)} to ${Math.round(pirateThreat(H) * 1.5)}): castles, towers, one per 5 people, one per 3 creatures. Bigger civilizations draw bigger crews.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}

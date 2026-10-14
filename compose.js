@@ -151,12 +151,13 @@ export function makeSong(M) {
       if (br() < calm && !(ci === 0 && ni === 0)) return;
       const c = chordAt(beat), strong = beat % S.chordBeats === 0 || d >= 1;
       let target = prevNote + P.steps[si++ % 16];
-      if (strong) { // nearest chord tone, in any octave within an octave of the last note
+      if (strong) { // nearest chord tone, in any octave
         const cands = [];
         for (let oct = -2; oct <= 4; oct++) for (const t of c.tones) cands.push(t + oct * len);
-        target = cands.filter((x) => x >= lo && x <= hi && Math.abs(x - prevNote) <= len).sort((a, b) => Math.abs(a - target) - Math.abs(b - target))[0] ?? target;
+        target = cands.filter((x) => x >= lo && x <= hi).sort((a, b) => Math.abs(a - target) - Math.abs(b - target))[0] ?? target;
       }
       target = Math.max(lo, Math.min(hi, target));
+      target = Math.max(prevNote - len, Math.min(prevNote + len, target)); // at most an octave from the last note: a learned leap plus the snap to a chord tone could go further
       prevNote = target;
       out.push({ beat, dur: d * 0.95, midi: at(target), voice: 'lead', vel: strong ? 0.9 : 0.7 });
     }));
