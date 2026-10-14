@@ -166,16 +166,23 @@ export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.
 // Your level grows with the battles you win: more life and a harder blow.
 // Wild creatures grow stronger far from the arrival point and on dying worlds (their level).
 // 🌿 Heal spends plants instead of your blow; a creature worn down to a quarter can be captured.
-export const BATTLE = { hp: 34, atk: 7, spd: 5, flee: 5, party: 3, heal: { plant: 3, hp: 15 }, capture: 0.6 };
-export const foeStats = (sp, lv = 1) => ({
-  hp: Math.round((8 + 10 * sp.scale + (sp.tail === 'bushy' ? 3 : 0)) * (1 + 0.4 * (lv - 1))),
-  atk: Math.round((2 + 2 * sp.scale + (sp.extra === 'horns' ? 3 : 0) + (sp.head === 'long' ? 1 : 0)) * (1 + 0.25 * (lv - 1))),
+export const BATTLE = { hp: 40, atk: 8, spd: 5, flee: 5, party: 3, heal: { plant: 3, hp: 15 }, capture: 0.6, wild: { hp: 1.6, atk: 1.8 }, ally: { hp: 0.7, atk: 0.3 }, guard: 0.5, chargeEvery: 3 };
+// `wild`: a wild creature is tougher than the same species at your side (`BATTLE.wild`); `ally` is how much of its
+// strength a creature of yours brings to a battle
+export const foeStats = (sp, lv = 1, wild = true) => ({
+  hp: Math.round((8 + 10 * sp.scale + (sp.tail === 'bushy' ? 3 : 0)) * (1 + 0.4 * (lv - 1)) * (wild ? BATTLE.wild.hp : 1)),
+  atk: Math.round((2 + 2 * sp.scale + (sp.extra === 'horns' ? 3 : 0) + (sp.head === 'long' ? 1 : 0)) * (1 + 0.25 * (lv - 1)) * (wild ? BATTLE.wild.atk : 1)),
   spd: sp.legs + Math.round(sp.pace * 2) - (sp.neck === 'long' ? 1 : 0),
 });
 export const battleLevel = (st) => 1 + Math.floor(Math.sqrt(st.wins ?? 0));
-/** The strongest walking creatures of your home fight at your side. */
-export const battleParty = (st) => (st.home?.animals ?? []).map(speciesOf).filter((sp) => sp?.legs)
-  .sort((a, b) => { const x = foeStats(a), y = foeStats(b); return y.hp + 3 * y.atk - x.hp - 3 * x.atk; }).slice(0, BATTLE.party);
+// Creatures grow with the battles they fight: every win gives each creature at your side an xp, and a
+// level (1 + √xp) adds life and blows (half as much as a wild creature's level does).
+export const creatureLevel = (st, id) => 1 + Math.floor(Math.sqrt(st.xp?.[id] ?? 0));
+/** The walking creatures of your home that fight at your side: the best against a foe of element `foeEl`
+ *  (strength and level, times the element's edge), at most 3, each with its `level`. */
+export const battleParty = (st, foeEl = null) => (st.home?.animals ?? []).map(speciesOf).filter((sp) => sp?.legs)
+  .map((sp) => { const level = creatureLevel(st, sp.id), s = foeStats(sp, 1 + (level - 1) / 2, false); return { ...sp, level, score: (s.hp + 3 * s.atk) * edge(elementOf(sp), foeEl) }; })
+  .sort((a, b) => b.score - a.score).slice(0, BATTLE.party);
 // Elements: a creature fights with the element of its home world's culture (a bred one, of its first
 // wild ancestor's). Each element beats the next in the cycle: 🔥 burns 🌿, 🌿 holds against 🌀, 🌀 blows
 // away ❄, ❄ puts out 🔥. A blow on the element it beats hits ×1.5, on the one that beats it ×0.75; you have none.
@@ -188,13 +195,15 @@ const edgeWord = (m) => (m > 1 ? ' (strong)' : m < 1 ? ' (weak)' : '');
 
 export function startBattle(sp, seed, allies = [], level = 1, foeLevel = 1) {
   const s = foeStats(sp, foeLevel), me = { name: 'You', hp: BATTLE.hp + 3 * (level - 1), atk: BATTLE.atk + level - 1, spd: BATTLE.spd };
-  const team = [me, ...allies.map((a) => { const s = foeStats(a); return { name: a.name, ...s, atk: Math.ceil(s.atk / 2), element: elementOf(a) }; })].map((f) => ({ ...f, max: f.hp }));
-  return { foe: sp, element: elementOf(sp), level: foeLevel, ...s, max: s.hp, team, special: true, r: rng(seed) };
+  const team = [me, ...allies.map((a) => { const lv = a.level ?? 1, s = foeStats(a, 1 + (lv - 1) / 2, false); return { name: a.name, id: a.id, lv, ...s, hp: Math.round(s.hp * BATTLE.ally.hp), atk: Math.ceil(s.atk * BATTLE.ally.atk), element: elementOf(a) }; })].map((f) => ({ ...f, max: f.hp }));
+  return { foe: sp, element: elementOf(sp), level: foeLevel, ...s, max: s.hp, team, special: true, round: 0, charge: false, r: rng(seed) };
 }
 const blow = (r, atk, m = 1) => Math.max(1, Math.round(atk * m * (0.7 + r() * 0.6)));
 export const canCapture = (b) => b.hp > 0 && b.hp <= b.max / 4;
 /** One round of battle `b`; `act`: 'attack', 'special' (once a battle, a double blow), 'heal' (the caller pays
- *  the plants) or 'capture' (instead of your blow; sets b.caught). Returns a line per blow. */
+ *  the plants), 'capture' (instead of your blow; sets b.caught) or 'guard' (no blow, half the damage to your
+ *  side this round). Every third round the wild creature gathers its strength (`b.charge`) and then hits
+ *  twice as hard: that is the round to guard. Returns a line per blow. */
 export function battleRound(b, act = 'attack') {
   const log = [], foe = { spd: b.spd }, me = b.team[0], special = act === 'special' && b.special;
   if (special) b.special = false;
@@ -204,21 +213,66 @@ export function battleRound(b, act = 'attack') {
     if (b.caught) return [`You captured ${b.foe.name}!`];
     log.push(`${b.foe.name} breaks free`);
   }
+  if (act === 'guard') log.push('You brace yourselves');
+  const heavy = b.charge;
   for (const f of [...b.team, foe].sort((x, y) => y.spd - x.spd)) {
     if (b.hp <= 0 || me.hp <= 0) break;
     if (f === foe) {
-      const up = b.team.filter((t) => t.hp > 0), t = up[Math.floor(b.r() * up.length)], m = edge(b.element, t.element), d = blow(b.r, b.atk, m);
-      t.hp -= d; log.push(`${b.foe.name} hits ${t === me ? 'you' : t.name}: −${d}${edgeWord(m)}`);
+      const up = b.team.filter((t) => t.hp > 0), pool = [...up, ...up.filter((t) => t === me)], t = pool[Math.floor(b.r() * pool.length)], m = edge(b.element, t.element), d = blow(b.r, b.atk, m * (heavy ? 2 : 1) * (act === 'guard' ? BATTLE.guard : 1));
+      t.hp -= d; log.push(`${b.foe.name} ${heavy ? 'unleashes a heavy blow on' : 'hits'} ${t === me ? 'you' : t.name}: −${d}${edgeWord(m)}`);
     } else if (f.hp > 0 && (f !== me || act === 'attack' || special)) {
       const twice = special && f === me, m = edge(f.element, b.element), d = blow(b.r, f.atk, m) * (twice ? 2 : 1);
       b.hp -= d; log.push(`${f === me ? (twice ? 'Your special move hits' : 'You hit') : `${f.name} hits`} ${b.foe.name}: −${d}${edgeWord(m)}`);
     }
   }
+  b.charge = ++b.round % BATTLE.chargeEvery === BATTLE.chargeEvery - 1 && b.hp > 0;
+  if (b.charge) log.push(`${b.foe.name} is gathering its strength!`);
   return log;
 }
 export const battleLoot = (b) => 2 + Math.ceil(b.max / 8);
 /** Ends a won battle: the loot goes into the bag, the win counts towards your level. */
-export function winBattle(st, b) { const n = battleLoot(b); st.bag.ore += n; st.wins = (st.wins ?? 0) + 1; return n; }
+export function winBattle(st, b) {
+  const n = battleLoot(b); st.bag.ore += n; st.wins = (st.wins ?? 0) + 1;
+  for (const f of b.team.slice(1)) (st.xp ??= {})[f.id] = (st.xp[f.id] ?? 0) + 1; // those who fought at your side
+  return n;
+}
+
+// Jumping. The explorer walks along a layer at position `gx` (layer units); obstacles (`world.js`
+// `obstaclesNear`) taller than its height `y` (in explorer sizes) stop it at their edge. A jump rises with
+// `JUMP.v0` against gravity `JUMP.g` (more on heavy worlds) and carries it `JUMP.boost` times as fast.
+export const JUMP = { v0: 5.3, g: 10, boost: 2.2, reach: 0.006, grav: 0.5 }; // `grav`: how much of a heavy world's gravity a jump feels
+/** The move (≤ `dx`) the explorer is allowed from `gx`, `y` high. */
+export function walkBy(gx, y, dx, obs) {
+  let to = gx + dx;
+  for (const o of obs) {
+    if (y >= o.h) continue;
+    const lo = o.x - o.w - JUMP.reach, hi = o.x + o.w + JUMP.reach;
+    if (dx > 0 && gx <= lo && to > lo) to = lo;
+    if (dx < 0 && gx >= hi && to < hi) to = hi;
+  }
+  return to - gx;
+}
+/** If the explorer has come down inside an obstacle, the position at its nearest edge (else `gx`). */
+export function settle(gx, y, obs) {
+  for (const o of obs) {
+    const lo = o.x - o.w - JUMP.reach, hi = o.x + o.w + JUMP.reach;
+    if (y < o.h && gx > lo && gx < hi) return gx - lo < hi - gx ? lo : hi;
+  }
+  return gx;
+}
+export const canJump = (j) => j.y === 0 && j.vy === 0;
+export const startJump = (j) => { if (canJump(j)) j.vy = JUMP.v0; };
+/** Advances a jump (`j` = { y, vy }) by `dt` seconds under gravity `grav` (1 = normal). */
+export function jumpStep(j, dt, grav = 1) {
+  if (canJump(j)) return;
+  j.vy -= JUMP.g * (1 + JUMP.grav * (grav - 1)) * dt; j.y += j.vy * dt;
+  if (j.y <= 0) { j.y = 0; j.vy = 0; }
+}
+/** Auto-walk: is an obstacle within `ahead` of the way (towards `dir`)? Then it is time to leap. */
+export const shouldLeap = (gx, dir, obs, ahead) => obs.some((o) => {
+  const gap = dir > 0 ? o.x - o.w - JUMP.reach - gx : gx - (o.x + o.w + JUMP.reach);
+  return gap >= 0 && gap <= ahead;
+});
 
 // Ilen's diary: each world's page can be taken once, and the n-th page found is page n.
 export const hasPage = (st, seed) => (st.diary ?? []).includes(seed) || (st.diary ?? []).length >= PAGES.length;
@@ -226,6 +280,11 @@ export function readPage(st, seed) {
   if (hasPage(st, seed)) return false;
   (st.diary ??= []).push(seed);
   return true;
+}
+/** What a chest on planet `seed` holds on `day`: the same for everyone. */
+export function chestLoot(seed, id, day) {
+  const u = rng(hashSeed(`${seed}:${id}:${day}`))();
+  return u < 0.4 ? { fuel: 12 } : u < 0.7 ? { plant: 3 } : { ore: 3 };
 }
 /** Collect pickup `p` on planet `seed`; returns false if already taken or over today's limit. */
 export function collect(st, day, seed, p, now) {
@@ -238,6 +297,7 @@ export function collect(st, day, seed, p, now) {
   // shards stack on the same planet; another planet's shard starts a new boost
   if (p.kind === 'time') st.boost = { seed, until: Math.max(now, st.boost?.seed === seed ? st.boost.until : 0) + PICKUP.boostMs };
   if (p.kind === 'map') st.halfJump = true;
+  if (p.kind === 'chest') { const l = chestLoot(seed, p.id, day); if (l.fuel) addFuel(st, l.fuel); st.bag.plant += l.plant ?? 0; st.bag.ore += l.ore ?? 0; }
   // gathered on the way, spent on the home planet
   // home buildings make gathering richer
   if (p.kind === 'plant' || p.kind === 'ore') st.bag[p.kind] += (p.amount ?? 1) + gatherBonus(st, p.kind);

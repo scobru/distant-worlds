@@ -408,7 +408,8 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   const { startBattle, battleRound, foeStats, BATTLE, battleLevel, winBattle, battleParty } = await import('./atlas.js');
   const { foesNear, makeWorld: mkw } = await import('./world.js');
   const sp = { name: 'Test', scale: 1, tail: 'short', extra: 'horns', head: 'round', legs: 4, pace: 1, neck: 'none' };
-  assert.deepEqual(foeStats(sp), { hp: 18, atk: 7, spd: 6 });
+  assert.deepEqual(foeStats(sp, 1, false), { hp: 18, atk: 7, spd: 6 });
+  assert.deepEqual(foeStats(sp), { hp: 29, atk: 13, spd: 6 }, 'a wild one is tougher');
   assert.ok(foeStats({ ...sp, scale: 2.6 }).hp > foeStats(sp).hp, 'bigger lives longer');
   const run = (seed, allies = [], lv = 1, act = 'attack', foe = sp) => { const b = startBattle(foe, seed, allies, lv), log = [];
     for (let i = 0; i < 50 && b.hp > 0 && b.team[0].hp > 0; i++) log.push(...battleRound(b, act)); return { b, log }; };
@@ -420,7 +421,7 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(startBattle(sp, 1, [], 3).team[0].hp > BATTLE.hp, 'levels add life');
   assert.equal(run(7, [], 1, 'special').log.filter((l) => l.startsWith('Your special')).length, 1, 'the special move once a battle');
   assert.ok(run(7, [sp, sp]).log.some((l) => l.startsWith('Test hits Test')), 'allies strike and get hit');
-  const big = { ...sp, scale: 2.6 }, won = (allies) => { let n = 0; for (let s = 0; s < 200; s++) n += run(s, allies, 1, 'attack', big).b.hp <= 0; return n; };
+  const big = { ...sp, scale: 1.3 }, won = (allies) => { let n = 0; for (let s = 0; s < 200; s++) n += run(s, allies, 1, 'attack', big).b.hp <= 0; return n; };
   assert.ok(won([sp]) > won([]), 'allies help');
   assert.ok(foeStats(sp, 3).hp > foeStats(sp).hp && foeStats(sp, 3).atk > foeStats(sp).atk, 'higher levels are stronger');
   assert.equal(startBattle(sp, 1, [], 1, 3).max, foeStats(sp, 3).hp);
@@ -441,11 +442,77 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
     assert.equal(elementOf(sp), null);
     const strong = startBattle(sp, 1, [sp]); strong.element = 'wild'; strong.team[1].element = 'fire';
     assert.ok(battleRound(strong).some((l) => l.endsWith('(strong)')), 'an element advantage shows in the log'); }
+  { // creatures grow with the battles they fight, and the party follows the foe's element
+    const { creatureLevel } = await import('./atlas.js');
+    const ws = [...Array(60)].map((_, i) => mkw(`v1-${i}_6_3`)).filter((x) => x.species.some((s) => s.legs)), ids = ws.flatMap((x) => x.species.filter((s) => s.legs).map((s) => s.id));
+    const st3 = es(); st3.home = { animals: ids.slice(0, 12) }; st3.bag.ore = 0;
+    const party = battleParty(st3, null);
+    assert.ok(party.length === 3 && party.every((p) => p.level === 1));
+    const b3 = startBattle(sp, 1, party); b3.hp = 0; winBattle(st3, b3);
+    assert.ok(party.every((p) => st3.xp[p.id] === 1) && creatureLevel(st3, party[0].id) === 2, 'the first win is a level');
+    st3.xp[party[0].id] = 9;
+    assert.equal(creatureLevel(st3, party[0].id), 4);
+    assert.ok(startBattle(sp, 1, battleParty(st3, null)).team.find((f) => f.id === party[0].id).hp > startBattle(sp, 1, party).team.find((f) => f.id === party[0].id).hp, 'levels add life');
+    const st4 = es(); st4.home = { animals: ids.slice(0, 40) };
+    const picks = ['fire', 'wild', 'wind', 'frost'].map((e) => battleParty(st4, e).map((p) => p.id).join());
+    assert.ok(new Set(picks).size > 1, 'the party depends on the foe');
+  }
+  { // every third round the wild creature gathers its strength, then hits twice as hard; guarding halves the damage
+    const c = startBattle(sp, 5), turns = [];
+    for (let i = 0; i < 6; i++) { const charging = c.charge; turns.push([charging, battleRound(c, 'attack').join(' ')]); }
+    assert.deepEqual(turns.map(([ch]) => ch), [false, false, true, false, false, true], 'the charge comes every third round');
+    assert.ok(turns[1][1].includes('gathering') && turns[2][1].includes('heavy blow') && !turns[3][1].includes('heavy'));
+    const dmg = (act) => { let total = 0; for (let s = 0; s < 200; s++) { const g = startBattle(sp, s, [], 1, 1); g.round = 2; g.charge = true; const before = g.team[0].hp; battleRound(g, act); total += before - g.team[0].hp; } return total; };
+    assert.ok(dmg('guard') < dmg('attack') * 0.6, 'guarding a heavy blow takes much less');
+    const elites = [...Array(40)].flatMap((_, i) => foesNear(mkw(`v1-${i}_4_1`), '2026-10-14', -12, 12)), el = elites.filter((f) => f.elite).length / elites.length;
+    assert.ok(el > 0.1 && el < 0.3, `about one in five is elite (${el.toFixed(2)})`);
+  }
+  { // jumping: obstacles stop a walker that stays on the ground; a leap clears them; auto-walk leaps by itself on any gravity
+    const { walkBy, settle, startJump, jumpStep, canJump, shouldLeap, JUMP } = await import('./atlas.js');
+    const { obstaclesNear } = await import('./world.js');
+    const o = [{ x: 1, w: 0.007, h: 0.3 }];
+    let gx = 0.5; for (let k = 0; k < 200; k++) gx += walkBy(gx, 0, 0.01, o);
+    assert.ok(Math.abs(gx - (1 - 0.007 - JUMP.reach)) < 1e-9, 'stopped at the edge');
+    assert.ok(Math.abs(walkBy(0.98, 0.5, 0.05, o) - 0.05) < 1e-9, 'higher than it: free');
+    assert.ok(settle(1.005, 0.1, o) !== 1.005 && settle(1.005, 0.5, o) === 1.005, 'landing on it steps off; flying over it does not');
+    const j = { y: 0, vy: 0 }; startJump(j); let apex = 0; for (let k = 0; k < 120; k++) { jumpStep(j, 1 / 60, 1); apex = Math.max(apex, j.y); }
+    assert.ok(canJump(j) && apex > 1.3 && apex < 1.5, `a jump rises about one and a half explorers (${apex.toFixed(2)})`);
+    const heavy = { y: 0, vy: 0 }; startJump(heavy); let low = 0; for (let k = 0; k < 120; k++) { jumpStep(heavy, 1 / 60, 2); low = Math.max(low, heavy.y); }
+    assert.ok(low < apex && low > 0.6, 'lower on a heavy world, but still over the tallest obstacle');
+    const w0 = mkw('v1-3_4_1'), obs = obstaclesNear(w0, -3, 12);
+    assert.deepEqual(obs, obstaclesNear(w0, -3, 12));
+    assert.ok(obs.length > 4 && obs.every((x) => Math.abs(x.x - 0.5) >= 0.1 && x.h >= 0.4 && x.h <= 0.58 && x.w >= 0.006 && x.w <= 0.011), 'none at the arrival spot, all clearable');
+    for (const grav of [1, 1.5, 2]) for (let i = 0; i < 12; i++) { // an auto-walk over ten screens
+      const all = obstaclesNear(mkw(`v1-${i}_4_1`), -3, 12), air = 0.05 * JUMP.boost, jj = { y: 0, vy: 0 };
+      let at = 0.5;
+      for (let t = 0; t < 600 && at < 11; t += 1 / 60) {
+        const near = all.filter((q) => Math.abs(q.x - at) < 1);
+        if (canJump(jj) && shouldLeap(at, 1, near, 0.12 * air)) startJump(jj);
+        jumpStep(jj, 1 / 60, grav);
+        at = settle(at + walkBy(at, jj.y, (jj.y > 0 ? air : 0.05 / grav) / 60, near), jj.y, near);
+      }
+      assert.ok(at >= 11, `auto-walk gets through world ${i} at gravity ×${grav} (stopped at ${at.toFixed(2)})`);
+    }
+  }
+  { // rooms: buildings to walk into, and the chest inside
+    const { foreStructsNear } = await import('./world.js'), { chestLoot, collect } = await import('./atlas.js');
+    const ws = [...Array(80)].map((_, i) => mkw(`v1-${i}_5_1`)), all = ws.flatMap((x) => foreStructsNear(x, -4, 8));
+    assert.deepEqual(foreStructsNear(ws[3], -4, 8), foreStructsNear(ws[3], -4, 8));
+    assert.ok(all.length > 40 && all.every((b) => Math.floor(b.x) !== 0 && b.size >= 0.13 && b.size <= 0.17), 'a few per world, never at the arrival spot');
+    assert.ok(ws.filter((x) => x.civ === 'uninhabited').every((x) => !foreStructsNear(x, -4, 8).length), 'nobody lives there, no rooms');
+    assert.ok(all.every((b) => !['obelisk', 'block', 'antenna', 'arch', 'spire', 'orb', 'pods'].includes(b.kind)), 'only buildings with a room');
+    assert.deepEqual(chestLoot('v1-1_1_1', 'fore2', '2026-10-14'), chestLoot('v1-1_1_1', 'fore2', '2026-10-14'));
+    const kinds = new Set(Array.from({ length: 200 }, (_, i) => Object.keys(chestLoot('v1-1_1_1', 'fore2', `d${i}`))[0]));
+    assert.deepEqual([...kinds].sort(), ['fuel', 'ore', 'plant'], 'fuel, plants or ore');
+    const c = es(), chest = { id: 'fore2', kind: 'chest' }, loot = chestLoot('v1-1_1_1', 'fore2', 'x'), before = { ore: c.bag.ore, plant: c.bag.plant, fuel: (c.fuel = 50) };
+    assert.ok(collect(c, 'x', 'v1-1_1_1', chest, 0) && !collect(c, 'x', 'v1-1_1_1', chest, 0), 'once a day');
+    assert.equal(c.bag.ore - before.ore, loot.ore ?? 0); assert.equal(c.bag.plant - before.plant, loot.plant ?? 0); assert.equal(c.fuel - 50, loot.fuel ?? 0);
+  }
   const st2 = es(); st2.bag.ore = 0;
   assert.ok(winBattle(st2, a.b) > 0 && st2.bag.ore > 0 && st2.wins === 1 && battleLevel(st2) === 2);
   const fw = [...Array(50)].map((_, i) => mkw(`v1-${i}_4_1`)).find((x) => x.species.length), foes = foesNear(fw, '2026-10-14', -6, 6);
   assert.deepEqual(foes, foesNear(fw, '2026-10-14', -6, 6));
-  assert.ok(foes.length && foes.every((f) => Math.floor(f.x) !== 0 && fw.species.includes(f.dna) && f.level === 1 + Math.floor(Math.abs(Math.floor(f.x)) / 4)));
+  assert.ok(foes.length && foes.every((f) => Math.floor(f.x) !== 0 && fw.species.includes(f.dna) && f.level === 1 + Math.floor(Math.abs(Math.floor(f.x)) / 4) + (f.elite ? 2 : 0)));
   st2.home = { animals: fw.species.map((s) => s.id).concat(fw.species.map((s) => s.id)) };
   assert.ok(battleParty(st2).length <= BATTLE.party && battleParty(st2).every((s) => s.legs));
   // Ilen's diary: a world's page once, pages in order, Reader at the end.
@@ -459,7 +526,7 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(hasPage(d, 'v1-5_5_5'), 'no pages left after the last one');
   assert.ok(A.find(([n]) => n === 'Reader')[2](d));
   const withPage = Array.from({ length: 400 }, (_, i) => pageNear(mw(`v1-${i}_3_1`), -4, 4)).filter((p) => p.length);
-  assert.ok(withPage.length > 60 && withPage.length < 140, 'about one world in four');
+  assert.ok(withPage.length > 105 && withPage.length < 165, 'about one world in three');
   assert.deepEqual(pageNear(mw('v1-7_3_1'), -4, 4), pageNear(mw('v1-7_3_1'), -4, 4));
   assert.ok(withPage.every(([p]) => Math.abs(p.x) >= 1 && Math.abs(p.x) <= 3));
   // Languages: words per language, capped; uninhabited worlds teach nothing.

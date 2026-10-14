@@ -480,11 +480,13 @@ export function drawPickup(g, x, y, s, kind, t, phase, culture, dim) {
   g.save();
   g.translate(x, y - s * 0.6 - Math.sin(t / 400 + phase) * s * 0.15);
   g.scale(s, s);
-  const color = kind === 'time' ? '#6ef' : kind === 'map' ? '#f4e3b1' : kind === 'page' ? '#fffaf0' : '#ffcc33';
+  const color = kind === 'time' ? '#6ef' : kind === 'map' ? '#f4e3b1' : kind === 'page' ? '#fffaf0' : kind === 'chest' ? '#b8812e' : '#ffcc33';
   g.fillStyle = g.shadowColor = color; g.shadowBlur = 14; g.globalAlpha = dim ? 0.6 : 1;
   g.beginPath();
   if (kind === 'time') { // hourglass
     g.moveTo(-0.35, -0.5); g.lineTo(0.35, -0.5); g.lineTo(0.05, 0); g.lineTo(0.35, 0.5); g.lineTo(-0.35, 0.5); g.lineTo(-0.05, 0); g.closePath();
+  } else if (kind === 'chest') { // a wooden chest
+    g.rect(-0.4, -0.3, 0.8, 0.6);
   } else if (kind === 'page') { // a diary page
     g.rotate(0.1); g.rect(-0.3, -0.42, 0.6, 0.84);
   } else if (kind === 'map') { // folded parchment
@@ -501,8 +503,30 @@ export function drawPickup(g, x, y, s, kind, t, phase, culture, dim) {
   g.fill();
   g.shadowBlur = 0; g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 0.07;
   if (kind === 'map') { g.beginPath(); g.moveTo(-0.3, -0.1); g.lineTo(0.1, 0.12); g.lineTo(0.3, -0.15); g.stroke(); }
+  if (kind === 'chest') { g.beginPath(); g.moveTo(-0.4, -0.05); g.lineTo(0.4, -0.05); g.stroke(); g.fillStyle = '#ffe27a'; g.fillRect(-0.06, -0.12, 0.12, 0.14); }
   if (kind === 'page') { g.beginPath(); for (const y of [-0.2, 0, 0.2]) { g.moveTo(-0.18, y); g.lineTo(0.18, y); } g.stroke(); }
   if (kind === 'fuel') { g.beginPath(); g.moveTo(0.06, -0.28); g.lineTo(-0.1, 0.03); g.lineTo(0.08, 0.03); g.lineTo(-0.06, 0.3); g.stroke(); }
+  g.restore();
+}
+
+/** A low obstacle on the ground, `wpx` wide and `hpx` tall: a rock, a log, a crate or a block of ice. */
+export function drawObstacle(g, kind, x, y, wpx, hpx, seed, color, dim) {
+  const r = rng(seed);
+  g.save(); g.translate(x, y); g.globalAlpha = dim ? 0.8 : 1; g.lineWidth = Math.max(1, wpx * 0.06);
+  g.fillStyle = color; g.strokeStyle = 'rgba(0,0,0,.45)';
+  if (kind === 'log') { // lying on its side, with a ring at the cut end
+    g.beginPath(); g.roundRect(-wpx / 2, -hpx, wpx, hpx, hpx * 0.45); g.fill(); g.stroke();
+    g.beginPath(); g.ellipse(-wpx / 2 + hpx * 0.3, -hpx / 2, hpx * 0.18, hpx * 0.4, 0, 0, 7); g.stroke();
+  } else if (kind === 'crate') { // a box with a cross
+    g.fillRect(-wpx / 2, -hpx, wpx, hpx); g.strokeRect(-wpx / 2, -hpx, wpx, hpx);
+    g.beginPath(); g.moveTo(-wpx / 2, -hpx); g.lineTo(wpx / 2, 0); g.moveTo(wpx / 2, -hpx); g.lineTo(-wpx / 2, 0); g.stroke();
+  } else if (kind === 'ice') { // a few blue-white shards
+    g.fillStyle = '#cfeaff';
+    for (const [dx, k] of [[-0.28, 0.7], [0, 1], [0.28, 0.6]]) { g.beginPath(); g.moveTo(dx * wpx - wpx * 0.22, 0); g.lineTo(dx * wpx, -hpx * k); g.lineTo(dx * wpx + wpx * 0.22, 0); g.fill(); g.stroke(); }
+  } else { // a rounded rock
+    g.beginPath(); g.moveTo(-wpx / 2, 0);
+    g.quadraticCurveTo(-wpx / 2, -hpx * (0.8 + r() * 0.3), -wpx * 0.15, -hpx); g.quadraticCurveTo(wpx * 0.35, -hpx * 1.05, wpx / 2, 0); g.closePath(); g.fill(); g.stroke();
+  }
   g.restore();
 }
 

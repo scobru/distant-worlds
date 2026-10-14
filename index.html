@@ -13,6 +13,7 @@
   small { display: block; opacity: .6; letter-spacing: 0; text-transform: none; font-size: 12px; }
   button { background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
   button:hover, button:focus-visible { background: #fff3; }
+  button.alert { background: #c334; border-color: #f66; }
   .badge { font-size: 11px; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; margin-left: 8px; }
   .common { color: #bbb; } .rare { color: #6cf; } .epic { color: #d9f; } .legendary { color: #fc5; text-shadow: 0 0 8px #fc58; }
   #tip { position: fixed; z-index: 5; pointer-events: none; max-width: 260px; background: #000d; border: 1px solid #fff3; border-radius: 10px;
@@ -65,6 +66,7 @@
   <h1><span id="name">…</span><span id="rarity" class="badge"></span><small><span id="claim"></span><span id="meta"></span> · <span id="pos"></span></small></h1>
   <button id="left" aria-label="Walk left">◀</button>
   <button id="right" aria-label="Walk right">▶</button>
+  <button id="jump" aria-label="Jump">⤴</button>
   <button id="walk" aria-pressed="false">🚶 Auto</button>
   <button id="homeBtn">🏠 Settle here</button>
   <button id="moveBtn" hidden>🚀 Move home here</button>
@@ -119,10 +121,16 @@
   <h3>🗡 Battles</h3>
   <p>Turn on <b>🗡 Battles</b> in the ☰ menu and wild creatures, drawn in red, wait on some stretches of each world (the same for everyone each day).
     Reach one and you fight it: each round you both strike, the faster first. Its parts make its strength: big ones live longer, horns hit harder, more legs are faster.
+    Creatures at your side grow with every win (their level shows in the battle), and the ones best against the wild creature's element are the ones that come.
     The farther from where you land, the higher their level (and one more on dying worlds). Up to 3 creatures from your home (the strongest that walk) fight at your side, and once a battle your ✨ Special move hits twice as hard.
     Each creature has the element of its world's culture: 🔥 (desert, war, apocalyptic) burns 🌿 (jungle, temperate), which holds against 🌀 (japanese, western), which blows away ❄ (nordic, arctic), which puts out 🔥. A blow on the element it beats hits ×1.5, on the one that beats it ×0.75, so pick your home creatures well.
     🌿 Heal eats 3 plants instead of striking; worn down to a quarter of its life, a creature can be 🐾 captured (6 times in 10).
+    Every third round it gathers its strength and then hits twice as hard: that is the round to 🛡 Guard (no blow, half the damage). Some are ⭐ elite, two levels above the rest, and they get tougher as your battle level grows.
     Win and you take ore, and your battle level grows (more life, harder blows); lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
+  <h3>🚪 Rooms</h3>
+  <p>Some buildings on the nearest ground can be walked into: their front fades and you see a room. A chest waits inside, new every day (fuel, plants or ore): take it as you would anything else.</p>
+  <h3>⤴ Jumping</h3>
+  <p>Rocks, logs, crates and ice lie in the way: they stop you until you jump over them with <b>Space</b>, <b>↑</b> (or <b>W</b>) or the <b>⤴</b> button; on a world walked into, ↑ walks and Space jumps. A jump is lower on a heavy world. <b>Auto</b> jumps by itself.</p>
   <h3>🛤 Paths</h3>
   <p>About one world in six is walked into rather than across: a path runs towards the horizon, and ↑ ↓ (or ◀ ▶, or dragging) take you along it. What lies ahead grows as you approach; take it when it reaches your feet.</p>
   <h3>🔭 Discover</h3>
@@ -174,16 +182,16 @@
     The chat is live: only the last 15 minutes are shown.</p>
 </dialog>
 <dialog id="battleDlg"><h2 id="battleTitle"></h2><canvas id="battleCv" width="320" height="140" aria-hidden="true"></canvas><div id="battleBody" aria-live="polite"></div>
-  <div class="row"><button id="battleHit">🗡 Attack</button><button id="battleSpecial">✨ Special</button><button id="battleHeal"></button><button id="battleCatch">🐾 Capture</button><button id="battleFlee"></button></div></dialog>
+  <div class="row"><button id="battleHit">🗡 Attack</button><button id="battleGuard">🛡 Guard</button><button id="battleSpecial">✨ Special</button><button id="battleHeal"></button><button id="battleCatch">🐾 Capture</button><button id="battleFlee"></button></div></dialog>
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, pageNear, foesNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
-import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
+import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, pageNear, foesNear, obstaclesNear, foreStructsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
+import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawObstacle, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -227,6 +235,8 @@ const EVENT_NAME = { meteors: '☄ Meteor shower', migration: '🐾 Migration', 
 // time left, readable: "3 days", "5 h", "12 min"
 const left = (ms) => ms > 2 * 864e5 ? `${Math.round(ms / 864e5)} days` : ms > 2 * 36e5 ? `${Math.round(ms / 36e5)} h` : `${Math.max(1, Math.round(ms / 6e4))} min`;
 // Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
+let enteredId = null; // the building the explorer is inside
+let hop = { y: 0, vy: 0 }, jumpHinted = false; // the explorer's height in explorer sizes, and its climb
 let cam = 0, explored = [0, 0], keys = 0, walking = false, lastCam = 0, facing = 1, movingUntil = 0, pets = [], cache = new Map(), seenNow = new Set(), interest = 0;
 
 function load() {
@@ -282,7 +292,7 @@ function load() {
       got.eaten && `👥 Your people ate 🌿${got.eaten}`, got.starved && `💀 ${got.starved} of your people starved: bring plants home (🌿 in your bag) to feed them. The empty homes fill again once everyone eats.`,
       ...fleetLines(fleet), ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
-  checkHome(); ev = null; checkEvent();
+  checkHome(); ev = null; evHerd = []; checkEvent();
   // the world before this one on the same star: its ruins, a surviving species, homes built there
   her = heritage(W); heirs = survivors(W, her);
   if (her) setTimeout(() => world === W && toast([`🏚 ${W.name} was born where ${her.name} once stood: its ruins remain${her.survivor ? `, and its ${her.survivor.name} survived` : ''}.`]), 1800);
@@ -359,8 +369,14 @@ function showTip() {
 function frame(t, maxDt = 100) {
   const dt = Math.min(t - last, maxDt); last = t;
   // auto-walk goes the way the explorer faces; keys take over while held
-  const auto = walking && !keys, moved = (keys ? keys * 0.3 : auto ? facing * 0.05 : 0) * dt / 1000 / grav();
+  const auto = walking && !keys, pl = world.layers.at(-1).parallax, gx0 = cam * pl + 0.5, obs = obstaclesNear(world, gx0 - 1, gx0 + 1);
+  // Obstacles stop the explorer unless it is higher than they are; auto-walk leaps by itself.
+  if (auto && canJump(hop) && shouldLeap(gx0, facing, obs, 0.12 * 0.05 * JUMP.boost)) startJump(hop);
+  jumpStep(hop, dt / 1000, grav());
+  const wish = (keys ? keys * 0.3 : auto ? facing * 0.05 : 0) * dt / 1000 * (canJump(hop) ? 1 / grav() : JUMP.boost), moved = walkBy(gx0, hop.y, wish * pl, obs) / pl;
+  if (keys && wish && !moved && !jumpHinted) { jumpHinted = true; toast(['🪨 Something blocks the way: jump over it (Space, ↑ or the ⤴ button).']); }
   cam += moved;
+  cam += (settle(cam * pl + 0.5, hop.y, obs) - (cam * pl + 0.5)) / pl; // came down on an obstacle: step off it
   const day = days()[0];
   // Fuel for new ground only, walking by hand, rate-capped so dragging fast doesn't fill the tank.
   // Auto-walk burns it instead, and stops when the tank is empty.
@@ -437,7 +453,7 @@ function frame(t, maxDt = 100) {
   const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
   const next = new Map(), step = 4 * devicePixelRatio;
   let seen = 0; // how much is on screen: drives the music
-  const Q = [];
+  const Q = []; let insideId = null;
   W.layers.forEach((L, i) => {
     // the sea lies in front of the far ranges (their waterfalls pour into it) and behind the walkable ground
     if (W.water && i === Math.max(1, W.layers.length - 2)) {
@@ -652,6 +668,31 @@ function frame(t, maxDt = 100) {
           g.fillText(tx < 0 ? '◀ 🧳 Trader' : '🧳 Trader ▶', ex, h * 0.45); g.restore();
         }
       }
+      for (const o of obstaclesNear(W, off - 0.5, hi)) { // low things in the way: jump over them
+        const ox = walk ? w / 2 : X(o.x), oy = Y(o.x) + 0.004 * M(o.x), wpx = walk ? 0.09 * w * K(o.x) : 2.6 * o.w * w, hpx = o.h * 0.09 * M(o.x);
+        const color = { log: '#7a5230', crate: '#9a7440', ice: '#cfeaff', rock: '#8a8a8a' }[o.kind];
+        emit(o.x, () => { drawObstacle(g, o.kind, ox, oy, wpx, hpx, o.seed, W.night ? `color-mix(in srgb, ${color} 55%, #000)` : color, false); hits.push([[ox - wpx / 2, oy - hpx, ox + wpx / 2, oy], { type: 'obstacle', kind: o.kind }]); });
+      }
+      if (!deep) for (const b of foreStructsNear(W, off - 0.5, hi)) { // buildings to walk into: the front fades and a room shows
+        const bx = X(b.x), by = Y(b.x) + 0.01 * m, s = b.size * m;
+        if (bx < -s * 2 || bx > w + s * 2) continue;
+        const f = Math.max(0, Math.min(1, (s * 0.62 - Math.abs(bx - w / 2)) / (s * 0.15))), th = { kind: b.kind, seed: b.seed, size: b.size, broken: b.broken };
+        g.globalAlpha = 1 - 0.55 * f; drawThing(g, th, bx, by, s, o); g.globalAlpha = 1;
+        hit({ type: 'thing', ...th }, bx, by, s);
+        if (!f) continue;
+        const room = g.createLinearGradient(0, by - 1.3 * s, 0, by);
+        room.addColorStop(0, '#2a1c10'); room.addColorStop(1, '#6b4a22');
+        g.globalAlpha = 0.85 * f; g.fillStyle = room; g.beginPath(); g.roundRect(bx - 0.7 * s, by - 1.3 * s, 1.4 * s, 1.3 * s, 0.08 * s); g.fill();
+        g.fillStyle = '#ffd98a'; g.globalAlpha = 0.5 * f; g.fillRect(bx - 0.55 * s, by - 1.0 * s, 0.22 * s, 0.3 * s); g.fillRect(bx + 0.33 * s, by - 1.0 * s, 0.22 * s, 0.3 * s); // two lit windows
+        g.fillStyle = '#0006'; g.globalAlpha = f; g.fillRect(bx - 0.7 * s, by - 0.04 * s, 1.4 * s, 0.04 * s); g.globalAlpha = 1; // the floor
+        if (f > 0.6) insideId = b.id;
+        const chest = { id: b.id, kind: 'chest' };
+        if (f > 0.5 && !picked(st, day, W.seed, chest)) {
+          const cx = bx + 0.4 * s, cs = 0.05 * m;
+          drawPickup(g, cx, by, cs, 'chest', t, 0, W.culture, !R(b.x));
+          hits.push([[cx - cs, by - cs * 1.4, cx + cs, by], { type: 'pickup', ...chest, take: chest, reach: Math.abs(cx - w / 2) < (w * 0.2) / grav() }]);
+        }
+      }
       const time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
       for (const p of [...pickupsNear(W, day, off - 0.5, hi, time), ...pageNear(W, off - 0.5, hi)]) {
         if (p.kind === 'page' ? hasPage(st, W.seed) : picked(st, day, W.seed, p)) continue;
@@ -664,21 +705,27 @@ function frame(t, maxDt = 100) {
       if (st.battle) for (const f of foesNear(W, day, off - 0.5, hi)) {
         if (picked(st, day, W.seed, f)) continue;
         const fx = X(f.x), s = f.size * (f.dna.scale ?? 1) * M(f.x);
-        const lv = f.level + (inst > 0 ? 1 : 0); // dying worlds breed fiercer beasts
+        const lv = f.level + (inst > 0 ? 1 : 0) + Math.floor((battleLevel(st) - 1) / 2); // dying worlds breed fiercer beasts, and they keep up with you
         emit(f.x, () => {
-          drawCreature(g, { ...f, speed: fx < w / 2 ? 1 : -1 }, fx, Y(f.x) + s * 0.05, s, { ...co, color: '#b33', accent: '#f66' });
-          hit({ type: 'foe', name: f.dna.name, level: lv, stats: foeStats(f.dna, lv), element: ELEMENTS[cultureElement(W.culture)] }, fx, Y(f.x) + s * 0.05, s);
+          drawCreature(g, { ...f, speed: fx < w / 2 ? 1 : -1 }, fx, Y(f.x) + s * 0.05, s, { ...co, color: f.elite ? '#a52' : '#b33', accent: f.elite ? '#fd4' : '#f66' });
+          hit({ type: 'foe', name: f.dna.name, level: lv, elite: f.elite, stats: foeStats(f.dna, lv), element: ELEMENTS[cultureElement(W.culture)] }, fx, Y(f.x) + s * 0.05, s);
         });
         if (R(f.x) && !battle) startFight(f, co, lv);
       }
     }
   });
+  if (insideId !== enteredId) { enteredId = insideId; if (insideId) toast(['🚪 You step inside. Something may be waiting in the corner.']); }
   for (const [, draw] of Q.sort((a, b) => b[0] - a[0])) draw(); // walked into: far to near
+  if (deep) { // a haze over the distance: the sky's own colour, thickest at the horizon
+    const fog = g.createLinearGradient(0, horizon, 0, horizon + (h * 0.94 - horizon) * 0.4);
+    fog.addColorStop(0, W.sky.bottom.replace(')', ' / 0.85)')); fog.addColorStop(1, W.sky.bottom.replace(')', ' / 0)'));
+    g.fillStyle = fog; g.fillRect(0, horizon, w, (h * 0.94 - horizon) * 0.4);
+  }
   // the explorer, on the nearest ground; legs follow the distance walked
   const v = cam - lastCam; lastCam = cam; // keys and dragging both move the camera
   if (v) { facing = Math.sign(v); movingUntil = t + 120; }
   const LN = W.layers.at(-1), gx = cam * LN.parallax + 0.5, as = 0.09 * m;
-  drawAvatar(g, st.avatar, w / 2, deep ? h * 0.94 : (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m, as, facing, gx * w / (as * 0.15), t < movingUntil, t, st.look, deep);
+  drawAvatar(g, st.avatar, w / 2, (deep ? h * 0.94 : (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m) - hop.y * as, as, facing, gx * w / (as * 0.15), t < movingUntil || !canJump(hop), t, st.look, deep);
   if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
   const fall = Math.max(inst, ev?.kind === 'meteors' ? 0.75 : 0);
   if (fall) { // red sky as the world nears collapse; falling meteors then and during showers
@@ -734,7 +781,9 @@ const keyDir = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1, ArrowUp: 1, Ke
 const hold = (code, on) => { on ? held.add(code) : held.delete(code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); };
 addEventListener('keydown', (e) => {
   if (e.target.closest?.('dialog, input')) return;
-  if (e.code in keyDir) hold(e.code, true);
+  const up = e.code === 'ArrowUp' || e.code === 'KeyW', vert = up || e.code === 'ArrowDown' || e.code === 'KeyS';
+  if ((e.code === 'Space' && !e.target.closest?.('button')) || (up && world.view !== 'depth')) { e.preventDefault(); startJump(hop); } // ↑ walks on worlds walked into, jumps elsewhere
+  else if (e.code in keyDir && (world.view === 'depth' || !vert)) hold(e.code, true);
   // E: take the nearest thing within reach of the explorer
   if (e.code === 'KeyE') {
     const mid = cv.width / 2, d = ([[x0, , x1]]) => Math.abs((x0 + x1) / 2 - mid);
@@ -749,14 +798,16 @@ for (const [id, code] of [['left', 'ArrowLeft'], ['right', 'ArrowRight']]) {
   b.onpointerdown = () => hold(code, true);
   b.onpointerup = b.onpointerleave = b.onpointercancel = () => hold(code, false);
 }
+document.getElementById('jump').onpointerdown = () => startJump(hop);
 let dragX = null;
 let dragged = false;
+function shiftCam(d) { const pl = world.layers.at(-1).parallax, gx = cam * pl + 0.5; cam += walkBy(gx, hop.y, d * pl, obstaclesNear(world, gx - 1, gx + 1)) / pl; }
 cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; dragged = false; cv.setPointerCapture(e.pointerId); });
 cv.addEventListener('pointermove', (e) => {
   pointer = [e.clientX, e.clientY];
   if (dragX === null) return;
   if (Math.abs(e.clientX - dragX) > 2) dragged = true;
-  cam -= (e.clientX - dragX) / innerWidth; dragX = e.clientX;
+  shiftCam(-(e.clientX - dragX) / innerWidth); dragX = e.clientX;
 });
 // a tap (no drag) points at what is under the finger for a few seconds, as hovering does with a mouse
 cv.addEventListener('pointerup', (e) => {
@@ -778,6 +829,7 @@ function take(e) {
   save(); sfx(['plant', 'ore', 'creature', 'page'].includes(p.kind) ? p.kind : 'pickup');
   const n = (st.diary ?? []).length;
   toast([{ page: `📜 Ilen's diary, page ${n}/${PAGES.length}: "${esc(PAGES[n - 1])}"`, fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
+    chest: p.kind === 'chest' && (([l]) => `📦 You open a chest: ${l.fuel ? `⚡+${l.fuel}` : l.plant ? `🌿+${l.plant}` : `⛏+${l.ore}`}`)([chestLoot(world.seed, p.id, days()[0])]),
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
     creature: `🐾 Captured ${esc(p.name)}: it will live on your home planet` }[p.kind], ...won.map((a) => `🏆 Achievement: ${a}`)]);
 }
@@ -866,16 +918,17 @@ battleBtn.onclick = () => { st.battle = !st.battle; save(); setBattleBtn(); };
 battleDlg.oncancel = (e) => e.preventDefault(); // Escape does not skip a battle
 function startFight(f, co, lv) {
   setWalking(false);
-  battle = { ...startBattle(f.dna, f.seed, battleParty(st), battleLevel(st), lv), take: f, co, log: [] };
+  battle = { ...startBattle(f.dna, f.seed, battleParty(st, elementOf(f.dna)), battleLevel(st), lv), take: f, co, log: [], elite: f.elite };
   sfx('creature'); renderBattle(); battleDlg.showModal();
 }
 function renderBattle() {
   const icon = (e) => (e ? ` ${ELEMENTS[e][0]}` : ''), b = battle, bar = (n, max) => `<meter min="0" max="${max}" value="${Math.max(0, n)}"></meter> ${Math.max(0, n)}/${max}`;
-  document.getElementById('battleTitle').textContent = `🗡 A wild ${b.foe.name}${icon(b.element)} (level ${b.level})!`;
-  document.getElementById('battleBody').innerHTML = `<p>${b.team.map((f, i) => `${i ? esc(f.name) + icon(f.element) : `You <small>(level ${battleLevel(st)})</small>`} ${bar(f.hp, f.max)}`).join('<br>')}</p>
+  document.getElementById('battleTitle').textContent = `🗡 A wild ${b.elite ? '⭐ elite ' : ''}${b.foe.name}${icon(b.element)} (level ${b.level})!`;
+  document.getElementById('battleBody').innerHTML = `<p>${b.team.map((f, i) => `${i ? `${esc(f.name)}${icon(f.element)} <small>(level ${f.lv})</small>` : `You <small>(level ${battleLevel(st)})</small>`} ${bar(f.hp, f.max)}`).join('<br>')}</p>
     <p><b>${esc(b.foe.name)}${icon(b.element)}</b> ${bar(b.hp, b.max)}</p>
     <p><small>${b.log.slice(-(b.team.length + 1)).map(esc).join('<br>') || `It has attack ${b.atk} and speed ${b.spd}; you ${b.team[0].atk} and ${b.team[0].spd}.`}</small></p>`;
   document.getElementById('battleSpecial').disabled = !b.special;
+  const guard = document.getElementById('battleGuard'); guard.textContent = b.charge ? '🛡 Guard!' : '🛡 Guard'; guard.classList.toggle('alert', !!b.charge);
   const heal = document.getElementById('battleHeal');
   heal.textContent = `🌿 Heal (🌿${BATTLE.heal.plant})`; heal.disabled = st.bag.plant < BATTLE.heal.plant || b.team[0].hp >= b.team[0].max;
   document.getElementById('battleCatch').disabled = !canCapture(b);
@@ -891,18 +944,18 @@ function endFight(msg) {
 function strike(act) {
   const b = battle, name = esc(b.foe.name), lv = battleLevel(st);
   if (act === 'heal') st.bag.plant -= BATTLE.heal.plant;
-  b.log.push(...battleRound(b, act)); sfx(act === 'heal' ? 'heal' : act === 'capture' ? 'creature' : 'hit');
+  b.log.push(...battleRound(b, act)); sfx(act === 'heal' ? 'heal' : act === 'capture' ? 'creature' : act === 'guard' ? 'move' : 'hit');
   if (b.caught) {
     collect(st, days()[0], world.seed, { id: b.take.id, kind: 'creature', dna: b.foe.id, name: b.foe.name }, Date.now());
     endFight(`🐾 You captured the ${name}: it will live on your home planet`);
   } else if (b.hp <= 0) {
-    let n; const won = withAchievements(st, () => (n = winBattle(st, b))); setTimeout(() => sfx('win'), 150);
-    endFight([`🗡 You beat the ${name}! ⛏ +${n}`, battleLevel(st) > lv && `⭐ Battle level ${battleLevel(st)}: more life, harder blows`, ...won.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
+    let n; const lvs = b.team.slice(1).map((f) => creatureLevel(st, f.id)), won = withAchievements(st, () => (n = winBattle(st, b))); setTimeout(() => sfx('win'), 150);
+    endFight([`🗡 You beat the ${name}! ⛏ +${n}`, battleLevel(st) > lv && `⭐ Battle level ${battleLevel(st)}: more life, harder blows`, ...b.team.slice(1).filter((f, k) => creatureLevel(st, f.id) > lvs[k]).map((f) => `⭐ ${esc(f.name)} reached level ${creatureLevel(st, f.id)}`), ...won.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   else if (b.team[0].hp <= 0) { evacuate(st); setTimeout(() => sfx('lose'), 150); endFight(`💫 The ${name} beat you. You got away, leaving half your bag behind.`); }
   else renderBattle();
 }
-for (const [id, act] of [['battleHit', 'attack'], ['battleSpecial', 'special'], ['battleHeal', 'heal'], ['battleCatch', 'capture']]) document.getElementById(id).onclick = () => strike(act);
+for (const [id, act] of [['battleHit', 'attack'], ['battleGuard', 'guard'], ['battleSpecial', 'special'], ['battleHeal', 'heal'], ['battleCatch', 'capture']]) document.getElementById(id).onclick = () => strike(act);
 document.getElementById('battleFlee').onclick = () => {
   if ((st.fuel ?? 0) < BATTLE.flee) return toast(['⛽ Not enough fuel to flee: fight!']);
   st.fuel -= BATTLE.flee; endFight(`🏃 You fled the ${esc(battle.foe.name)} (⚡−${BATTLE.flee}).`);
@@ -1198,7 +1251,7 @@ document.getElementById('atlasBtn').onclick = () => {
     ${chron.length ? `<ul>${chron.map((c) => `<li><b>${esc(c.name)}</b> <span class="badge ${c.rarity}">${c.rarity}</span> <small style="display:inline">${c.gen ? `world ${c.gen + 1}` : 'first world'} · ${date(c.born)} – ${c.seed === world.seed ? 'today' : date(c.collapse)}</small>
       <br><small>${esc(c.story)}${c.survivor ? ` Its ${esc(c.survivor)} survived into the next world.` : ''}</small></li>`).join('')}</ul>` : '<p><small>This world is not on the map: it has no star to remember.</small></p>'}
     <h3>Ilen's diary <small>${(st.diary ?? []).length}/${PAGES.length} pages</small></h3>
-    ${(st.diary ?? []).length ? `<ol>${(st.diary ?? []).map((_, i) => `<li>${esc(PAGES[i])}</li>`).join('')}</ol>` : ''}<p><small>Ilen left a page on about one world in four, near where you land. Each page you find is the next one of the story.</small></p>
+    ${(st.diary ?? []).length ? `<ol>${(st.diary ?? []).map((_, i) => `<li>${esc(PAGES[i])}</li>`).join('')}</ol>` : ''}<p><small>Ilen left a page on about one world in three, near where you land. Each page you find is the next one of the story.</small></p>
     <h3>Languages <small>${Object.keys(st.words ?? {}).length} known</small></h3>
     ${Object.keys(st.words ?? {}).length ? `<ul>${Object.entries(st.words).map(([l, n]) => { const lex = lexicon(l);
       return `<li><b>${esc(l)}</b> ${n}/${CONCEPTS.length} <small>${lex.order.slice(0, n).map((c) => `${esc(lex.words[c])} = ${c}`).join(' · ')}</small></li>`; }).join('')}</ul>`
