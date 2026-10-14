@@ -404,6 +404,21 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual(s.expeditions, [4]);
   assert.equal(checkExpedition(s, fake(ex.stages[0]), t), null, 'nothing left this season');
   assert.ok(A.find(([n]) => n === 'Pathfinder')[2](s));
+  // Battles: stats from parts, rounds until someone falls, the same blows for the same seed.
+  const { startBattle, battleRound, foeStats, BATTLE } = await import('./atlas.js');
+  const { foesNear, makeWorld: mkw } = await import('./world.js');
+  const sp = { name: 'Test', scale: 1, tail: 'short', extra: 'horns', head: 'round', legs: 4, pace: 1, neck: 'none' };
+  assert.deepEqual(foeStats(sp), { hp: 18, atk: 7, spd: 6 });
+  assert.ok(foeStats({ ...sp, scale: 2.6 }).hp > foeStats(sp).hp, 'bigger lives longer');
+  const run = (seed) => { const b = startBattle(sp, seed), log = []; for (let i = 0; i < 50 && b.hp > 0 && b.you > 0; i++) log.push(...battleRound(b)); return { b, log }; };
+  const a = run(7);
+  assert.ok(a.b.hp <= 0 || a.b.you <= 0, 'the battle ends');
+  assert.ok(a.log[0].startsWith('Test hits'), 'the faster strikes first');
+  assert.deepEqual(run(7).log, a.log);
+  assert.equal(BATTLE.hp, startBattle(sp, 1).you);
+  const fw = [...Array(50)].map((_, i) => mkw(`v1-${i}_4_1`)).find((x) => x.species.length), foes = foesNear(fw, '2026-10-14', -6, 6);
+  assert.deepEqual(foes, foesNear(fw, '2026-10-14', -6, 6));
+  assert.ok(foes.length && foes.every((f) => Math.floor(f.x) !== 0 && fw.species.includes(f.dna)));
   // Ilen's diary: a world's page once, pages in order, Reader at the end.
   const { collect, hasPage } = await import('./atlas.js');
   const { PAGES } = await import('./diary.js');

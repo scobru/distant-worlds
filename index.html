@@ -82,6 +82,7 @@
     <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
     <button id="share">Share</button>
     <button id="day">World of the day</button>
+    <button id="battleBtn" aria-pressed="false">🗡 Battles: off</button>
     <button id="logBtn">📜 Log</button>
     <button id="guideBtn">❓ Guide</button>
   </div>
@@ -115,6 +116,10 @@
   <p>When something is close to your explorer (the middle of the screen), click it or press <b>E</b>:
     plants 🌿 are harvested, creatures 🐾 captured, ore deposits ⛏ mined, fuel cells (+15⚡), map fragments (your next jump costs half) and, online, time shards (your flag's time runs ×3 for 90 s) picked up. Flyers (birds, sky jellyfish, flying whales) are captured as they pass over you. Some worlds keep a page of 📜 <b>Ilen's diary</b> near where you land: each one is the next page of her story (read it in the Atlas).
     What you take grows back the next day. Your bag is shown under the world's name.</p>
+  <h3>🗡 Battles</h3>
+  <p>Turn on <b>🗡 Battles</b> in the ☰ menu and wild creatures, drawn in red, wait on some stretches of each world (the same for everyone each day).
+    Reach one and you fight it: each round you both strike, the faster first. Its parts make its strength: big ones live longer, horns hit harder, more legs are faster.
+    Win and you take ore; lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
   <h3>🔭 Discover</h3>
   <p>Every species, plant, relic and kind of world you see goes into the <b>Atlas</b>, with achievements and a daily mission.
     Point at (or tap) anything to see what it is. The 📜 Log in the ☰ menu keeps this session's last messages.</p>
@@ -163,15 +168,17 @@
     Your persona needs a level to take part (20 to plant flags and publish a home, 16 to chat); a key made in the game earns it in a few seconds, and you can back it up from the Atlas.
     The chat is live: only the last 15 minutes are shown.</p>
 </dialog>
+<dialog id="battleDlg"><h2 id="battleTitle"></h2><canvas id="battleCv" width="320" height="140" aria-hidden="true"></canvas><div id="battleBody" aria-live="polite"></div>
+  <div class="row"><button id="battleHit">🗡 Attack</button><button id="battleFlee"></button></div></dialog>
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, pageNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
+import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, pageNear, foesNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, battleLoot, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -610,6 +617,12 @@ function frame(t, maxDt = 100) {
         drawPickup(g, px, py, s, p.kind, t, p.phase, W.culture, !reach);
         hits.push([[px - s, py - s * 1.4, px + s, py], { type: 'pickup', ...p, take: p, reach }]);
       }
+      if (st.battle) for (const f of foesNear(W, day, off - 0.5, off + 1.5)) {
+        if (picked(st, day, W.seed, f)) continue;
+        const fx = X(f.x), s = f.size * (f.dna.scale ?? 1) * m;
+        drawCreature(g, { ...f, speed: fx < w / 2 ? 1 : -1 }, fx, Y(f.x) + s * 0.05, s, { ...co, color: '#b33', accent: '#f66' });
+        if (near(fx) && !battle) startFight(f, co);
+      }
     }
   });
   // the explorer, on the nearest ground; legs follow the distance walked
@@ -794,6 +807,43 @@ function openTrade() {
   }));
   if (!tradeDlg.open) tradeDlg.showModal();
 }
+
+// Battles (🗡 mode, off by default): reaching a wild creature's spot starts one; it ends when one side falls or you flee.
+const battleDlg = document.getElementById('battleDlg'), battleBtn = document.getElementById('battleBtn');
+let battle = null;
+const setBattleBtn = () => { battleBtn.textContent = `🗡 Battles: ${st.battle ? 'on' : 'off'}`; battleBtn.setAttribute('aria-pressed', !!st.battle); };
+setBattleBtn();
+battleBtn.onclick = () => { st.battle = !st.battle; save(); setBattleBtn(); };
+battleDlg.oncancel = (e) => e.preventDefault(); // Escape does not skip a battle
+function startFight(f, co) {
+  setWalking(false);
+  battle = { ...startBattle(f.dna, f.seed), take: f, co, log: [] };
+  sfx('creature'); renderBattle(); battleDlg.showModal();
+}
+function renderBattle() {
+  const b = battle, bar = (n, max) => `<meter min="0" max="${max}" value="${Math.max(0, n)}"></meter> ${Math.max(0, n)}/${max}`;
+  document.getElementById('battleTitle').textContent = `🗡 A wild ${b.foe.name}!`;
+  document.getElementById('battleBody').innerHTML = `<p>You ${bar(b.you, BATTLE.hp)}<br>${esc(b.foe.name)} ${bar(b.hp, b.max)}</p><p><small>${b.log.slice(-2).map(esc).join('<br>') || `Attack ${BATTLE.atk} · speed ${BATTLE.spd} against its attack ${b.atk} · speed ${b.spd}.`}</small></p>`;
+  document.getElementById('battleFlee').textContent = `🏃 Flee (⚡${BATTLE.flee})`;
+  const c = document.getElementById('battleCv'), bg = c.getContext('2d');
+  bg.clearRect(0, 0, c.width, c.height);
+  drawCreature(bg, { ...b.take, speed: -1 }, c.width / 2, c.height * 0.85, 70 * Math.min(1.4, b.foe.scale ?? 1), { ...b.co, color: '#b33', accent: '#f66', t: performance.now() });
+}
+function endFight(msg) {
+  collect(st, days()[0], world.seed, battle.take, Date.now()); // fought: this creature waits elsewhere tomorrow
+  battle = null; battleDlg.close(); save(); toast([msg]);
+}
+document.getElementById('battleHit').onclick = () => {
+  const b = battle, name = esc(b.foe.name);
+  b.log.push(...battleRound(b)); sfx('ore');
+  if (b.hp <= 0) { const n = battleLoot(b); st.bag.ore += n; endFight(`🗡 You beat the ${name}! ⛏ +${n}`); }
+  else if (b.you <= 0) { evacuate(st); endFight(`💫 The ${name} beat you. You got away, leaving half your bag behind.`); }
+  else renderBattle();
+};
+document.getElementById('battleFlee').onclick = () => {
+  if ((st.fuel ?? 0) < BATTLE.flee) return toast(['⛽ Not enough fuel to flee: fight!']);
+  st.fuel -= BATTLE.flee; endFight(`🏃 You fled the ${esc(battle.foe.name)} (⚡−${BATTLE.flee}).`);
+};
 
 // Home planet: settle on one world, come back to it for free and build with what you gathered.
 const homeBtn = document.getElementById('homeBtn'), buildDlg = document.getElementById('buildDlg');

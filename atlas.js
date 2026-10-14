@@ -159,6 +159,31 @@ export const PICKUP = { fuel: 15, boost: 3, boostMs: 90_000, timePerPlanetDay: 3
 const pickKey = (seed, p) => `${seed}|${p.id}|${p.kind}`;
 export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.ids.includes(pickKey(seed, p));
 
+// Battles: you against a wild creature, one blow each a round, the faster first (you on a tie).
+// The creature's stats come from its parts: size gives life and strength, horns hit harder, legs are speed.
+export const BATTLE = { hp: 34, atk: 7, spd: 5, flee: 5 };
+export const foeStats = (sp) => ({
+  hp: Math.round(8 + 10 * sp.scale + (sp.tail === 'bushy' ? 3 : 0)),
+  atk: Math.round(2 + 2 * sp.scale + (sp.extra === 'horns' ? 3 : 0) + (sp.head === 'long' ? 1 : 0)),
+  spd: sp.legs + Math.round(sp.pace * 2) - (sp.neck === 'long' ? 1 : 0),
+});
+export function startBattle(sp, seed) {
+  const s = foeStats(sp);
+  return { foe: sp, ...s, max: s.hp, you: BATTLE.hp, r: rng(seed) };
+}
+const blow = (r, atk) => Math.max(1, Math.round(atk * (0.7 + r() * 0.6)));
+/** One round of battle `b`; returns what happened, a line per blow. */
+export function battleRound(b) {
+  const log = [];
+  for (const who of BATTLE.spd >= b.spd ? ['you', 'foe'] : ['foe', 'you']) {
+    if (b.you <= 0 || b.hp <= 0) break;
+    const d = blow(b.r, who === 'you' ? BATTLE.atk : b.atk);
+    if (who === 'you') { b.hp -= d; log.push(`You hit ${b.foe.name}: −${d}`); } else { b.you -= d; log.push(`${b.foe.name} hits you: −${d}`); }
+  }
+  return log;
+}
+export const battleLoot = (b) => 2 + Math.ceil(b.max / 8);
+
 // Ilen's diary: each world's page can be taken once, and the n-th page found is page n.
 export const hasPage = (st, seed) => (st.diary ?? []).includes(seed) || (st.diary ?? []).length >= PAGES.length;
 export function readPage(st, seed) {
