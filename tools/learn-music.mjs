@@ -9,7 +9,8 @@ import { basename } from 'node:path';
 
 // ---- MIDI parsing (format 0/1): notes [start, dur, channel, pitch] in ticks, tempo, ticks per beat
 export function parseMidi(buf) {
-  const b = new Uint8Array(buf), u32 = (i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
+  const raw = new Uint8Array(buf), at = Buffer.from(raw).indexOf('MThd'); // RMID files wrap the MIDI in a RIFF header
+  const b = at > 0 ? raw.subarray(at) : raw, u32 = (i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
   if (String.fromCharCode(...b.slice(0, 4)) !== 'MThd') throw new Error('not a MIDI file');
   const ntr = (b[10] << 8) | b[11], div = (b[12] << 8) | b[13];
   const notes = [], tempos = [];
