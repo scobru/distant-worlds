@@ -404,6 +404,12 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual(s.expeditions, [4]);
   assert.equal(checkExpedition(s, fake(ex.stages[0]), t), null, 'nothing left this season');
   assert.ok(A.find(([n]) => n === 'Pathfinder')[2](s));
+  // Saga: one chapter per season, looping; a line per stage plus the opening one.
+  const { saga, SAGA } = await import('./atlas.js');
+  assert.ok(SAGA.every((c) => c.lines.length === EXPEDITION.stages + 1));
+  assert.equal(saga(EPOCH).chapter, 1);
+  assert.equal(saga(t).title, SAGA[3].title);
+  assert.deepEqual(saga(EPOCH + SAGA.length * SEASON), saga(EPOCH), 'chapters loop');
   // Languages: words per language, capped; uninhabited worlds teach nothing.
   const l = es();
   assert.equal(learn(l, { civ: 'uninhabited', culture: 'nordic' }, 1), 0);

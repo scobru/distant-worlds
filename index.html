@@ -121,7 +121,7 @@
   <h3>🚀 Travel</h3>
   <p><b>New world</b> jumps to a random star (100⚡); the <b>Map</b> shows nearby stars (closer = cheaper, visited = free). <b>World of the day</b> and shared links are free.</p>
   <h3>🧭 Expeditions</h3>
-  <p>Every 14 days a new expedition starts, the same for everyone: five stages to reach in order, each a kind of world to find. Each stage refuels you; the last one earns the season's badge. See it in the <b>Atlas</b>.</p>
+  <p>Every 14 days a new expedition starts, the same for everyone: five stages to reach in order, each a kind of world to find. Each stage refuels you; the last one earns the season's badge. Each season is also a chapter of the <b>Saga</b>, and every stage reveals a page of it. See it in the <b>Atlas</b>.</p>
   <h3>🗣 Languages</h3>
   <p>Each culture, and the aliens, speaks its own language. Every new inhabited world teaches you a word, every relic two. Buildings and relics carry inscriptions: point at them and the words you know are translated.</p>
   <h3>🏠 Home</h3>
@@ -168,7 +168,7 @@ import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, i
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, SAGA, saga, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -241,7 +241,7 @@ function load() {
     const first = !st.stars.includes(seed), news = visit(st, W), [today, yesterday] = days(), msg = [];
     let exp, words = 0;
     news.achievements.push(...withAchievements(st, () => { exp = checkExpedition(st, W); if (first) words = learn(st, W, 1); }));
-    if (exp) msg.push(exp.done ? `🧭 Expedition complete! Season ${st.expeditions.at(-1)} badge earned · ⚡${EXPEDITION.fuel}` : `🧭 Expedition stage ${exp.stage}/${EXPEDITION.stages} reached · ⚡${EXPEDITION.fuel}`);
+    if (exp) msg.push(exp.done ? `🧭 Expedition complete! Season ${st.expeditions.at(-1)} badge earned · ⚡${EXPEDITION.fuel}` : `🧭 Expedition stage ${exp.stage}/${EXPEDITION.stages} reached · ⚡${EXPEDITION.fuel}`, `📖 ${saga().lines[exp.stage]}`);
     if (words) msg.push(`🗣 You learned a word of the ${languageOf(W)} language (${st.words[languageOf(W)]}/${CONCEPTS.length})`);
     if (news.entries.length) msg.push('New discovery: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
     addFuel(st, (news.entries.length + news.combos.length) * FUEL.entry);
@@ -1057,7 +1057,7 @@ function foldAtlas(body) {
 }
 document.getElementById('close').onclick = () => dlg.close();
 document.getElementById('atlasBtn').onclick = () => {
-  const [today] = days(), m = mission(today), done = st.daily.done === today, ex = expedition(), chron = chronicle(world.seed);
+  const [today] = days(), m = mission(today), done = st.daily.done === today, ex = expedition(), sg = saga(), chron = chronicle(world.seed);
   const expN = st.exp?.id === ex.id ? st.exp.n : 0, date = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
   const groups = Object.groupBy(ENTRIES, (e) => e.split(':')[0]);
   document.getElementById('atlasBody').innerHTML = `
@@ -1075,6 +1075,8 @@ document.getElementById('atlasBtn').onclick = () => {
     <h3>Expedition <small>season ${ex.id + 1}</small></h3>
     <ol>${ex.stages.map((g, i) => `<li>${i < expN ? '✓' : i === expN ? '→' : '○'} A world with ${g.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}</li>`).join('')}</ol>
     <p><small>Stages go in order, the same for every explorer; each gives ⚡${EXPEDITION.fuel}. Ends in ${left(ex.end - Date.now())}.${(st.expeditions ?? []).length ? ` Badges: ${st.expeditions.map((n) => `🧭${n}`).join(' ')}` : ''}</small></p>
+    <h3>Saga <small>chapter ${sg.chapter}/${SAGA.length}: ${esc(sg.title)}</small></h3>
+    ${sg.lines.slice(0, expN + 1).map((l) => `<p>${esc(l)}</p>`).join('')}${expN < EXPEDITION.stages ? '<p><small>Reach the next expedition stage to read on.</small></p>' : ''}
     <h3>Chronicle of this star</h3>
     ${chron.length ? `<ul>${chron.map((c) => `<li><b>${esc(c.name)}</b> <span class="badge ${c.rarity}">${c.rarity}</span> <small style="display:inline">${c.gen ? `world ${c.gen + 1}` : 'first world'} · ${date(c.born)} – ${c.seed === world.seed ? 'today' : date(c.collapse)}</small>
       <br><small>${esc(c.story)}${c.survivor ? ` Its ${esc(c.survivor)} survived into the next world.` : ''}</small></li>`).join('')}</ul>` : '<p><small>This world is not on the map: it has no star to remember.</small></p>'}
