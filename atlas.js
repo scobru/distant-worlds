@@ -176,12 +176,22 @@ export const battleLevel = (st) => 1 + Math.floor(Math.sqrt(st.wins ?? 0));
 /** The strongest walking creatures of your home fight at your side. */
 export const battleParty = (st) => (st.home?.animals ?? []).map(speciesOf).filter((sp) => sp?.legs)
   .sort((a, b) => { const x = foeStats(a), y = foeStats(b); return y.hp + 3 * y.atk - x.hp - 3 * x.atk; }).slice(0, BATTLE.party);
+// Elements: a creature fights with the element of its home world's culture (a bred one, of its first
+// wild ancestor's). Each element beats the next in the cycle: 🔥 burns 🌿, 🌿 holds against 🌀, 🌀 blows
+// away ❄, ❄ puts out 🔥. A blow on the element it beats hits ×1.5, on the one that beats it ×0.75; you have none.
+export const ELEMENTS = { fire: ['🔥', 'wild'], wild: ['🌿', 'wind'], wind: ['🌀', 'frost'], frost: ['❄', 'fire'] };
+const CULTURE_ELEMENT = { desert: 'fire', apocalyptic: 'fire', war: 'fire', jungle: 'wild', temperate: 'wild', japanese: 'wind', western: 'wind', nordic: 'frost', arctic: 'frost' };
+export const cultureElement = (culture) => CULTURE_ELEMENT[culture] ?? null;
+export const elementOf = (sp) => { const seed = sp.id?.match(/v1-[^#()+]+/)?.[0]; return seed ? cultureElement(makeWorld(seed).culture) : null; };
+export const edge = (a, b) => !a || !b ? 1 : ELEMENTS[a][1] === b ? 1.5 : ELEMENTS[b][1] === a ? 0.75 : 1;
+const edgeWord = (m) => (m > 1 ? ' (strong)' : m < 1 ? ' (weak)' : '');
+
 export function startBattle(sp, seed, allies = [], level = 1, foeLevel = 1) {
   const s = foeStats(sp, foeLevel), me = { name: 'You', hp: BATTLE.hp + 3 * (level - 1), atk: BATTLE.atk + level - 1, spd: BATTLE.spd };
-  const team = [me, ...allies.map((a) => { const s = foeStats(a); return { name: a.name, ...s, atk: Math.ceil(s.atk / 2) }; })].map((f) => ({ ...f, max: f.hp }));
-  return { foe: sp, level: foeLevel, ...s, max: s.hp, team, special: true, r: rng(seed) };
+  const team = [me, ...allies.map((a) => { const s = foeStats(a); return { name: a.name, ...s, atk: Math.ceil(s.atk / 2), element: elementOf(a) }; })].map((f) => ({ ...f, max: f.hp }));
+  return { foe: sp, element: elementOf(sp), level: foeLevel, ...s, max: s.hp, team, special: true, r: rng(seed) };
 }
-const blow = (r, atk) => Math.max(1, Math.round(atk * (0.7 + r() * 0.6)));
+const blow = (r, atk, m = 1) => Math.max(1, Math.round(atk * m * (0.7 + r() * 0.6)));
 export const canCapture = (b) => b.hp > 0 && b.hp <= b.max / 4;
 /** One round of battle `b`; `act`: 'attack', 'special' (once a battle, a double blow), 'heal' (the caller pays
  *  the plants) or 'capture' (instead of your blow; sets b.caught). Returns a line per blow. */
@@ -197,11 +207,11 @@ export function battleRound(b, act = 'attack') {
   for (const f of [...b.team, foe].sort((x, y) => y.spd - x.spd)) {
     if (b.hp <= 0 || me.hp <= 0) break;
     if (f === foe) {
-      const up = b.team.filter((t) => t.hp > 0), t = up[Math.floor(b.r() * up.length)], d = blow(b.r, b.atk);
-      t.hp -= d; log.push(`${b.foe.name} hits ${t === me ? 'you' : t.name}: −${d}`);
+      const up = b.team.filter((t) => t.hp > 0), t = up[Math.floor(b.r() * up.length)], m = edge(b.element, t.element), d = blow(b.r, b.atk, m);
+      t.hp -= d; log.push(`${b.foe.name} hits ${t === me ? 'you' : t.name}: −${d}${edgeWord(m)}`);
     } else if (f.hp > 0 && (f !== me || act === 'attack' || special)) {
-      const twice = special && f === me, d = blow(b.r, f.atk) * (twice ? 2 : 1);
-      b.hp -= d; log.push(`${f === me ? (twice ? 'Your special move hits' : 'You hit') : `${f.name} hits`} ${b.foe.name}: −${d}`);
+      const twice = special && f === me, m = edge(f.element, b.element), d = blow(b.r, f.atk, m) * (twice ? 2 : 1);
+      b.hp -= d; log.push(`${f === me ? (twice ? 'Your special move hits' : 'You hit') : `${f.name} hits`} ${b.foe.name}: −${d}${edgeWord(m)}`);
     }
   }
   return log;

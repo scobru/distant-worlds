@@ -120,6 +120,7 @@
   <p>Turn on <b>🗡 Battles</b> in the ☰ menu and wild creatures, drawn in red, wait on some stretches of each world (the same for everyone each day).
     Reach one and you fight it: each round you both strike, the faster first. Its parts make its strength: big ones live longer, horns hit harder, more legs are faster.
     The farther from where you land, the higher their level (and one more on dying worlds). Up to 3 creatures from your home (the strongest that walk) fight at your side, and once a battle your ✨ Special move hits twice as hard.
+    Each creature has the element of its world's culture: 🔥 (desert, war, apocalyptic) burns 🌿 (jungle, temperate), which holds against 🌀 (japanese, western), which blows away ❄ (nordic, arctic), which puts out 🔥. A blow on the element it beats hits ×1.5, on the one that beats it ×0.75, so pick your home creatures well.
     🌿 Heal eats 3 plants instead of striking; worn down to a quarter of its life, a creature can be 🐾 captured (6 times in 10).
     Win and you take ore, and your battle level grows (more life, harder blows); lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
   <h3>🔭 Discover</h3>
@@ -180,7 +181,7 @@ import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterf
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, foeStats, canCapture, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -624,7 +625,7 @@ function frame(t, maxDt = 100) {
         const fx = X(f.x), s = f.size * (f.dna.scale ?? 1) * m;
         drawCreature(g, { ...f, speed: fx < w / 2 ? 1 : -1 }, fx, Y(f.x) + s * 0.05, s, { ...co, color: '#b33', accent: '#f66' });
         const lv = f.level + (inst > 0 ? 1 : 0); // dying worlds breed fiercer beasts
-        hit({ type: 'foe', name: f.dna.name, level: lv, stats: foeStats(f.dna, lv) }, fx, Y(f.x) + s * 0.05, s);
+        hit({ type: 'foe', name: f.dna.name, level: lv, stats: foeStats(f.dna, lv), element: ELEMENTS[cultureElement(W.culture)] }, fx, Y(f.x) + s * 0.05, s);
         if (near(fx) && !battle) startFight(f, co, lv);
       }
     }
@@ -825,10 +826,10 @@ function startFight(f, co, lv) {
   sfx('creature'); renderBattle(); battleDlg.showModal();
 }
 function renderBattle() {
-  const b = battle, bar = (n, max) => `<meter min="0" max="${max}" value="${Math.max(0, n)}"></meter> ${Math.max(0, n)}/${max}`;
-  document.getElementById('battleTitle').textContent = `🗡 A wild ${b.foe.name} (level ${b.level})!`;
-  document.getElementById('battleBody').innerHTML = `<p>${b.team.map((f, i) => `${i ? esc(f.name) : `You <small>(level ${battleLevel(st)})</small>`} ${bar(f.hp, f.max)}`).join('<br>')}</p>
-    <p><b>${esc(b.foe.name)}</b> ${bar(b.hp, b.max)}</p>
+  const icon = (e) => (e ? ` ${ELEMENTS[e][0]}` : ''), b = battle, bar = (n, max) => `<meter min="0" max="${max}" value="${Math.max(0, n)}"></meter> ${Math.max(0, n)}/${max}`;
+  document.getElementById('battleTitle').textContent = `🗡 A wild ${b.foe.name}${icon(b.element)} (level ${b.level})!`;
+  document.getElementById('battleBody').innerHTML = `<p>${b.team.map((f, i) => `${i ? esc(f.name) + icon(f.element) : `You <small>(level ${battleLevel(st)})</small>`} ${bar(f.hp, f.max)}`).join('<br>')}</p>
+    <p><b>${esc(b.foe.name)}${icon(b.element)}</b> ${bar(b.hp, b.max)}</p>
     <p><small>${b.log.slice(-(b.team.length + 1)).map(esc).join('<br>') || `It has attack ${b.atk} and speed ${b.spd}; you ${b.team[0].atk} and ${b.team[0].spd}.`}</small></p>`;
   document.getElementById('battleSpecial').disabled = !b.special;
   const heal = document.getElementById('battleHeal');
