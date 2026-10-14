@@ -254,6 +254,51 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   console.log('breeding ok');
 }
 {
+  // Crossing: a mill, two wild plants in the garden; one hybrid per mill a day, never the same twice.
+  const { setHome, crossAt, crossesLeft, CROSS } = await import('./atlas.js');
+  const { plantOf, makeWorld, randomSeed, rng } = await import('./world.js');
+  const st = emptyState(), wilds = [];
+  for (let k = 0; wilds.length < 3; k++) { const w = makeWorld(randomSeed(rng(k))); if (w.plants.length) wilds.push(w.plants[0].id); }
+  const [a, b, c] = wilds;
+  setHome(st, 'H', 0); st.home.garden = [a, b, c];
+  st.bag = { plant: 100, ore: 100, creature: [] };
+  assert.equal(crossAt(st, a, b, 'd1'), null, 'no mill');
+  st.home.built = [{ kind: 'windmill', x: 0 }];
+  assert.equal(crossAt(st, a, a, 'd1'), null, 'two different plants');
+  const hy = crossAt(st, b, a, 'd1');
+  assert.equal(hy, [a, b].sort().join('+'));
+  assert.ok(st.home.garden.includes(hy));
+  assert.deepEqual([st.bag.plant, st.bag.ore], [100 - CROSS.plant, 100 - CROSS.ore]);
+  assert.equal(crossesLeft(st, 'd1'), 0);
+  assert.equal(crossAt(st, a, c, 'd1'), null, 'one a day per mill');
+  assert.equal(crossAt(st, a, b, 'd2'), null, 'already grown');
+  assert.equal(crossAt(st, hy, c, 'd2'), null, 'only wild plants cross');
+  const pl = plantOf(hy);
+  assert.ok(pl.crossed && /^[A-Z][a-z]+ [a-z]+$/.test(pl.name) && pl.id === hy);
+  assert.deepEqual(plantOf([b, a].join('+')), plantOf(hy), 'the same parents, the same hybrid');
+  assert.equal(plantOf(`${hy}+${c}`), null);
+  console.log('crossing ok');
+}
+{
+  // Fusing: two working buildings of different kinds become one that is both.
+  const { setHome, fuse, FUSE, population, defence, civPoints, partsOf, buildingName, repairCost } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'H', 0); st.bag = { plant: 100, ore: 100, creature: [] };
+  st.home.built = [{ kind: 'house', x: 0 }, { kind: 'castle', x: 1 }, { kind: 'house', x: 2 }];
+  const pop = population(st.home), def = defence(st.home), pts = civPoints(st.home);
+  assert.ok(!fuse(st, 0, 2), 'different kinds');
+  assert.ok(!fuse(st, 0, 0));
+  assert.ok(fuse(st, 1, 0));
+  assert.equal(st.home.built.length, 2);
+  assert.deepEqual(partsOf(st.home.built[0]), ['castle', 'house']);
+  assert.equal(buildingName(st.home.built[0]), 'Castle-Hut');
+  assert.deepEqual([population(st.home), defence(st.home), civPoints(st.home)], [pop, def, pts + 10], 'does what both did, a new kind');
+  assert.deepEqual([st.bag.plant, st.bag.ore], [100 - FUSE.plant, 100 - FUSE.ore]);
+  assert.ok(!fuse(st, 0, 1), 'a fused building fuses no more');
+  assert.deepEqual(repairCost(st.home.built[0]), { plant: repairCost('castle').plant + repairCost('house').plant, ore: repairCost('castle').ore });
+  console.log('fusing ok');
+}
+{
   const { setHome, build, moveCost, moveHome, loseHome, evacuate } = await import('./atlas.js');
   const st = emptyState();
   setHome(st, 'A'); st.bag = { plant: 20, ore: 10, creature: ['x', 'y', 'z'] };

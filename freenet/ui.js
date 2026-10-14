@@ -4,7 +4,7 @@
 import * as net from './net.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
-import { civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
+import { partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText, raidHash, raidScore, raidKey, today } from './colony.js';
@@ -46,7 +46,7 @@ export async function start(app) {
     homeTimer = setTimeout(async () => {
       const H = app.st().home;
       if (!H || !me || !nick || level() < COLONY_BITS) return;
-      const built = H.built.slice(-64).map((b) => [b.kind, Math.round(b.x * 100)]), animals = H.animals.filter((id) => !id.includes('+')).slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
+      const built = H.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = H.animals.filter((id) => !id.includes('+')).slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
       if (key === lastHome && galaxy.homes?.[me]) return;
       try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, ante: anteHex() }) }; lastHome = key; }
       catch (e) { console.warn('home publish failed:', e); }

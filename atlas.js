@@ -33,7 +33,7 @@ export const ACHIEVEMENTS = [
   ['Settler', 'Choose a home planet', (st) => !!st.home],
   ['Founder', 'Grow your home into a village', (st) => civLevel(st.home) >= 3],
   ['Mayor', 'Grow your home into a city', (st) => civLevel(st.home) >= 6],
-  ['Architect', 'Build every kind of building', (st) => Object.keys(BUILDINGS).every((k) => st.home?.built.some((b) => b.kind === k))],
+  ['Architect', 'Build every kind of building', (st) => Object.keys(BUILDINGS).every((k) => st.home?.built.some((b) => partsOf(b).includes(k)))],
   ['Rancher', 'Bring 10 creatures home', (st) => (st.home?.animals.length ?? 0) >= 10],
 ];
 /** Runs `change` and returns the achievements it unlocked. */
@@ -161,7 +161,10 @@ export const BUILDINGS = {
 };
 // Buildings come as { kind } here and as [kind, x] in homes published on Freenet.
 // Damaged buildings (pirates) shelter, feed and count for nothing until repaired.
-const kinds = (home) => (home?.built ?? []).filter((b) => !b.damaged).map((b) => b.kind ?? b[0]).filter((k) => BUILDINGS[k]);
+// A fused building ({ kind, fused }) is both kinds at once; Freenet homes publish it as two entries.
+export const partsOf = (b) => [b.kind ?? b[0], ...(b.fused ? [b.fused] : [])];
+export const buildingName = (b) => partsOf(b).map((k) => BUILDINGS[k].name).join('-');
+const kinds = (home) => (home?.built ?? []).filter((b) => !b.damaged).flatMap(partsOf).filter((k) => BUILDINGS[k]);
 // What the land around the landing site feeds without farms.
 export const BASE_FOOD = 6;
 /** People living at home: as many as the buildings shelter, but no more than they can feed. */
@@ -171,14 +174,15 @@ export function population(home) {
   const sum = (f) => k.reduce((a, x) => a + (BUILDINGS[x][f] ?? 0), 0);
   return Math.min(sum('house'), BASE_FOOD + sum('food'));
 }
-/** Civilization points: people, what was built (its cost), the variety of buildings, creatures. */
+/** Civilization points: people, what was built (its cost), the variety of buildings (each kind of fusion too), creatures. */
 export function civPoints(home) {
   const k = kinds(home), c = (x) => (BUILDINGS[x].cost.plant ?? 0) + (BUILDINGS[x].cost.ore ?? 0);
-  return population(home) * 5 + k.reduce((a, x) => a + c(x), 0) + new Set(k).size * 10 + (home?.animals.length ?? 0) * 3;
+  const fused = new Set((home?.built ?? []).filter((b) => b.fused && !b.damaged).map((b) => partsOf(b).sort().join('+')));
+  return population(home) * 5 + k.reduce((a, x) => a + c(x), 0) + (new Set(k).size + fused.size) * 10 + (home?.animals.length ?? 0) * 3;
 }
 /** Civilization level, from 1: each level needs more points than the one before. */
 export const civLevel = (home) => 1 + Math.floor(Math.sqrt(civPoints(home) / 20));
-const builtOf = (st, k) => st.home?.built.filter((b) => b.kind === k && !b.damaged).length ?? 0;
+const builtOf = (st, k) => st.home?.built.filter((b) => partsOf(b).includes(k) && !b.damaged).length ?? 0;
 // +1 per building of that kind, at most +3 (creatures: at most one extra)
 export const gatherBonus = (st, kind) => Math.min(kind === 'creature' ? 1 : 3,
   Object.entries(BUILDINGS).filter(([, b]) => b.gather === kind).reduce((a, [k]) => a + builtOf(st, k), 0));
@@ -189,7 +193,7 @@ export const jumpDiscount = (st) => Math.min(0.5, builtOf(st, 'tower') * BUILDIN
 export function produce(st, now) {
   const H = st.home, hours = Math.min(24, Math.max(0, (now - (H.prod ?? now)) / 3.6e6)), got = { plant: 0, ore: 0, fuel: 0 };
   H.prod = now;
-  for (const b of H.built) if (!b.damaged) for (const [r, n] of Object.entries(BUILDINGS[b.kind].hour ?? {})) got[r] += n * hours;
+  for (const k of kinds(H)) for (const [r, n] of Object.entries(BUILDINGS[k].hour ?? {})) got[r] += n * hours;
   // workers: +2% plants and ore per inhabitant, at most double
   const work = 1 + Math.min(1, population(H) / 50);
   got.plant *= work; got.ore *= work;
@@ -290,10 +294,11 @@ export function besieged(st, crew, at, key) {
   if (!H || at < (H.since ?? 0) + PIRATES.grace || at < (H.shield ?? 0)) return null;
   return fight(st, { at, crew }, key);
 }
-/** Repairing a damaged building costs half of building it. */
-export const repairCost = (kind, g = 1) => { const c = costOf(kind, g); return { plant: Math.ceil(c.plant / 2), ore: Math.ceil(c.ore / 2) }; };
+/** Repairing a damaged building (a kind, or a built one: a fused one costs both) costs half of building it. */
+export const repairCost = (b, g = 1) => (typeof b === 'string' ? [b] : partsOf(b)).map((k) => costOf(k, g))
+  .reduce((a, c) => ({ plant: a.plant + Math.ceil(c.plant / 2), ore: a.ore + Math.ceil(c.ore / 2) }), { plant: 0, ore: 0 });
 export function repair(st, i, g = 1) {
-  const b = st.home.built[i], c = b?.damaged && repairCost(b.kind, g);
+  const b = st.home.built[i], c = b?.damaged && repairCost(b, g);
   if (!c || st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
   st.bag.plant -= c.plant; st.bag.ore -= c.ore; delete b.damaged;
   return true;
@@ -314,6 +319,33 @@ export function breedAt(st, a, b, day) {
   const id = [a, b].sort().join('+');
   H.animals.push(id);
   return id;
+}
+
+// Crossing: each working mill lets two wild plant species sown in the garden give a hybrid a day (world.js
+// crossPlant), for plants and ore. The hybrid is sown in the garden too.
+export const CROSS = { plant: 8, ore: 4 };
+export const crossesLeft = (st, day) => builtOf(st, 'windmill') - (st.home.crossed?.day === day ? st.home.crossed.n : 0);
+/** Crosses plant species `a` and `b` (wild, both in the garden) on `day`; returns the hybrid's id, or null (also if already grown). */
+export function crossAt(st, a, b, day) {
+  const H = st.home, g = (H.garden ??= []), id = [a, b].sort().join('+');
+  if (a === b || !wild(a) || !wild(b) || !g.includes(a) || !g.includes(b) || g.includes(id)) return null;
+  if (crossesLeft(st, day) < 1 || st.bag.plant < CROSS.plant || st.bag.ore < CROSS.ore) return null;
+  st.bag.plant -= CROSS.plant; st.bag.ore -= CROSS.ore;
+  H.crossed = { day, n: (H.crossed?.day === day ? H.crossed.n : 0) + 1 };
+  g.push(id);
+  return id;
+}
+
+// Fusing: two working buildings of different kinds become one that does what both did, where the first stood.
+// A new pair counts as a new kind for the civilization; a raid on it damages both halves.
+export const FUSE = { plant: 10, ore: 10 };
+export function fuse(st, i, j) {
+  const H = st.home, a = H.built[i], b = H.built[j];
+  if (i === j || !a || !b || a.fused || b.fused || a.damaged || b.damaged || a.kind === b.kind) return false;
+  if (st.bag.plant < FUSE.plant || st.bag.ore < FUSE.ore) return false;
+  st.bag.plant -= FUSE.plant; st.bag.ore -= FUSE.ore;
+  a.fused = b.kind; H.built.splice(j, 1);
+  return true;
 }
 
 // Exodus: a home whose world is dying can move, buildings and creatures included, for a price per building.
