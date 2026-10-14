@@ -133,6 +133,8 @@
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
     and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
+  <p>🚀 <b>Fleet</b>: each Stable or Workshop gives a ship (up to 3). From 🏗 Build send one to a world you have visited (fuel by distance, 1-4 hours):
+    it gathers plants and ore there, sometimes a new plant, and brings them back even while the game is closed. Dying worlds give more, but may take the ship.</p>
   <p>🧬 <b>Breeding</b>: each Stable at home lets two species living there have a young one a day (🌿10 ⛏5). It takes each part from one parent,
     sometimes something new, and joins your bestiary and your home; it can breed in turn, up to 3 generations from the wild. The same parents always give the same young.</p>
   <p>🌸 <b>Crossing</b>: each Mill lets two wild plant species of your garden give a hybrid a day (🌿8 ⛏4): it grows in your garden and goes into your herbarium.
@@ -164,7 +166,7 @@ import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, i
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -251,7 +253,8 @@ function load() {
   if (st.home?.seed === seed) {
     let n, got;
     let sown, raids;
-    const ach = withAchievements(st, () => { n = arriveHome(st); sown = sow(st); raids = pirates(st, Date.now()); got = produce(st, Date.now()); });
+    let fleet;
+    const ach = withAchievements(st, () => { n = arriveHome(st); fleet = fleetBack(st, Date.now()); sown = sow(st); raids = pirates(st, Date.now()); got = produce(st, Date.now()); });
     const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
     save(); if (n || sown) fn?.homeChanged();
     const when = (r) => new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -259,7 +262,7 @@ function load() {
       : `☠ Pirates raided your home at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}.${r.damaged ? ` Your ${BUILDINGS[r.damaged].name} was damaged: repair it from 🏗 Build.` : ''} They will leave you alone for a day.`),
       n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in your garden`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
       got.eaten && `👥 Your people ate 🌿${got.eaten}`, got.starved && `💀 ${got.starved} of your people starved: bring plants home (🌿 in your bag) to feed them. The empty homes fill again once everyone eats.`,
-      ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
+      ...fleetLines(fleet), ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   checkHome(); ev = null; checkEvent();
   // the world before this one on the same star: its ruins, a surviving species, homes built there
@@ -793,6 +796,8 @@ homeBtn.onclick = () => {
     const ach = withAchievements(st, () => { setHome(st, world.seed, Date.now()); arriveHome(st); sow(st); });
     save(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); toast(ach.map((a) => `🏆 Achievement: ${a}`));
   } else if (st.home.seed !== world.seed) { location.hash = st.home.seed; return; }
+  const back = fleetBack(st, Date.now()); // ships that landed while you were here
+  if (back.length) { save(); toast(fleetLines(back)); }
   renderBuild(); buildDlg.showModal();
 };
 const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
@@ -838,6 +843,20 @@ function fuseHtml(H) {
     <button id="fuseBtn">Fuse 🌿${FUSE.plant} ⛏${FUSE.ore}</button>
     <small>One building that does what both did, where the first stands. A new pair counts as a new kind; a raid damages both halves.</small></p>`;
 }
+// Ships back from their voyages, as toast lines.
+const fleetLines = (back) => back.map((s) => s.lost ? `🚀💥 Your ship to ${esc(makeWorld(s.seed).name)} was lost: that world was falling apart.`
+  : `🚀 Your ship came back from ${esc(makeWorld(s.seed).name)} with 🌿${s.plant} ⛏${s.ore}${s.species ? `${s.isNew ? ' and a new plant' : ' and'} ${esc(s.species.name)}${s.isNew ? ' (in your herbarium, its seeds in your bag)' : ''}` : ''}`);
+function fleetHtml(H) {
+  const n = fleetSize(st), out = st.fleet ?? [], free = n - out.length, eta = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (!n) return '<p><small>🚀 Build a Stable or a Workshop: each gives a ship (up to 3) to send gathering on worlds you have visited.</small></p>';
+  const targets = st.stars.filter((s) => s !== H.seed && !ageOf(s)?.dead).slice(-12).reverse();
+  return `<h3>🚀 Fleet <small>${free}/${n} ships at home</small></h3>
+    ${out.length ? `<ul>${out.map((s) => `<li>To <b>${esc(makeWorld(s.seed).name)}</b>, back at ${eta(s.back)}</li>`).join('')}</ul>` : ''}
+    <p><small>A ship gathers plants and ore on a world you have visited (sometimes a new plant) and brings them back, even while the game is closed. Farther worlds take longer and cost more fuel; dying worlds give more but may take the ship.</small></p>
+    ${targets.length ? `<ul>${targets.map((s) => { const v = voyage(st, s), w = makeWorld(s), life = ageOf(s);
+      return `<li><button data-ship="${esc(s)}"${free > 0 && st.fuel >= v.fuel ? '' : ' disabled'}>Send ⚡${v.fuel}</button> <b>${esc(w.name)}</b> <small style="display:inline">${v.hours} h${life && instability(life.age) ? ' · ⚠ dying' : ''}</small></li>`; }).join('')}</ul>`
+      : '<p><small>Visit other worlds first: ships fly only to stars you know.</small></p>'}`;
+}
 function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
@@ -847,6 +866,7 @@ function renderBuild() {
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
+    ${fleetHtml(H)}
     ${breedHtml(H)}
     ${crossHtml(H)}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
@@ -854,6 +874,11 @@ function renderBuild() {
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
     <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;
+  buildDlg.querySelectorAll('[data-ship]').forEach((b) => (b.onclick = () => {
+    if (!sendShip(st, b.dataset.ship, Date.now())) return toast(['No free ship, or not enough fuel.']);
+    save(); renderBuild(); sfx('pickup');
+    toast([`🚀 A ship left for ${esc(makeWorld(b.dataset.ship).name)}.`]);
+  }));
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();
     save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();

@@ -1,6 +1,6 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
-import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf } from './world.js';
+import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf, makeWorld, ageOf, instability, sectorOf, GALAXY } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
@@ -221,6 +221,44 @@ const builtOf = (st, k) => st.home?.built.filter((b) => partsOf(b).includes(k) &
 // +1 per building of that kind, at most +3 (creatures: at most one extra)
 export const gatherBonus = (st, kind) => Math.min(kind === 'creature' ? 1 : 3,
   Object.entries(BUILDINGS).filter(([, b]) => b.gather === kind).reduce((a, [k]) => a + builtOf(st, k), 0));
+// Fleet: each stable or workshop at home gives a ship (at most 3). A ship flies to a star you have visited,
+// gathers there for 1-4 hours (farther is longer and costs more fuel) and brings back plants, ore and
+// maybe a new plant species, collected when you come home. Dying worlds give more, but may take the ship.
+export const FLEET = { max: 3 };
+export const fleetSize = (st) => Math.min(FLEET.max, builtOf(st, 'longhouse') + builtOf(st, 'factory'));
+/** Fuel and hours for a ship from home to `seed`. */
+export function voyage(st, seed) {
+  const fuel = jumpCost(sectorOf(st.home.seed), sectorOf(seed), GALAXY);
+  return { fuel, hours: 1 + Math.round((3 * (fuel - 20)) / 80) };
+}
+/** Sends a ship to `seed`; false without a free ship or the fuel. */
+export function sendShip(st, seed, now) {
+  const v = voyage(st, seed);
+  if (seed === st.home?.seed || (st.fleet ??= []).length >= fleetSize(st) || (st.fuel ?? FUEL.max) < v.fuel) return false;
+  st.fuel -= v.fuel;
+  st.fleet.push({ seed, at: now, back: now + v.hours * 3.6e6 });
+  return true;
+}
+/** What a ship's voyage brings back (the same voyage always gives the same): { plant, ore, species, lost }. */
+export function shipLoot(s) {
+  const w = makeWorld(s.seed), r = rngFrom(`fleet:${s.seed}:${s.at}`), life = ageOf(s.seed, s.back);
+  const risk = life ? (life.dead ? 1 : instability(life.age)) : 0, rich = 1 + risk, hours = (s.back - s.at) / 3.6e6;
+  if (r() < risk * 0.5) return { lost: true };
+  return { plant: Math.round((3 + r() * 4) * hours * rich), ore: Math.round((1 + r() * 3) * hours * rich), species: w.plants.length && r() < 0.5 ? w.plants[Math.floor(r() * w.plants.length)] : null };
+}
+/** Ships back by `now`: their loot goes to the bag (and new plants to the herbarium); returns [{ seed, ...loot, isNew }]. */
+export function fleetBack(st, now) {
+  const back = (st.fleet ?? []).filter((s) => s.back <= now);
+  st.fleet = (st.fleet ?? []).filter((s) => s.back > now);
+  return back.map((s) => {
+    const l = shipLoot(s);
+    if (l.lost) return { seed: s.seed, lost: true };
+    st.bag.plant += l.plant; st.bag.ore += l.ore;
+    const isNew = !!l.species && findPlant(st, l.species, makeWorld(s.seed)).isNew;
+    if (isNew && !st.home?.garden?.includes(l.species.id)) (st.bag.seeds ??= []).push(l.species.id);
+    return { seed: s.seed, ...l, isNew };
+  });
+}
 // each tower takes 10% off jumps, at most 50%
 export const jumpDiscount = (st) => Math.min(0.5, builtOf(st, 'tower') * BUILDINGS.tower.jump);
 
