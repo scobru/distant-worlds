@@ -5,7 +5,7 @@ import * as net from './net.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
 import { partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
-import { textOk, CHAT_BITS } from './chat.js';
+import { textOk, CHAT_BITS, CHAT_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText, raidHash, raidScore, raidKey, today } from './colony.js';
 
@@ -303,7 +303,7 @@ export async function start(app) {
   const log = document.getElementById('chatLog'), form = document.getElementById('chatForm'), input = document.getElementById('chatText');
   let chat = { messages: {} }, seen = 0, open = false;
   try { open = localStorage.getItem('dw-chat-open') === '1'; } catch { /* sandbox */ }
-  const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000).sort((a, b) => a.ts - b.ts).slice(-100);
+  const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000 && m.ts > Date.now() - CHAT_LIVE).sort((a, b) => a.ts - b.ts).slice(-100);
   const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   function card(world) {
     const [seed, pos] = world.split('@'), w = makeWorld(seed), col = colonyOf(seed);
@@ -313,10 +313,10 @@ export async function start(app) {
     const msgs = visible(), atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     const av = (p) => { const u = avatar(p, renderChat); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
     log.innerHTML = msgs.map((m) => `<li>${av(m.persona)}<b style="color:hsl(${hueOf(m.persona)} 80% 70%)">${app.esc(m.nick)}</b> <small>${time(m.ts)}</small><br>${app.esc(m.text).replace(/\n/g, '<br>')}${m.world ? card(m.world) : ''}</li>`).join('')
-      || '<li><small>No messages yet. Say hello, or share the world you are on.</small></li>';
+      || '<li><small>Nobody spoke in the last 15 minutes: the chat is live, old messages fade. Say hello, or share the world you are on.</small></li>';
     if (atBottom || !open) log.scrollTop = log.scrollHeight;
-    if (open) seen = msgs.length;
-    const unread = Math.max(0, msgs.length - seen);
+    if (open) seen = msgs.at(-1)?.ts ?? seen;
+    const unread = msgs.filter((m) => m.ts > seen).length;
     chatBtn.textContent = unread ? `💬 Chat (${unread})` : '💬 Chat';
   }
   function setOpen(o) {
@@ -347,6 +347,7 @@ export async function start(app) {
   };
   log.addEventListener('click', (e) => { if (e.target.closest('a.card') && innerWidth < 640) setOpen(false); });
   net.onUpdate(refreshChat);
+  setInterval(renderChat, 60_000); // old messages fade out
   await refreshChat();
   setOpen(open);
 

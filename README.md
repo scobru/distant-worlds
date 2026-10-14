@@ -46,14 +46,14 @@ The same app can be published on [Freenet](https://freenet.org). There it become
 - **Homes**: once signed in (level ≥ 20), your home planet is published to the galaxy contract: whoever lands there sees your buildings and creatures, with your name and civilization title. The newest signed home of each persona wins; a home holds at most 64 buildings and 64 creatures.
 - **Sieges** (⚔): land on another explorer's home and press **⚔ Besiege** (⚡20 ⛏10). Stay there: a second miner, bound to that home and the day (`sha256("dwr1|target|attacker|day|lane|nonce")`), measures the siege; every 2 minutes of it is one raider. **Attack** publishes the raid, signed, to the galaxy contract (at least the work of a colony, one raid per attacker, home and day, a longer siege replaces a shorter one). Raiders against the home's defence (castles, towers, people, creatures, as published) decide it: the attacker takes ore, or the defence holds. The defender's browser fights each new raid like a pirate raid (a building damaged and a day of shield, or ore), new homes are spared for 3 days. Homes marked **🕊 Peaceful** neither besiege nor get besieged, except for a day after their owner besieged someone.
 - **Leaderboard** (🏆): explorers ranked by civilization level (computed from their published home: people, buildings, creatures), then colonies held and time invested, read straight from the contract; your rank even outside the top 20, and each explorer's planets, one click away.
-- **Galaxy chat**: a hideable side panel (💬 Chat, with an unread count). Messages are signed for your persona; the Viso level is the anti-spam, so sending is instant. **🌍 Share world** posts the world you are on as a card (name, rarity, era, colonist) that takes whoever clicks it to the same spot, for free.
+- **Galaxy chat**: a hideable side panel (💬 Chat, with an unread count). It is live, not an archive: only the last 15 minutes are shown, and the contract keeps just a small relay buffer (newest 3 per persona, 50 overall), so nothing piles up on Freenet. Messages are signed for your persona; the Viso level is the anti-spam, so sending is instant. **🌍 Share world** posts the world you are on as a card (name, rarity, era, colonist) that takes whoever clicks it to the same spot, for free.
 
 How time is measured: for each of 8 lanes the miner keeps the lowest `sha256("dwc1|seed|persona|lane|nonce")`. The sum of their top 64 bits shrinks as work accumulates, so it estimates the hashes spent (about 64·2⁶⁴ / sum). Lanes are bound to the planet and the persona, so time cannot be moved elsewhere. The contract keeps the lowest sum per planet; equal sums fall back to the colonist's newer update, so every merge order converges.
 
 | Part | What it is |
 | --- | --- |
 | `contract/` | Rust galaxy contract: `seed → colony {persona, name, nick, x, ts, nonces, ante, sig, cert}`, plus homes, sieges (`raids`) and common names (`names`, species or plant id → first name). Checks the Viso delegation (`whoiam-delegation`, from FreeNames), the signature, the minimum work and the persona level (`viso-ante`, ≥ 20 bits). Admin-signed blocklist (`dwb1\|ts\|list`) hides stars or personas. Parameters = admin ed25519 key (`ADMIN` in `freenet/net.js`, the FreeNames / FreeTunes admin key) ‖ app path. |
-| `chat/` | Rust chat contract: messages signed like colonies, persona level ≥ 16 bits, newest 20 per persona and 500 overall; the admin blocklist removes personas. |
+| `chat/` | Rust chat contract: messages signed like colonies, persona level ≥ 16 bits, a small live buffer (newest 3 per persona, 50 overall; clients show the last 15 minutes); the admin blocklist removes personas. |
 | `freenet/chat.js` | Chat rules in JS. |
 | `freenet/viso.js` | Reads a Viso persona (contract address, signed slots, profile, avatar, `ante` level) and builds a level for a key held here. Checked against vectors made with viso-core / viso-ante (`freenet/viso.vector.json`). |
 | `freenet/colony.js` | Colony rules in JS and the time miner. Shares a test vector with the contract. |
@@ -73,7 +73,7 @@ Known limits:
 - Homes are self-declared: resources are gathered in the browser, so a modified client can publish a bigger home than it earned. The contract only bounds it (64 buildings, 64 creatures, signed, persona level ≥ 20).
 - The admin can hide stars or personas; changing the admin key, the app path or the contract creates a new, empty galaxy.
 - Colonies are public and permanent on the network (no global delete).
-- Chat times are the authors' own (no trusted clock): clients hide messages from the future, and each persona keeps at most 20 messages, which bounds what fake times can do.
+- Chat times are the authors' own (no trusted clock): clients hide messages from the future, and each persona keeps at most 3 messages, which bounds what fake times can do.
 - On a node that does not have the contracts yet, the first visitor waits about 5 s while they are created.
 
 ### Build and publish
@@ -99,7 +99,7 @@ Admin: open the app with `?admin`; the Atlas then shows a button to sign and sen
 
 ## Web version (SQLite)
 
-The same multiplayer game without Freenet: a small Node server keeps the galaxy (colonies, homes, sieges, blocklist) and the chat in a SQLite file, using Node's built-in `node:sqlite` (Node 22.13+, no new dependency).
+The same multiplayer game without Freenet: a small Node server keeps the galaxy (colonies, homes, sieges, blocklist) and the chat (the same small live buffer) in a SQLite file, using Node's built-in `node:sqlite` (Node 22.13+, no new dependency).
 
 - Same records, same rules: `web/db.js` ports the contracts' checks (signatures, the whoiam delegation, the persona level, the proof of work, limits) and merge rules, so the client code (`freenet/ui.js`) is unchanged. `web/net.js` replaces `freenet/net.js` in the web build (`vite --mode web`).
 - No Viso: explorers create or import a key in the game (kept in `localStorage`, backed up from the Atlas). Its level is built in the browser as on Freenet.
