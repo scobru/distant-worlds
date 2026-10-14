@@ -41,7 +41,7 @@ export function describe(e, w, known) {
     lines: [{ fuel: '+15 fuel for the hyperdrive.', time: 'Your time on this planet runs ×3 for 90 s (3 a day per planet).', map: 'Your next jump to a new star costs half.', page: 'The next page of her story.' }[e.kind],
       e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
   };
-  if (e.type === 'foe') return { title: `🗡 Wild ${e.name}`, lines: [`Life ${e.stats.hp} · attack ${e.stats.atk} · speed ${e.stats.spd}.`, 'Walk up to it to fight.'] };
+  if (e.type === 'foe') return { title: `🗡 Wild ${e.name} · level ${e.level}`, lines: [`Life ${e.stats.hp} · attack ${e.stats.atk} · speed ${e.stats.spd}.`, 'Walk up to it to fight.'] };
   if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.', e.damaged && 'Damaged by pirates: repair it from 🏗 Build.'].filter(Boolean) };
   if (e.type === 'pet') return { title: e.dna.name, lines: [named(known, e.dna.id), e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', e.dna.bred ? 'Bred in a stable.' : '', e.dna.flyer ? FLYER[e.dna.flyer]?.[0] ?? '' : parts(e.dna)] };
   if (e.type === 'citizen') return { title: '👥 Inhabitant', lines: [e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet. Each one eats plants: keep the bag stocked, or some starve.'] };

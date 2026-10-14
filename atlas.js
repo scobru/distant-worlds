@@ -164,32 +164,42 @@ export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.
 // once, the fastest first (your side on a tie); the creature hits one of you at random. Stats come from
 // a creature's parts: size gives life and strength, horns hit harder, legs and pace are speed.
 // Your level grows with the battles you win: more life and a harder blow.
-export const BATTLE = { hp: 34, atk: 7, spd: 5, flee: 5, party: 3 };
-export const foeStats = (sp) => ({
-  hp: Math.round(8 + 10 * sp.scale + (sp.tail === 'bushy' ? 3 : 0)),
-  atk: Math.round(2 + 2 * sp.scale + (sp.extra === 'horns' ? 3 : 0) + (sp.head === 'long' ? 1 : 0)),
+// Wild creatures grow stronger far from the arrival point and on dying worlds (their level).
+// 🌿 Heal spends plants instead of your blow; a creature worn down to a quarter can be captured.
+export const BATTLE = { hp: 34, atk: 7, spd: 5, flee: 5, party: 3, heal: { plant: 3, hp: 15 }, capture: 0.6 };
+export const foeStats = (sp, lv = 1) => ({
+  hp: Math.round((8 + 10 * sp.scale + (sp.tail === 'bushy' ? 3 : 0)) * (1 + 0.4 * (lv - 1))),
+  atk: Math.round((2 + 2 * sp.scale + (sp.extra === 'horns' ? 3 : 0) + (sp.head === 'long' ? 1 : 0)) * (1 + 0.25 * (lv - 1))),
   spd: sp.legs + Math.round(sp.pace * 2) - (sp.neck === 'long' ? 1 : 0),
 });
 export const battleLevel = (st) => 1 + Math.floor(Math.sqrt(st.wins ?? 0));
 /** The strongest walking creatures of your home fight at your side. */
 export const battleParty = (st) => (st.home?.animals ?? []).map(speciesOf).filter((sp) => sp?.legs)
   .sort((a, b) => { const x = foeStats(a), y = foeStats(b); return y.hp + 3 * y.atk - x.hp - 3 * x.atk; }).slice(0, BATTLE.party);
-export function startBattle(sp, seed, allies = [], level = 1) {
-  const s = foeStats(sp), me = { name: 'You', hp: BATTLE.hp + 3 * (level - 1), atk: BATTLE.atk + level - 1, spd: BATTLE.spd };
-  const team = [me, ...allies.map((a) => ({ name: a.name, ...foeStats(a) }))].map((f) => ({ ...f, max: f.hp }));
-  return { foe: sp, ...s, max: s.hp, team, special: true, r: rng(seed) };
+export function startBattle(sp, seed, allies = [], level = 1, foeLevel = 1) {
+  const s = foeStats(sp, foeLevel), me = { name: 'You', hp: BATTLE.hp + 3 * (level - 1), atk: BATTLE.atk + level - 1, spd: BATTLE.spd };
+  const team = [me, ...allies.map((a) => { const s = foeStats(a); return { name: a.name, ...s, atk: Math.ceil(s.atk / 2) }; })].map((f) => ({ ...f, max: f.hp }));
+  return { foe: sp, level: foeLevel, ...s, max: s.hp, team, special: true, r: rng(seed) };
 }
 const blow = (r, atk) => Math.max(1, Math.round(atk * (0.7 + r() * 0.6)));
-/** One round of battle `b` (`special`: your once-a-battle double blow); returns a line per blow. */
-export function battleRound(b, special = false) {
-  const log = [], foe = { spd: b.spd }, me = b.team[0];
-  special &&= b.special; b.special &&= !special;
+export const canCapture = (b) => b.hp > 0 && b.hp <= b.max / 4;
+/** One round of battle `b`; `act`: 'attack', 'special' (once a battle, a double blow), 'heal' (the caller pays
+ *  the plants) or 'capture' (instead of your blow; sets b.caught). Returns a line per blow. */
+export function battleRound(b, act = 'attack') {
+  const log = [], foe = { spd: b.spd }, me = b.team[0], special = act === 'special' && b.special;
+  if (special) b.special = false;
+  if (act === 'heal') { const n = Math.min(BATTLE.heal.hp, me.max - me.hp); me.hp += n; log.push(`You eat some plants: +${n}`); }
+  if (act === 'capture') {
+    b.caught = canCapture(b) && b.r() < BATTLE.capture;
+    if (b.caught) return [`You captured ${b.foe.name}!`];
+    log.push(`${b.foe.name} breaks free`);
+  }
   for (const f of [...b.team, foe].sort((x, y) => y.spd - x.spd)) {
     if (b.hp <= 0 || me.hp <= 0) break;
     if (f === foe) {
       const up = b.team.filter((t) => t.hp > 0), t = up[Math.floor(b.r() * up.length)], d = blow(b.r, b.atk);
       t.hp -= d; log.push(`${b.foe.name} hits ${t === me ? 'you' : t.name}: −${d}`);
-    } else if (f.hp > 0) {
+    } else if (f.hp > 0 && (f !== me || act === 'attack' || special)) {
       const twice = special && f === me, d = blow(b.r, f.atk) * (twice ? 2 : 1);
       b.hp -= d; log.push(`${f === me ? (twice ? 'Your special move hits' : 'You hit') : `${f.name} hits`} ${b.foe.name}: −${d}`);
     }
