@@ -107,4 +107,10 @@ npm start                            # http://localhost:8080 (env: PORT, DB=dist
 npm start & npm run dev:web          # http://localhost:5173
 ```
 
+With Docker (the database lives in the `data` volume):
+
+```bash
+docker compose up -d --build         # http://localhost:8080 (PORT and APP_PATH from the environment or .env)
+```
+
 Known limits: the server trusts no one more than the contracts did (same self-declared homes and honest-rate miner), and the database has to be backed up like any file. Behind a sub-path set `APP_PATH` (e.g. `/dw/`, with the trailing slash): it is part of every explorer's delegation, so changing it invalidates every key signed in so far (explorers have to sign in again).
