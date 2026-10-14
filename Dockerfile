@@ -16,7 +16,8 @@ COPY web web
 COPY freenet/*.js freenet/
 # every root module, so a new import from web/ or freenet/ cannot be left out of the image
 COPY *.js ./
-USER node
 VOLUME /data
 EXPOSE 8080
-CMD ["node", "web/server.js"]
+# A host directory mounted at /data (CapRover persistent directories, bind mounts) belongs to root:
+# hand it to the node user, then drop root before starting the server.
+CMD ["sh", "-c", "chown -R node:node /data && exec setpriv --reuid=node --regid=node --init-groups node web/server.js"]

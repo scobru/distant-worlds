@@ -9,7 +9,10 @@ import { open } from './db.js';
 
 const ADMIN = process.env.ADMIN ?? '4498bd4c2ab992afa152bc9b968e246cf70dc4fa5a670b23c33e73b8516ce9f3'; // as freenet/net.js
 const APP = process.env.APP_PATH ?? '/', DIST = path.resolve(process.env.DIST ?? 'dist');
-const db = open(process.env.DB ?? 'distant-worlds.sqlite', { admin: ADMIN, app: APP });
+const DB = path.resolve(process.env.DB ?? 'distant-worlds.sqlite');
+let db;
+try { fs.mkdirSync(path.dirname(DB), { recursive: true }); db = open(DB, { admin: ADMIN, app: APP }); }
+catch (e) { console.error(`Cannot open the database ${DB} (${e.message}): its folder must exist and be writable by this process (uid ${process.getuid?.()}).`); process.exit(1); }
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 const clients = new Set();
 const notify = (what) => clients.forEach((res) => res.write(`data: ${what}\n\n`));
