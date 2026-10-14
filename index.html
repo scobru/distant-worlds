@@ -873,8 +873,8 @@ function renderBuild() {
     ${crossHtml(H)}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
-    ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
-    <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
+    ${H.built.length ? `<h3>Your buildings</h3><p><small>Nearest first. Walk to the spot you want, then move a building there.</small></p>
+    <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;
   buildDlg.querySelectorAll('[data-ship]').forEach((b) => (b.onclick = () => {
     if (!sendShip(st, b.dataset.ship, Date.now())) return toast(['No free ship, or not enough fuel.']);
