@@ -115,7 +115,7 @@ npm start                            # http://localhost:8080 (env: PORT, DB=dist
 npm start & npm run dev:web          # http://localhost:5173
 ```
 
-With Docker (the database lives in the `data` volume):
+With Docker (the database lives in the `data` volume; CapRover uses the same `Dockerfile` through `captain-definition`: give the app a persistent directory mounted at `/data` and container port 8080):
 
 ```bash
 docker compose up -d --build         # http://localhost:8080 (PORT and APP_PATH from the environment or .env)
