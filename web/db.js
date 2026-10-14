@@ -14,7 +14,7 @@ import { cborDecode, anteBits } from '../freenet/viso.js';
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 const enc = new TextEncoder();
 const BUILDINGS = ['house', 'windmill', 'longhouse', 'factory', 'temple', 'castle', 'tower', 'dome'];
-const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000 }, MAX_MESSAGES = 500, MAX_PER_PERSONA = 20;
+const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000 }, MAX_MESSAGES = 50, MAX_PER_PERSONA = 3;
 const EMPTY_BLOCK = { ts: 0, list: [], sig: '' };
 
 // ---------------------------------------------------------------- field checks (as in the contracts)
