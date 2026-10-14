@@ -349,3 +349,29 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(trade(st, { give: { plant: 1 }, get: { creature: 1 } }, 'v1-1_1_1#0') && st.bag.creature[0] === 'v1-1_1_1#0');
   console.log('trade ok');
 }
+
+// Expedition: same stages for everyone in a season, done in order, a badge at the end.
+{
+  const { expedition, checkExpedition, learn, EXPEDITION, SEASON, emptyState: es, ACHIEVEMENTS: A } = await import('./atlas.js');
+  const { EPOCH, CONCEPTS } = await import('./world.js');
+  const t = EPOCH + 3 * SEASON + 1000, ex = expedition(t);
+  assert.equal(ex.id, 3);
+  assert.deepEqual(ex, expedition(t + SEASON - 2000), 'same season, same stages');
+  assert.notDeepEqual(ex.stages, expedition(t + SEASON).stages);
+  assert.equal(ex.stages.length, EXPEDITION.stages);
+  const s = es(), fake = (g) => ({ traits: Object.fromEntries(g) });
+  assert.equal(checkExpedition(s, fake(ex.stages[1]), t), null, 'stage 2 before stage 1 does not count');
+  for (let i = 0; i < ex.stages.length; i++) assert.deepEqual(checkExpedition(s, fake(ex.stages[i]), t), { stage: i + 1, done: i === ex.stages.length - 1 });
+  assert.deepEqual(s.expeditions, [4]);
+  assert.equal(checkExpedition(s, fake(ex.stages[0]), t), null, 'nothing left this season');
+  assert.ok(A.find(([n]) => n === 'Pathfinder')[2](s));
+  // Languages: words per language, capped; uninhabited worlds teach nothing.
+  const l = es();
+  assert.equal(learn(l, { civ: 'uninhabited', culture: 'nordic' }, 1), 0);
+  assert.equal(learn(l, { civ: 'humans', culture: 'nordic' }, 2), 2);
+  assert.equal(learn(l, { civ: 'aliens', culture: 'nordic' }, 1), 1);
+  assert.deepEqual(l.words, { nordic: 2, alien: 1 });
+  learn(l, { civ: 'ruins', culture: 'nordic' }, 99);
+  assert.equal(l.words.nordic, CONCEPTS.length);
+  assert.ok(A.find(([n]) => n === 'Polyglot')[2](l));
+}
