@@ -1,3 +1,4 @@
+import { sizeWord } from './world.js';
 // What the explorer is pointing at: a title and a few lines for the hover card.
 const STRUCT = {
   pyramid: 'Pyramid', temple: 'Temple', obelisk: 'Obelisk', castle: 'Castle', house: 'House', windmill: 'Windmill',
@@ -16,7 +17,7 @@ const RELIC = {
   portal: 'Glows with the light of another world.', monolith: 'Nobody knows who placed it here.', skeleton: 'The bones of something enormous.',
 };
 const FLYER = { flock: ['Flock of birds', 'They never land.'], jellyfish: ['Sky jellyfish', 'Drifts on warm currents.'], whale: ['Flying whale', 'Sings below the clouds.'] };
-const parts = (d) => [`${d.legs} legs`, d.neck === 'none' ? 'no neck' : `${d.neck} neck`, `${d.head} head`, d.extra === 'none' ? '' : d.extra, d.tail === 'none' ? 'no tail' : `${d.tail} tail`, d.pattern].filter(Boolean).join(' · ');
+const parts = (d) => [sizeWord(d.scale ?? 1), `${d.legs} legs`, d.neck === 'none' ? 'no neck' : `${d.neck} neck`, `${d.head} head`, d.extra === 'none' ? '' : d.extra, d.tail === 'none' ? 'no tail' : `${d.tail} tail`, d.pattern].filter(Boolean).join(' · ');
 const hint = (e, verb) => e.reach === undefined ? '' : e.reach ? `Click (or press E) to ${verb} it.` : `Walk closer to ${verb} it.`;
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 // the common name its first namer gave it (Freenet / web), if any
@@ -31,15 +32,21 @@ export function describe(e, w, known) {
       e.reach ? 'Click to pick it up.' : 'Walk closer to pick it up.'],
   };
   if (e.type === 'home') return { title: e.name, lines: [e.owner ? `Built by ${e.owner} on their home planet.` : 'Built by you on your home planet.', e.damaged && 'Damaged by pirates: repair it from 🏗 Build.'].filter(Boolean) };
-  if (e.type === 'pet') return { title: e.dna.name, lines: [named(known, e.dna.id), e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', e.dna.bred ? 'Bred in a stable.' : '', parts(e.dna)] };
+  if (e.type === 'pet') return { title: e.dna.name, lines: [named(known, e.dna.id), e.owner ? `Lives in ${e.owner}'s home.` : 'Lives on your home planet.', e.dna.bred ? 'Bred in a stable.' : '', e.dna.flyer ? FLYER[e.dna.flyer]?.[0] ?? '' : parts(e.dna)] };
   if (e.type === 'ruin') return { title: e.owner ? `Ruins of ${e.owner}` : `Ruins of ${e.prev}`, lines: [e.owner ? `Built on ${e.prev}, the world that stood here before it collapsed.` : `Left by ${e.prev}, the world that stood here before.`] };
   if (e.type === 'trader') return { title: '🧳 Trader', lines: [`Trades plants and ore until ${new Date(e.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`, e.reach ? 'Click (or press E) to trade.' : 'Walk to the stall to trade.'] };
   if (e.type === 'ore' && e.meteor) return { title: '☄ Meteorite', lines: [`${e.amount} rare ore, fallen from the sky.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
   if (e.type === 'ore') return { title: '⛏ Ore deposit', lines: [`${e.amount} raw material for your home planet.`, e.reach ? 'Click (or press E) to mine it.' : 'Walk closer to mine it.'] };
+  if (e.type === 'volcano') return { title: '🌋 Volcano', lines: [e.erupting ? 'Erupting: sparks and ash fill the sky.' : 'Smouldering, for now.'] };
+  if (e.type === 'falls') return { title: 'Waterfall', lines: ['Pours down from the heights.'] };
   if (e.type === 'island') return { title: 'Floating island', lines: ['Held up by something nobody understands.'] };
   if (e.type === 'beacon') return { title: '🚩 Colony flag', lines: [`Planted by ${e.label}.`] };
   if (e.type === 'colonist') return { title: `${e.label}'s people`, lines: [`${e.dna.name}: settlers who follow ${e.label} from planet to planet.`, parts(e.dna)] };
-  if (e.type === 'flyer') { const [t, l] = FLYER[e.kind] ?? [cap(e.kind), '']; return { title: t, lines: [l] }; }
+  if (e.type === 'flyer') {
+    const [t, l] = FLYER[e.kind] ?? [cap(e.kind), ''];
+    if (!e.dna) return { title: t, lines: [l] };
+    return { title: e.dna.name, rarity: e.dna.rarity, lines: [`${t}. ${l}`, named(known, e.dna.id), known.species(e.dna.id) ? '✓ In your bestiary' : 'New species', e.reach === undefined ? '' : e.reach ? 'Click (or press E) to capture one as it passes over you.' : 'Wait until it passes over you to capture one.'] };
+  }
   if (e.type === 'walker') {
     if (e.kind === 'human') return { title: 'Inhabitant', lines: [`Human of the ${w.era} era.`] };
     if (e.kind === 'alien') return { title: 'Alien inhabitant', lines: ['Tall, three-legged, curious.'] };
@@ -57,7 +64,7 @@ export function describe(e, w, known) {
   }
   if (e.relic) return { title: cap(e.kind), lines: ['Rare relic. ' + RELIC[e.kind], known.relic(e.kind) ? '✓ In your atlas' : 'Not in your atlas yet'] };
   if (FLORA[e.kind]) return e.plant
-    ? { title: e.plant.name, rarity: e.plant.rarity, lines: [named(known, e.plant.id), `${FLORA[e.kind]}${e.plant.bloom ? ', flowering' : ''}.`, e.garden ? 'Grows in your garden.' : known.plant?.(e.plant.id) ? '✓ In your herbarium' : 'New plant', e.garden ? '' : hint(e, 'harvest')] }
+    ? { title: e.plant.name, rarity: e.plant.rarity, lines: [named(known, e.plant.id), `${cap(`${sizeWord(e.plant.scale ?? 1)} ${FLORA[e.kind].toLowerCase()}`.trim())}${e.plant.bloom ? ', flowering' : ''}.`, e.garden ? 'Grows in your garden.' : known.plant?.(e.plant.id) ? '✓ In your herbarium' : 'New plant', e.garden ? '' : hint(e, 'harvest')] }
     : { title: FLORA[e.kind], lines: [`Flora of this world (${e.kind}).`] };
   return {
     title: (e.broken ? 'Ruined ' + (STRUCT[e.kind] ?? e.kind).toLowerCase() : STRUCT[e.kind] ?? cap(e.kind)),
