@@ -529,6 +529,31 @@ export function makePlant(worldSeed, k, family) {
   };
 }
 
+// Crossing (at home, with a mill): like breeding, the hybrid of two wild plant species takes each trait from
+// one parent or in between, sometimes a new colour and flowers (a mutation). The same parents always give the
+// same hybrid: its id is the parents' ids, sorted, joined by '+'.
+export function crossPlant(a, b) {
+  if (a.id > b.id) [a, b] = [b, a];
+  const r = rngFrom(`cross:${a.id}+${b.id}`), mix = (x, y) => x + (y - x) * r(), mutated = r() < 0.2;
+  return {
+    id: `${a.id}+${b.id}`, family: r() < 0.5 ? a.family : b.family, name: `${a.name.split(' ')[0]} ${b.name.split(' ')[1]}`,
+    tall: mix(a.tall, b.tall), wide: mix(a.wide, b.wide), hue: mutated ? Math.floor(r() * 360) : r() < 0.5 ? a.hue : b.hue,
+    bloom: mutated || a.bloom || b.bloom, rarity: mutated ? 'epic' : 'rare', crossed: true,
+  };
+}
+// shortcut: cached forever per id, like speciesMemo.
+const plantMemo = new Map();
+/** The plant species with this id: "<world seed>~<k>", or two wild ones crossed ("<id>+<id>"); null if unknown. */
+export function plantOf(id) {
+  if (!plantMemo.has(id)) {
+    const parents = id.split('+');
+    const wild = (x) => { const [seed, k] = x.split('~'); return makeWorld(seed).plants[k] ?? null; };
+    const pl = parents.length === 1 ? wild(id) : parents.length === 2 ? (([a, b]) => a && b && crossPlant(a, b))(parents.map(wild)) : null;
+    plantMemo.set(id, pl ?? null);
+  }
+  return plantMemo.get(id);
+}
+
 // Pickups along the walk: the same for everyone on a given day (seeded by world, day and chunk),
 // rarer near the arrival point. Fuel cells are common, time shards (only where colonies exist:
 // `time` true, or 'boosted' on a planet someone else holds) speed up the time miner, map fragments
