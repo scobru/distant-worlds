@@ -5,7 +5,7 @@ import { open, isStar, anteLevel, isAnimal } from './db.js';
 import { grindAnte } from '../freenet/viso.js';
 import { connectMessage } from '../freenet/connect.js';
 import { chatMsg } from '../freenet/chat.js';
-import { homeMsg, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE } from '../freenet/colony.js';
+import { homeMsg, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE, colonyLimit } from '../freenet/colony.js';
 
 const { bytesToHex: hex } = ed.etc, enc = new TextEncoder();
 const admin = new Uint8Array(32).fill(9), app = new Uint8Array(32).fill(7);
@@ -54,6 +54,18 @@ assert.equal(JSON.parse(db.galaxy()).colonies[seed].name, 'Nova');
 const weak = { ...c, nonces: Array(8).fill(0), ts: 2 };
 weak.sig = sign(colonyMsg(seed, weak));
 assert.throws(() => db.applyGalaxy({ colonies: { [seed]: weak } }), /not enough time/);
+
+// a persona's next colony needs 1.5x the work: one at the minimum is dropped, one with enough work stays
+const seed2 = 'v1-4_5_6', m2 = newMiner();
+while (minerScore(m2) === null || minerScore(m2) > MAX_SCORE) mineSome(m2, seed2, a.persona, 200_000);
+const c2 = (mi, ts) => { const x = { ...c, name: 'Second', nonces: [...mi.nonces], ts }; x.sig = sign(colonyMsg(seed2, x)); return x; };
+db.applyGalaxy({ colonies: { [seed2]: c2(m2, 3) } });
+const needsMore = minerScore(m2) > colonyLimit(1);
+assert.equal(JSON.parse(db.galaxy()).colonies[seed2] === undefined, needsMore, 'a second colony needs 1.5x the work');
+while (minerScore(m2) > colonyLimit(1)) mineSome(m2, seed2, a.persona, 200_000);
+db.applyGalaxy({ colonies: { [seed2]: c2(m2, 4) } });
+assert.equal(JSON.parse(db.galaxy()).colonies[seed2].name, 'Second');
+assert.ok(JSON.parse(db.galaxy()).colonies[seed], 'the first colony stays');
 
 // raids are keyed by attacker, target and day
 const r = { attacker: a.persona, nick: 'Ann', target: b.persona, day: 20000, nonces: [...miner.nonces], ante: a.ante, sig: '', cert: a.cert };

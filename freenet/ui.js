@@ -8,7 +8,7 @@ import { drawCreature } from '../draw.js';
 import { colonyCost, canColonize, payColony, partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS, CHAT_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
-import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText, raidHash, raidScore, raidKey, today } from './colony.js';
+import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, colonyLimit, validText, raidHash, raidScore, raidKey, today } from './colony.js';
 
 // Viso avatars as object URLs, loaded once per persona; until then a coloured dot stands in.
 const avatars = new Map();
@@ -197,13 +197,16 @@ export async function start(app) {
   /** Exact time mined on the planet on screen (hashes / honest rate): it ticks, unlike the proof's estimate. */
   const timeHere = () => (miner && minerSeed === app.world().seed ? miner.next.reduce((x, y) => x + y, 0) / HASHES_PER_SECOND : 0);
   /** The time shown as the goal: about the minimum for a free planet, the colonist's for a taken one. */
-  const target = (w, col) => (col ? seconds(colScore(w.seed, col)) : seconds(MAX_SCORE));
+  const owned = (seed) => Object.entries(galaxy.colonies ?? {}).filter(([k, c]) => c.persona === me && k !== seed).length;
+  /** The score a flag here needs: the colony contract's limit for the colonies already held, or beating the colonist's. */
+  const needed = (w, col) => { const lim = colonyLimit(owned(w.seed)); return col && colScore(w.seed, col) < lim ? colScore(w.seed, col) : lim; };
+  const target = (w, col) => seconds(needed(w, col));
   /** Can the signed-in explorer plant a flag here now? The proof must pass the contract's rule, and the
    *  timer must have reached the goal shown, so what the player sees and the rule always agree. */
   function canPlant() {
     const w = app.world(), col = colonyOf(w.seed), mine = miner && minerSeed === w.seed ? minerScore(miner) : null;
     if (!me || !nick || mine === null || level() < COLONY_BITS || (col && col.persona === me) || timeHere() < target(w, col)) return false;
-    return mine <= MAX_SCORE && (!col || mine < colScore(w.seed, col));
+    return mine <= colonyLimit(owned(w.seed)) && (!col || mine < colScore(w.seed, col));
   }
   const costHere = () => colonyCost(Object.values(galaxy.colonies ?? {}).filter((c) => c.persona === me).length, !!colonyOf(app.world().seed));
   setInterval(() => {

@@ -29,6 +29,7 @@ Fixed with this review:
 | 3 | low | No security headers: framing, sniffing and injected scripts were not restricted. | CSP (own origin only), `frame-ancestors 'none'`, `nosniff`, `no-referrer`, a permissions policy. |
 | 4 | low | `GET /api/galaxy` sent the whole state uncompressed to anyone, on every change. | Compressed once per change. |
 | 5 | low | The blocklist message had no separation between the galaxy and the chat: a list signed for one could be replayed on the other. | Signed as `dwb2\|galaxy\|ts\|list` and `dwb2\|chat\|ts\|list` (a new galaxy, made for v1). |
+| 6 | medium | Colonies cost nothing beyond the first minutes: one explorer could hold any number. | A persona's k-th colony needs 1.5^k times the minimum work, enforced by the contract and `web/db.js` (not by the client). Bag resources stay a client-side cost only: they are private and cannot be checked. |
 
 Open (documented, not fixed):
 
