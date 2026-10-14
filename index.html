@@ -119,7 +119,8 @@
   <h3>🗡 Battles</h3>
   <p>Turn on <b>🗡 Battles</b> in the ☰ menu and wild creatures, drawn in red, wait on some stretches of each world (the same for everyone each day).
     Reach one and you fight it: each round you both strike, the faster first. Its parts make its strength: big ones live longer, horns hit harder, more legs are faster.
-    Win and you take ore; lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
+    Up to 3 creatures from your home (the strongest that walk) fight at your side, and once a battle your ✨ Special move hits twice as hard.
+    Win and you take ore, and your battle level grows (more life, harder blows); lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
   <h3>🔭 Discover</h3>
   <p>Every species, plant, relic and kind of world you see goes into the <b>Atlas</b>, with achievements and a daily mission.
     Point at (or tap) anything to see what it is. The 📜 Log in the ☰ menu keeps this session's last messages.</p>
@@ -169,7 +170,7 @@
     The chat is live: only the last 15 minutes are shown.</p>
 </dialog>
 <dialog id="battleDlg"><h2 id="battleTitle"></h2><canvas id="battleCv" width="320" height="140" aria-hidden="true"></canvas><div id="battleBody" aria-live="polite"></div>
-  <div class="row"><button id="battleHit">🗡 Attack</button><button id="battleFlee"></button></div></dialog>
+  <div class="row"><button id="battleHit">🗡 Attack</button><button id="battleSpecial">✨ Special</button><button id="battleFlee"></button></div></dialog>
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
@@ -178,7 +179,7 @@ import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterf
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, battleLoot, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, foeStats, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -621,6 +622,7 @@ function frame(t, maxDt = 100) {
         if (picked(st, day, W.seed, f)) continue;
         const fx = X(f.x), s = f.size * (f.dna.scale ?? 1) * m;
         drawCreature(g, { ...f, speed: fx < w / 2 ? 1 : -1 }, fx, Y(f.x) + s * 0.05, s, { ...co, color: '#b33', accent: '#f66' });
+        hit({ type: 'foe', name: f.dna.name, stats: foeStats(f.dna) }, fx, Y(f.x) + s * 0.05, s);
         if (near(fx) && !battle) startFight(f, co);
       }
     }
@@ -817,13 +819,16 @@ battleBtn.onclick = () => { st.battle = !st.battle; save(); setBattleBtn(); };
 battleDlg.oncancel = (e) => e.preventDefault(); // Escape does not skip a battle
 function startFight(f, co) {
   setWalking(false);
-  battle = { ...startBattle(f.dna, f.seed), take: f, co, log: [] };
+  battle = { ...startBattle(f.dna, f.seed, battleParty(st), battleLevel(st)), take: f, co, log: [] };
   sfx('creature'); renderBattle(); battleDlg.showModal();
 }
 function renderBattle() {
   const b = battle, bar = (n, max) => `<meter min="0" max="${max}" value="${Math.max(0, n)}"></meter> ${Math.max(0, n)}/${max}`;
   document.getElementById('battleTitle').textContent = `🗡 A wild ${b.foe.name}!`;
-  document.getElementById('battleBody').innerHTML = `<p>You ${bar(b.you, BATTLE.hp)}<br>${esc(b.foe.name)} ${bar(b.hp, b.max)}</p><p><small>${b.log.slice(-2).map(esc).join('<br>') || `Attack ${BATTLE.atk} · speed ${BATTLE.spd} against its attack ${b.atk} · speed ${b.spd}.`}</small></p>`;
+  document.getElementById('battleBody').innerHTML = `<p>${b.team.map((f, i) => `${i ? esc(f.name) : `You <small>(level ${battleLevel(st)})</small>`} ${bar(f.hp, f.max)}`).join('<br>')}</p>
+    <p><b>${esc(b.foe.name)}</b> ${bar(b.hp, b.max)}</p>
+    <p><small>${b.log.slice(-(b.team.length + 1)).map(esc).join('<br>') || `It has attack ${b.atk} and speed ${b.spd}; you ${b.team[0].atk} and ${b.team[0].spd}.`}</small></p>`;
+  document.getElementById('battleSpecial').disabled = !b.special;
   document.getElementById('battleFlee').textContent = `🏃 Flee (⚡${BATTLE.flee})`;
   const c = document.getElementById('battleCv'), bg = c.getContext('2d');
   bg.clearRect(0, 0, c.width, c.height);
@@ -831,15 +836,20 @@ function renderBattle() {
 }
 function endFight(msg) {
   collect(st, days()[0], world.seed, battle.take, Date.now()); // fought: this creature waits elsewhere tomorrow
-  battle = null; battleDlg.close(); save(); toast([msg]);
+  battle = null; battleDlg.close(); save(); toast([msg].flat());
 }
-document.getElementById('battleHit').onclick = () => {
-  const b = battle, name = esc(b.foe.name);
-  b.log.push(...battleRound(b)); sfx('ore');
-  if (b.hp <= 0) { const n = battleLoot(b); st.bag.ore += n; endFight(`🗡 You beat the ${name}! ⛏ +${n}`); }
-  else if (b.you <= 0) { evacuate(st); endFight(`💫 The ${name} beat you. You got away, leaving half your bag behind.`); }
+function strike(special) {
+  const b = battle, name = esc(b.foe.name), lv = battleLevel(st);
+  b.log.push(...battleRound(b, special)); sfx('ore');
+  if (b.hp <= 0) {
+    let n; const won = withAchievements(st, () => (n = winBattle(st, b)));
+    endFight([`🗡 You beat the ${name}! ⛏ +${n}`, battleLevel(st) > lv && `⭐ Battle level ${battleLevel(st)}: more life, harder blows`, ...won.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
+  }
+  else if (b.team[0].hp <= 0) { evacuate(st); endFight(`💫 The ${name} beat you. You got away, leaving half your bag behind.`); }
   else renderBattle();
-};
+}
+document.getElementById('battleHit').onclick = () => strike(false);
+document.getElementById('battleSpecial').onclick = () => strike(true);
 document.getElementById('battleFlee').onclick = () => {
   if ((st.fuel ?? 0) < BATTLE.flee) return toast(['⛽ Not enough fuel to flee: fight!']);
   st.fuel -= BATTLE.flee; endFight(`🏃 You fled the ${esc(battle.foe.name)} (⚡−${BATTLE.flee}).`);

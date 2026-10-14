@@ -1,7 +1,7 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
 import { PAGES } from './diary.js';
-import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf, makeWorld, ageOf, instability, sectorOf, GALAXY } from './world.js';
+import { speciesOf, TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf, makeWorld, ageOf, instability, sectorOf, GALAXY } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
@@ -38,6 +38,7 @@ export const ACHIEVEMENTS = [
   ['Mayor', 'Grow your home into a city', (st) => civLevel(st.home) >= 6],
   ['Architect', 'Build every kind of building', (st) => Object.keys(BUILDINGS).every((k) => st.home?.built.some((b) => partsOf(b).includes(k)))],
   ['Reader', "Find every page of Ilen's diary", (st) => (st.diary ?? []).length >= PAGES.length],
+  ['Champion', 'Win 25 battles', (st) => (st.wins ?? 0) >= 25],
   ['Rancher', 'Bring 10 creatures home', (st) => (st.home?.animals.length ?? 0) >= 10],
 ];
 /** Runs `change` and returns the achievements it unlocked. */
@@ -159,30 +160,45 @@ export const PICKUP = { fuel: 15, boost: 3, boostMs: 90_000, timePerPlanetDay: 3
 const pickKey = (seed, p) => `${seed}|${p.id}|${p.kind}`;
 export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.ids.includes(pickKey(seed, p));
 
-// Battles: you against a wild creature, one blow each a round, the faster first (you on a tie).
-// The creature's stats come from its parts: size gives life and strength, horns hit harder, legs are speed.
-export const BATTLE = { hp: 34, atk: 7, spd: 5, flee: 5 };
+// Battles: you, and up to 3 creatures from home, against a wild creature. Each round everyone strikes
+// once, the fastest first (your side on a tie); the creature hits one of you at random. Stats come from
+// a creature's parts: size gives life and strength, horns hit harder, legs and pace are speed.
+// Your level grows with the battles you win: more life and a harder blow.
+export const BATTLE = { hp: 34, atk: 7, spd: 5, flee: 5, party: 3 };
 export const foeStats = (sp) => ({
   hp: Math.round(8 + 10 * sp.scale + (sp.tail === 'bushy' ? 3 : 0)),
   atk: Math.round(2 + 2 * sp.scale + (sp.extra === 'horns' ? 3 : 0) + (sp.head === 'long' ? 1 : 0)),
   spd: sp.legs + Math.round(sp.pace * 2) - (sp.neck === 'long' ? 1 : 0),
 });
-export function startBattle(sp, seed) {
-  const s = foeStats(sp);
-  return { foe: sp, ...s, max: s.hp, you: BATTLE.hp, r: rng(seed) };
+export const battleLevel = (st) => 1 + Math.floor(Math.sqrt(st.wins ?? 0));
+/** The strongest walking creatures of your home fight at your side. */
+export const battleParty = (st) => (st.home?.animals ?? []).map(speciesOf).filter((sp) => sp?.legs)
+  .sort((a, b) => { const x = foeStats(a), y = foeStats(b); return y.hp + 3 * y.atk - x.hp - 3 * x.atk; }).slice(0, BATTLE.party);
+export function startBattle(sp, seed, allies = [], level = 1) {
+  const s = foeStats(sp), me = { name: 'You', hp: BATTLE.hp + 3 * (level - 1), atk: BATTLE.atk + level - 1, spd: BATTLE.spd };
+  const team = [me, ...allies.map((a) => ({ name: a.name, ...foeStats(a) }))].map((f) => ({ ...f, max: f.hp }));
+  return { foe: sp, ...s, max: s.hp, team, special: true, r: rng(seed) };
 }
 const blow = (r, atk) => Math.max(1, Math.round(atk * (0.7 + r() * 0.6)));
-/** One round of battle `b`; returns what happened, a line per blow. */
-export function battleRound(b) {
-  const log = [];
-  for (const who of BATTLE.spd >= b.spd ? ['you', 'foe'] : ['foe', 'you']) {
-    if (b.you <= 0 || b.hp <= 0) break;
-    const d = blow(b.r, who === 'you' ? BATTLE.atk : b.atk);
-    if (who === 'you') { b.hp -= d; log.push(`You hit ${b.foe.name}: −${d}`); } else { b.you -= d; log.push(`${b.foe.name} hits you: −${d}`); }
+/** One round of battle `b` (`special`: your once-a-battle double blow); returns a line per blow. */
+export function battleRound(b, special = false) {
+  const log = [], foe = { spd: b.spd }, me = b.team[0];
+  special &&= b.special; b.special &&= !special;
+  for (const f of [...b.team, foe].sort((x, y) => y.spd - x.spd)) {
+    if (b.hp <= 0 || me.hp <= 0) break;
+    if (f === foe) {
+      const up = b.team.filter((t) => t.hp > 0), t = up[Math.floor(b.r() * up.length)], d = blow(b.r, b.atk);
+      t.hp -= d; log.push(`${b.foe.name} hits ${t === me ? 'you' : t.name}: −${d}`);
+    } else if (f.hp > 0) {
+      const twice = special && f === me, d = blow(b.r, f.atk) * (twice ? 2 : 1);
+      b.hp -= d; log.push(`${f === me ? (twice ? 'Your special move hits' : 'You hit') : `${f.name} hits`} ${b.foe.name}: −${d}`);
+    }
   }
   return log;
 }
 export const battleLoot = (b) => 2 + Math.ceil(b.max / 8);
+/** Ends a won battle: the loot goes into the bag, the win counts towards your level. */
+export function winBattle(st, b) { const n = battleLoot(b); st.bag.ore += n; st.wins = (st.wins ?? 0) + 1; return n; }
 
 // Ilen's diary: each world's page can be taken once, and the n-th page found is page n.
 export const hasPage = (st, seed) => (st.diary ?? []).includes(seed) || (st.diary ?? []).length >= PAGES.length;
