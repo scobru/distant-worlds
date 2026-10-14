@@ -124,7 +124,7 @@
     In the <b>Atlas</b> (Your explorer) you choose your suit colour, skin, headgear and backpack.</p>
   <h3>✋ Gather</h3>
   <p>When something is close to your explorer (the middle of the screen), click it or press <b>E</b>:
-    plants 🌿 are harvested, creatures 🐾 captured, ore deposits ⛏ mined, fuel cells (+15⚡), map fragments (your next jump costs half) and, online, time shards (your flag's time runs ×3 for 90 s) picked up. Flyers (birds, sky jellyfish, flying whales) are captured as they pass over you. Some worlds keep a page of 📜 <b>Ilen's diary</b> near where you land: each one is the next page of her story (read it in the Atlas).
+    plants 🌿 are harvested, creatures 🐾 captured, ore deposits ⛏ mined, fuel cells (+10⚡), map fragments (your next jump costs half) and, online, time shards (your flag's time runs ×3 for 90 s) picked up. Flyers (birds, sky jellyfish, flying whales) are captured as they pass over you. Some worlds keep a page of 📜 <b>Ilen's diary</b> near where you land: each one is the next page of her story (read it in the Atlas).
     What you take grows back the next day. Your bag is shown under the world's name.</p>
   <h3>🗡 Battles</h3>
   <p>Turn on <b>🗡 Battles</b> in the ☰ menu and wild creatures, drawn in red, wait on some stretches of each world (the same for everyone each day).
@@ -763,6 +763,15 @@ function frame(t, maxDt = 100) {
   if (v) { facing = Math.sign(v); movingUntil = t + 120; }
   const LN = W.layers.at(-1), gx = cam * LN.parallax + 0.5, as = 0.09 * m;
   drawAvatar(g, st.avatar, w / 2, (deep ? h * 0.94 : (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m) - hop.y * as, as, facing, gx * w / (as * 0.15), t < movingUntil || !canJump(hop), t, st.look, deep);
+  // explorers who shared a position here a few minutes ago (chat): faint, fading with age
+  if (!deep) for (const gh of fn?.ghostsOn?.(W.seed) ?? []) {
+    const dx = (gh.x - cam) * LN.parallax;
+    if (Math.abs(dx) > 0.6) continue;
+    g.save(); g.globalAlpha = 0.5 - 0.35 * gh.age;
+    drawAvatar(g, gh.persona, w / 2 + dx * w, (LN.base - height(LN, gh.x * LN.parallax + 0.5) * LN.span) * h + 0.01 * m, as, 1, 0, false, t, null);
+    g.font = `${11 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
+    g.fillText(`${gh.nick} · ${Math.max(1, Math.round(gh.age * 15))} min ago`, w / 2 + dx * w, (LN.base - height(LN, gh.x * LN.parallax + 0.5) * LN.span) * h - as * 1.3); g.restore();
+  }
   if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
   const fall = Math.max(inst, ev?.kind === 'meteors' ? 0.75 : 0);
   if (fall) { // red sky as the world nears collapse; falling meteors then and during showers

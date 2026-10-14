@@ -104,7 +104,7 @@ pub struct Name {
 pub struct Blocklist {
     pub ts: u64,
     pub list: Vec<String>, // star seeds or persona keys
-    pub sig: String,       // hex, by admin over `dwb1|<ts>|<list joined by ,>`
+    pub sig: String,       // hex, by admin over `dwb2|galaxy|<ts>|<list joined by ,>`
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -385,7 +385,7 @@ fn check_blocklist(admin: &str, b: &Blocklist) -> R<()> {
     if b.list.len() > 10_000 || !b.list.iter().all(|s| is_star(s) || is_persona(s)) {
         return Err("bad blocklist".into());
     }
-    verify(&key(admin)?, format!("dwb1|{}|{}", b.ts, b.list.join(",")).as_bytes(), &b.sig)
+    verify(&key(admin)?, format!("dwb2|galaxy|{}|{}", b.ts, b.list.join(",")).as_bytes(), &b.sig)
 }
 
 fn blocked(b: &Blocklist, seed: &str, c: &Colony) -> bool {
@@ -696,7 +696,7 @@ mod tests {
 
         apply(&admin, APP, &mut s, one(seed, good.clone())).unwrap();
         let block = |k: &SigningKey, list: Vec<String>| {
-            let sig = hex::encode(k.sign(format!("dwb1|1|{}", list.join(",")).as_bytes()).to_bytes());
+            let sig = hex::encode(k.sign(format!("dwb2|galaxy|1|{}", list.join(",")).as_bytes()).to_bytes());
             Blocklist { ts: 1, list, sig }
         };
         assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), names: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());

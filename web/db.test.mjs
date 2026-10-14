@@ -76,10 +76,11 @@ assert.throws(() => db.applyGalaxy({ names: { 'v1-4_5_6~0+v1-1_2_3~1': nm('v1-4_
 
 // the admin blocklist removes a persona everywhere
 const bl = { ts: 3, list: [a.persona], sig: '' };
-bl.sig = sign(`dwb1|3|${a.persona}`, admin);
-assert.throws(() => db.applyGalaxy({ blocked: { ...bl, sig: sign(`dwb1|3|${a.persona}`) } }), /bad signature/);
+bl.sig = sign(`dwb2|galaxy|3|${a.persona}`, admin);
+assert.throws(() => db.applyGalaxy({ blocked: { ...bl, sig: sign(`dwb2|galaxy|3|${a.persona}`) } }), /bad signature/);
+assert.throws(() => db.applyChat({ blocked: bl }), /bad signature/); // a galaxy list cannot be replayed on the chat
 db.applyGalaxy({ blocked: bl });
-db.applyChat({ blocked: bl });
+db.applyChat({ blocked: { ...bl, sig: sign(`dwb2|chat|3|${a.persona}`, admin) } });
 const g = JSON.parse(db.galaxy());
 assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(g.names).length, Object.keys(JSON.parse(db.chat()).messages).length], [0, 0, 0, 0]);
 console.log('web db ok');

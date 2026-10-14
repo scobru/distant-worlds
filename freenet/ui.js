@@ -341,6 +341,7 @@ export async function start(app) {
   let chat = { messages: {} }, seen = 0, open = false;
   try { open = localStorage.getItem('dw-chat-open') === '1'; } catch { /* sandbox */ }
   const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000 && m.ts > Date.now() - CHAT_LIVE && sound('message', m)).sort((a, b) => a.ts - b.ts).slice(-100);
+  let ghosts = { key: '', at: 0, list: [] };
   const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   function card(world) {
     const [seed, pos] = world.split('@'), w = makeWorld(seed), col = colonyOf(seed);
@@ -429,6 +430,17 @@ export async function start(app) {
       if (!validText('x', name) || galaxy.names?.[id]) throw new Error('Pick 1-24 characters, without "|"; it may already have a name.');
       const n = await net.publishName({ nick, id, name, ante: anteHex() });
       galaxy.names = { ...galaxy.names, [id]: n };
+    },
+    /** Explorers who shared a position on this planet in the last minutes (chat), newest per persona: { persona, nick, x, age 0..1 }. */
+    ghostsOn(seed) {
+      if (ghosts.key !== seed || Date.now() - ghosts.at > 1000) {
+        const seen = new Set(), now = Date.now();
+        ghosts = { key: seed, at: now, list: visible().reverse().filter((m) => m.persona !== me && !seen.has(m.persona) && seen.add(m.persona)).flatMap((m) => {
+          const [s, pos] = (m.world ?? '').split('@'), x = Number(pos);
+          return s === seed && pos !== undefined && Number.isFinite(x) ? [{ persona: m.persona, nick: m.nick, x, age: Math.min(1, Math.max(0, (now - m.ts) / CHAT_LIVE)) }] : [];
+        }) };
+      }
+      return ghosts.list;
     },
     /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
     homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length && sound('home', h)),

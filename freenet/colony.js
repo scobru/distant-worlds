@@ -23,6 +23,8 @@ export const homeMsg = (h) => `dwh1|${h.persona}|${h.nick}|${h.seed}|${h.ts}|${h
 export const raidHash = (target, attacker, day, lane, nonce) => sha256(enc.encode(`dwr1|${target}|${attacker}|${day}|${lane}|${nonce}`));
 export const raidScore = (r) => r.nonces.reduce((s, n, i) => s + top64(raidHash(r.target, r.attacker, r.day, i, n)), 0n);
 export const raidMsg = (r) => `dwr1|${r.attacker}|${r.nick}|${r.target}|${r.day}|${r.nonces.join(',')}`;
+// the admin's blocklist, one message per contract (kind 'galaxy' or 'chat') so a list signed for one cannot be replayed on the other
+export const blockMsg = (kind, ts, list) => `dwb2|${kind}|${ts}|${list.join(',')}`;
 export const raidKey = (r) => `${r.attacker}|${r.target}|${r.day}`;
 /** Names (contract name_msg): the first explorer to name a species or a plant gives it its common name. */
 export const nameMsg = (n) => `dwn1|${n.persona}|${n.nick}|${n.id}|${n.name}|${n.ts}`;

@@ -28,19 +28,20 @@ Fixed with this review:
 | 2 | medium | No limits on `POST` (each record costs three signature checks and a pass over a table) or on event streams: a cheap way to exhaust CPU and memory. | Token buckets per client, caps on streams, 64 KB bodies, 50 records per delta, request timeouts, slow stream clients dropped. |
 | 3 | low | No security headers: framing, sniffing and injected scripts were not restricted. | CSP (own origin only), `frame-ancestors 'none'`, `nosniff`, `no-referrer`, a permissions policy. |
 | 4 | low | `GET /api/galaxy` sent the whole state uncompressed to anyone, on every change. | Compressed once per change. |
+| 5 | low | The blocklist message had no separation between the galaxy and the chat: a list signed for one could be replayed on the other. | Signed as `dwb2\|galaxy\|ts\|list` and `dwb2\|chat\|ts\|list` (a new galaxy, made for v1). |
 
 Open (documented, not fixed):
 
 - **Pre-mined colonies.** The proof of work is bound to the planet and the persona, not to a moment, so work can be
   done in advance for many planets. It measures work, not time (already in the README).
 - **Self-declared times.** Names go to the earliest declared time (it can be backdated) and chat times are the author's.
-- **Homes are self-declared**: resources are gathered in the browser, so a bigger home can be published. Possible fix: a
-  proof of work proportional to the growth since the last published home (a numeric rule, to write in the contract and
-  `web/db.js` together).
-- **Sieges are applied by the defender's client**, which can ignore them. Possible fix: derive the damage from the
-  public, signed raids, as the other clients draw it.
-- **The blocklist message** (`dwb1|ts|list`) has no separation between the galaxy and the chat: a list the admin signed
-  for one could be replayed on the other. Changing it changes signatures, so it needs a new galaxy.
+- **Homes are self-declared**: resources are gathered in the browser, so a bigger home can be published (at most 64
+  buildings and 64 animals). A cap tied to the persona's Viso level was considered and left out: the level most players
+  hold (20 bits) would then limit them to a small home, which hurts honest play more than it stops a cheat that only
+  inflates what others see. A proof of work proportional to growth would need a chain of homes; not done.
+- **Sieges are applied by the defender's client**, which can ignore them (and republish an intact home). Deriving the
+  damage from the public raids is not enough while the home itself is self-declared; the contract would have to refuse a
+  home that ignores the raids against it. Left open.
 - **Each accepted write scans whole tables** (`cap`, the purge loops). The rate limit bounds it; an indexed query would
   remove it.
 - **The web key sits in `localStorage` in the clear.** A script injected into the page could read it; the CSP and the

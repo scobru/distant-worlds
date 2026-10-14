@@ -3,7 +3,7 @@
 // (whoiam delegation, Viso level, proof of work), same merge rules; state JSON keeps the contracts' shape.
 // The checks themselves live in freenet/check.js, shared with the client.
 import { DatabaseSync } from 'node:sqlite';
-import { score, raidScore, raidKey } from '../freenet/colony.js';
+import { score, raidScore, raidKey, blockMsg } from '../freenet/colony.js';
 import { checkColony, checkHome, checkRaid, checkName, checkMessage, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
 export { isStar, isAnimal, anteLevel, checkColony, checkHome, checkRaid, checkName, checkMessage };
 // Web only (the contracts take whatever the network lets through): a delta carries a few records, not thousands,
@@ -13,9 +13,9 @@ const tooBig = (d, keys) => { for (const k of keys) if (d[k] && Object.keys(d[k]
 const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000 }, MAX_MESSAGES = 50, MAX_PER_PERSONA = 3;
 const EMPTY_BLOCK = { ts: 0, list: [], sig: '' };
 
-function checkBlocklist(admin, b, personasOnly) {
+function checkBlocklist(admin, kind, b, personasOnly) {
   if (!b || !uint(b.ts) || !Array.isArray(b.list) || b.list.length > 10_000 || !b.list.every((s) => isPersona(s) || (!personasOnly && isStar(s)))) fail('bad blocklist');
-  if (!verify(b.sig, `dwb1|${b.ts}|${b.list.join(',')}`, admin)) fail('bad signature');
+  if (!verify(b.sig, blockMsg(kind, b.ts, b.list), admin)) fail('bad signature');
   return { ts: b.ts, list: b.list, sig: b.sig };
 }
 
@@ -41,7 +41,7 @@ export function open(file, { admin, app = '/' }) {
     delete cache[name];
   };
   const blocklist = (k) => get('blocked', k) ?? EMPTY_BLOCK;
-  const setBlocked = (k, b, personasOnly) => { if (b && b.ts > blocklist(k).ts) put('blocked', k, checkBlocklist(admin, b, personasOnly)); };
+  const setBlocked = (k, b, personasOnly) => { if (b && b.ts > blocklist(k).ts) put('blocked', k, checkBlocklist(admin, k, b, personasOnly)); };
   // keep the `max` best rows of a kind, as the contracts' prune()
   const cap = (kind, order) => {
     const rows = all(kind);
