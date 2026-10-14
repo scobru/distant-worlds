@@ -432,6 +432,15 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   let caught = 0;
   for (let s = 0; s < 100; s++) { const c = startBattle(sp, s); c.hp = 2; assert.ok(canCapture(c)); battleRound(c, 'capture'); caught += c.caught; }
   assert.ok(caught > 40 && caught < 80, 'capture works about 60% of the time');
+  const { ELEMENTS, elementOf, edge } = await import('./atlas.js');
+  assert.equal(edge('fire', 'wild'), 1.5); assert.equal(edge('wild', 'fire'), 0.75); assert.equal(edge('fire', 'wind'), 1); assert.equal(edge(null, 'fire'), 1);
+  assert.ok(Object.values(ELEMENTS).every(([, beats]) => Object.values(ELEMENTS).filter(([, b]) => b === beats).length === 1), 'a cycle: each element beaten by exactly one');
+  { const w = [...Array(80)].map((_, i) => mkw(`v1-${i}_6_1`)).find((x) => x.species.length && x.culture === 'nordic');
+    assert.equal(elementOf(w.species[0]), 'frost');
+    assert.equal(elementOf({ ...w.species[0], id: `(${w.species[0].id}+v1-1_1_1#0)+v1-2_2_2#1` }), 'frost', 'bred: the first wild ancestor');
+    assert.equal(elementOf(sp), null);
+    const strong = startBattle(sp, 1, [sp]); strong.element = 'wild'; strong.team[1].element = 'fire';
+    assert.ok(battleRound(strong).some((l) => l.endsWith('(strong)')), 'an element advantage shows in the log'); }
   const st2 = es(); st2.bag.ore = 0;
   assert.ok(winBattle(st2, a.b) > 0 && st2.bag.ore > 0 && st2.wins === 1 && battleLevel(st2) === 2);
   const fw = [...Array(50)].map((_, i) => mkw(`v1-${i}_4_1`)).find((x) => x.species.length), foes = foesNear(fw, '2026-10-14', -6, 6);
