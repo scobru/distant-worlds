@@ -134,6 +134,7 @@ export async function start(app) {
       galaxy.raids = { ...galaxy.raids, [raidKey(r)]: r }; siege = null;
       const crew = crewOf(r), d = defence(h);
       if (crew > d) { st.bag.ore += siegeLoot(crew); app.save(); }
+      app.sfx(crew > d ? 'win' : 'lose');
       app.toast([crew > d ? `⚔ Your ${crew} raiders broke ${app.esc(h.nick)}'s defence (${d}): ⛏${siegeLoot(crew)} taken.` : `⚔ ${app.esc(h.nick)}'s defence (${d}) held against your ${crew} raiders.`]);
     } catch (e) { app.toast([app.esc(e.message)]); }
     finally { siegeBtn.disabled = false; updateSiege(); }
@@ -146,14 +147,17 @@ export async function start(app) {
     const fresh = raids().filter((r) => r.target === me && r.day >= today() - 2 && r.day <= today() && !H.sieged.includes(raidKey(r)) && sound('raid', r));
     if (!fresh.length) return;
     const lines = [];
+    let fought = false, lost = false;
     for (const r of fresh) {
       H.sieged = [...H.sieged, raidKey(r)].slice(-200);
       if (H.peace && !raidedLately(me)) continue;
       const res = besieged(st, crewOf(r), Date.now(), raidKey(r));
+      if (res) { fought = true; lost ||= !res.won; }
       if (res) lines.push(res.won ? `⚔ ${app.esc(r.nick)} besieged your home with ${res.crew} raiders: your defence (${res.defence}) held. ⛏${res.loot} from what they left.`
         : `⚔ ${app.esc(r.nick)} besieged your home with ${res.crew} raiders against your defence ${res.defence}.${res.damaged ? ` Your ${BUILDINGS[res.damaged].name} was damaged: repair it from 🏗 Build.` : ''} You are shielded for a day.`);
     }
-    app.save(); if (lines.length) app.toast(lines);
+    app.save(); if (fought) app.raided(lost);
+    if (lines.length) app.toast(lines);
   }
 
   async function loadMiner() {
