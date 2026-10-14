@@ -388,10 +388,12 @@ export function makeWorld(seedStr) {
   const aurora = night && r() < (culture === 'arctic' || culture === 'nordic' ? 0.8 : 0.25);
   const smoke = ERAS.indexOf(era) === 2 || civ === 'ruins' || culture === 'war' || culture === 'apocalyptic' ? r() < 0.7 : r() < 0.05;
   const rarity = RARITY.findLast(([, min]) => bits >= min)[0];
+  // One world in six is walked into (a path towards the horizon) rather than across; own stream too.
+  const view = rngFrom(`${seedStr}:view`)() < 1 / 6 ? 'depth' : 'side';
 
   const scaleName = civ === 'aliens' ? pick(['hirajoshi', 'lydian']) : cult.scale && r() < 0.75 ? cult.scale : pick(Object.keys(SCALES));
   return {
-    seed: seedStr, sector, region: region?.[0] ?? null, species, flyerSpecies, plants, relief, rivers, islands, aurora, smoke, volcanoes, falls, culture, weather: cult.weather ?? null,
+    seed: seedStr, view, sector, region: region?.[0] ?? null, species, flyerSpecies, plants, relief, rivers, islands, aurora, smoke, volcanoes, falls, culture, weather: cult.weather ?? null,
     name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'ruins' && civ !== 'uninhabited' && (eraIdx >= 2 || civ === 'aliens'),
     ships: eraIdx >= 4 || civ === 'aliens' ? Math.floor(r() * 5) : 0,

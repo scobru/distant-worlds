@@ -197,3 +197,14 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.deepEqual(avatarLook('abc', { hat: 4, pack: false }), { ...a, hat: 4, pack: false });
   console.log('avatar look ok');
 }
+
+// Paths: one world in six is walked into, from its own stream (the rest of the world is unchanged).
+{
+  const { makeWorld } = await import('./world.js');
+  const views = Array.from({ length: 600 }, (_, i) => makeWorld(`v1-${i}_9_2`).view);
+  const deep = views.filter((v) => v === 'depth').length;
+  assert.ok(views.every((v) => v === 'depth' || v === 'side'));
+  assert.ok(deep > 60 && deep < 140, 'about one in six');
+  assert.equal(makeWorld('v1-5_9_2').view, makeWorld('v1-5_9_2').view);
+  console.log('paths ok');
+}
