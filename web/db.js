@@ -1,104 +1,18 @@
 // Web version: the galaxy and chat contracts (contract/src/lib.rs, chat/src/lib.rs) as rules over a
 // SQLite file, so a plain Node server can host the multiplayer game. Same signed records and checks
 // (whoiam delegation, Viso level, proof of work), same merge rules; state JSON keeps the contracts' shape.
+// The checks themselves live in freenet/check.js, shared with the client.
 import { DatabaseSync } from 'node:sqlite';
-import * as ed from '@noble/ed25519';
-import { sha512 } from '@noble/hashes/sha2.js';
-import { blake3 } from '@noble/hashes/blake3.js';
-import { score, raidScore, raidKey, msg as colonyMsg, homeMsg, raidMsg, nameMsg, LANES, MAX_SCORE, COLONY_BITS } from '../freenet/colony.js';
-import { generation, parentsOf } from '../world.js';
-import { chatMsg, MAX_TEXT, CHAT_BITS } from '../freenet/chat.js';
-import { connectMessage } from '../freenet/connect.js';
-import { cborDecode, anteBits } from '../freenet/viso.js';
-
-ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
-const enc = new TextEncoder();
-const BUILDINGS = ['house', 'windmill', 'longhouse', 'factory', 'temple', 'castle', 'tower', 'dome'];
+import { score, raidScore, raidKey } from '../freenet/colony.js';
+import { checkColony, checkHome, checkRaid, checkName, checkMessage, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
+export { isStar, isAnimal, anteLevel, checkColony, checkHome, checkRaid, checkName, checkMessage };
+// Web only (the contracts take whatever the network lets through): a delta carries a few records, not thousands,
+// since each costs three signature checks and a pass over its table.
+const MAX_DELTA = 50;
+const tooBig = (d, keys) => { for (const k of keys) if (d[k] && Object.keys(d[k]).length > MAX_DELTA) fail('delta too big'); };
 const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000 }, MAX_MESSAGES = 50, MAX_PER_PERSONA = 3;
 const EMPTY_BLOCK = { ts: 0, list: [], sig: '' };
 
-// ---------------------------------------------------------------- field checks (as in the contracts)
-const fail = (m) => { throw new Error(m); };
-const isPersona = (s) => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
-const isHex = (s) => typeof s === 'string' && s.length % 2 === 0 && /^[0-9a-f]*$/.test(s);
-const uint = (n) => Number.isSafeInteger(n) && n >= 0;
-const text = (s, max) => typeof s === 'string' && [...s].length > 0 && [...s].length <= max && s.trim() === s && !/[\p{Cc}|]/u.test(s);
-const num = (s, max) => /^(0|[1-9][0-9]{0,5})$/.test(s) && Number(s) < max;
-export function isStar(seed) {
-  const m = typeof seed === 'string' && /^v1-([^.]*)(?:\.(.*))?$/.exec(seed);
-  if (!m) return false;
-  const p = m[1].split('_');
-  return p.length === 3 && num(p[0], 10_000) && num(p[1], 10_000) && num(p[2], 10) && (m[2] === undefined || (m[2] !== '0' && num(m[2], 1_000_000)));
-}
-const isKind = (a, sep) => typeof a === 'string' && new RegExp(`^(.+)${sep}[0-9]{1,2}$`).test(a) && isStar(a.slice(0, a.lastIndexOf(sep)));
-// wild '<seed>#<k>' or bred (world.js bredId), as the contract's is_animal; plants '<seed>~<k>'
-export const isAnimal = (a) => generation(a, (x) => isKind(x, '#')) >= 0;
-// wild '<seed>~<k>', or two wild ones crossed at a mill (world.js crossPlant), as the contract's is_plant
-const isPlant = (p) => isKind(p, '~') || (typeof p === 'string' && (parentsOf(p)?.every((x) => isKind(x, '~')) ?? false));
-const verify = (sig, m, pk) => { try { return ed.verify(sig, typeof m === 'string' ? enc.encode(m) : m, pk); } catch { return false; } };
-const cat = (...p) => ed.etc.concatBytes(...p);
-const u32le = (n) => new Uint8Array(new Uint32Array([n]).buffer), u64le = (n) => new Uint8Array(new BigUint64Array([BigInt(n)]).buffer);
-
-/** viso_ante::verify_slot: the persona's level from its signed `ante` proof, 0 if it is not valid. */
-export function anteLevel(persona, anteHex) {
-  try {
-    const pk = ed.etc.hexToBytes(persona), b = ed.etc.hexToBytes(anteHex), p = cborDecode(b), purpose = enc.encode(p.purpose);
-    const m = cat(enc.encode('ante:proof-signature:v1'), pk, u32le(purpose.length), purpose, u64le(p.nonce), u64le(p.ts));
-    return verify(Uint8Array.from(p.signature), m, pk) ? anteBits(pk, b) : 0;
-  } catch { return 0; }
-}
-
-/** whoiam_delegation::check: the app key the persona delegated to for this app path. */
-function appKey(app, persona, c) {
-  if (!c || typeof c.base !== 'string' || typeof c.challenge !== 'string' || !uint(c.ts) || !isHex(c.sig)) fail('bad certificate');
-  if (/^https?:\/\/[^/]*(\/.*)$/.exec(c.base)?.[1] !== app) fail('certificate is for another app');
-  const [pre, key, nonce, ...rest] = c.challenge.split('.');
-  if (pre !== 'wd1' || !isPersona(key) || !nonce || rest.length) fail('not a delegation');
-  if (!verify(c.sig, connectMessage(ed.etc.hexToBytes(persona), c.base, c.challenge, c.ts), persona)) fail('bad signature');
-  return key;
-}
-const cert = (c) => ({ base: c.base, challenge: c.challenge, ts: c.ts, sig: c.sig });
-function signed(app, persona, ante, bits, m, sig, c) {
-  if (!isHex(ante) || anteLevel(persona, ante) < bits) fail('persona level too low');
-  if (!isHex(sig) || !verify(sig, m, appKey(app, persona, c))) fail('bad signature');
-}
-const nonces = (n) => Array.isArray(n) && n.length === LANES && n.every(uint);
-
-/** Each check returns the record with only its known fields, or throws. */
-export function checkColony(app, seed, c) {
-  if (!isStar(seed) || !isPersona(c?.persona)) fail('bad star or persona');
-  if (!text(c.name, 32) || !text(c.nick, 24) || !nonces(c.nonces) || !Number.isSafeInteger(c.x) || Math.abs(c.x) > 1e9 || !uint(c.ts)) fail('bad colony fields');
-  if (score(seed, c.persona, c.nonces) > MAX_SCORE) fail('not enough time spent on this planet');
-  signed(app, c.persona, c.ante, COLONY_BITS, colonyMsg(seed, c), c.sig, c.cert);
-  return { persona: c.persona, name: c.name, nick: c.nick, x: c.x, ts: c.ts, nonces: c.nonces, ante: c.ante, sig: c.sig, cert: cert(c.cert) };
-}
-export function checkHome(app, h) {
-  if (!isPersona(h?.persona) || !isStar(h.seed) || !text(h.nick, 24) || !uint(h.ts) || (h.peace !== undefined && typeof h.peace !== 'boolean')) fail('bad home');
-  if (!Array.isArray(h.built) || !Array.isArray(h.animals) || h.built.length > 64 || h.animals.length > 64) fail('home too big');
-  if (!h.built.every((b) => Array.isArray(b) && b.length === 2 && BUILDINGS.includes(b[0]) && Number.isSafeInteger(b[1]) && Math.abs(b[1]) <= 1e9) || !h.animals.every(isAnimal)) fail('bad home fields');
-  signed(app, h.persona, h.ante, COLONY_BITS, homeMsg(h), h.sig, h.cert);
-  return { persona: h.persona, nick: h.nick, seed: h.seed, built: h.built, animals: h.animals, ts: h.ts, ...(h.peace && { peace: true }), ante: h.ante, sig: h.sig, cert: cert(h.cert) };
-}
-export function checkRaid(app, r) {
-  if (!isPersona(r?.attacker) || !isPersona(r.target) || r.attacker === r.target || !text(r.nick, 24) || !uint(r.day) || !nonces(r.nonces)) fail('bad raid');
-  if (raidScore(r) > MAX_SCORE) fail('siege too short');
-  signed(app, r.attacker, r.ante, COLONY_BITS, raidMsg(r), r.sig, r.cert);
-  return { attacker: r.attacker, nick: r.nick, target: r.target, day: r.day, nonces: r.nonces, ante: r.ante, sig: r.sig, cert: cert(r.cert) };
-}
-export function checkName(app, n) {
-  if (!isPersona(n?.persona) || !text(n.nick, 24) || !text(n.name, 24) || !uint(n.ts) || !(isAnimal(n.id) || isPlant(n.id))) fail('bad name');
-  signed(app, n.persona, n.ante, COLONY_BITS, nameMsg(n), n.sig, n.cert);
-  return { persona: n.persona, nick: n.nick, id: n.id, name: n.name, ts: n.ts, ante: n.ante, sig: n.sig, cert: cert(n.cert) };
-}
-const worldOk = (w) => w === '' || (typeof w === 'string' && w.length <= 40 && /^v1-[0-9]{1,4}_[0-9]{1,4}_[0-9](@[-+0-9.]{1,12})?$/.test(w) && Number.isFinite(Number(w.split('@')[1] ?? 0)));
-export function checkMessage(app, m) {
-  const n = [...(m?.nick ?? '')].length, t = typeof m?.text === 'string' ? [...m.text].length : 0;
-  if (!isPersona(m.persona) || t === 0 || t > MAX_TEXT || n === 0 || n > 24 || typeof m.nick !== 'string' || /[\p{Cc}|]/u.test(m.nick) || !uint(m.ts) || m.ts === 0 || !worldOk(m.world ?? '')) fail('bad message');
-  if (/[\p{Cc}]/u.test(m.text.replaceAll('\n', ''))) fail('bad text');
-  const world = m.world ?? '';
-  signed(app, m.persona, m.ante, CHAT_BITS, chatMsg({ ...m, world }), m.sig, m.cert);
-  return { persona: m.persona, nick: m.nick, text: m.text, world, ts: m.ts, ante: m.ante, sig: m.sig, cert: cert(m.cert) };
-}
 function checkBlocklist(admin, b, personasOnly) {
   if (!b || !uint(b.ts) || !Array.isArray(b.list) || b.list.length > 10_000 || !b.list.every((s) => isPersona(s) || (!personasOnly && isStar(s)))) fail('bad blocklist');
   if (!verify(b.sig, `dwb1|${b.ts}|${b.list.join(',')}`, admin)) fail('bad signature');
@@ -142,6 +56,7 @@ export function open(file, { admin, app = '/' }) {
 
     /** contract apply(): a whole delta or nothing. */
     applyGalaxy(d) {
+      tooBig(d, ['colonies', 'homes', 'raids', 'names']);
       tx('galaxy', () => {
         setBlocked('galaxy', d.blocked, false);
         const bl = new Set(blocklist('galaxy').list);
@@ -178,6 +93,7 @@ export function open(file, { admin, app = '/' }) {
     },
 
     applyChat(d) {
+      tooBig(d, ['messages']);
       tx('chat', () => {
         setBlocked('chat', d.blocked, true);
         const bl = new Set(blocklist('chat').list);

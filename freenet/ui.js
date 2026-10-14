@@ -2,6 +2,7 @@
 // leaderboard and progress kept in the node. index.html calls the returned hooks; it never imports
 // this file unless a node serves the page.
 import * as net from './net.js';
+import { checkColony, checkHome, checkRaid, checkName, checkMessage } from './check.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
 import { partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
@@ -32,7 +33,24 @@ export async function start(app) {
   // dev only: a faster honest rate, to test colonies without waiting minutes
   const rate = q.has('node') && q.get('rate') ? Number(q.get('rate')) : HASHES_PER_SECOND;
 
-  const colonyOf = (seed) => galaxy.colonies?.[seed];
+  // Whatever another explorer published is checked here again, with the rules the contracts and the web server
+  // apply (check.js), before it is shown or acted on: a server or a node that lies cannot make us see a flag, a
+  // home, a name, a message or a raid that was not signed. A record is checked once (then remembered).
+  const vetted = new WeakMap(), vettedKey = new Map(), RULES = { colony: checkColony, home: checkHome, raid: checkRaid, name: checkName, message: checkMessage };
+  function sound(kind, rec, seed) {
+    if (!rec || typeof rec !== 'object') return false;
+    if (vetted.has(rec)) return vetted.get(rec);
+    const key = `${kind}|${seed ?? ''}|${JSON.stringify(rec)}`;
+    let ok = vettedKey.get(key);
+    if (ok === undefined) {
+      try { kind === 'colony' ? RULES.colony(net.appPath(), seed, rec) : RULES[kind](net.appPath(), rec); ok = true; } catch { ok = false; }
+      if (vettedKey.size > 4000) vettedKey.clear();
+      vettedKey.set(key, ok);
+    }
+    vetted.set(rec, ok);
+    return ok;
+  }
+  const colonyOf = (seed) => { const c = galaxy.colonies?.[seed]; return sound('colony', c, seed) ? c : undefined; };
   let peopleCache = {};
   const colScore = (seed, c) => score(seed, c.persona, c.nonces);
   const signBtn = document.getElementById('signBtn'), plantBtn = document.getElementById('plantBtn');
@@ -64,7 +82,7 @@ export async function start(app) {
   const siegeBtn = document.getElementById('siegeBtn');
   let siege = null, resumed = ''; // siege: { target, day, miner }
   const raids = () => Object.values(galaxy.raids ?? {});
-  const raidedLately = (persona) => raids().some((r) => r.attacker === persona && r.day >= today() - 1);
+  const raidedLately = (persona) => raids().some((r) => r.attacker === persona && r.day >= today() - 1 && sound('raid', r));
   const peaceful = (h) => !!h?.peace && !raidedLately(h.persona);
   const crewOf = (r) => siegeCrew(seconds(raidScore(r)));
   const siegeKey = (target, day) => `siege:${target.slice(0, 16)}:${day}`;
@@ -72,7 +90,7 @@ export async function start(app) {
   function victim() {
     const w = app.world(), H = app.st().home;
     if (!me || !nick || level() < COLONY_BITS || !H || H.peace) return null;
-    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && x.persona !== me && x.built.length);
+    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && x.persona !== me && x.built.length && sound('home', x));
     return h && !peaceful(h) && !galaxy.raids?.[`${me}|${h.persona}|${today()}`] ? h : null;
   }
   const siegeHere = (h) => siege && h && siege.target === h.persona && siege.day === today();
@@ -125,7 +143,7 @@ export async function start(app) {
     const st = app.st(), H = st.home;
     if (!me || !H) return;
     H.sieged ??= [];
-    const fresh = raids().filter((r) => r.target === me && r.day >= today() - 2 && r.day <= today() && !H.sieged.includes(raidKey(r)));
+    const fresh = raids().filter((r) => r.target === me && r.day >= today() - 2 && r.day <= today() && !H.sieged.includes(raidKey(r)) && sound('raid', r));
     if (!fresh.length) return;
     const lines = [];
     for (const r of fresh) {
@@ -279,16 +297,31 @@ export async function start(app) {
     const rowOf = (persona, nick) => rows.get(persona) ?? rows.set(persona, { nick, persona, t: 0, planets: [], home: null }).get(persona);
     for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
       const r = rowOf(c.persona, c.nick), t = seconds(colScore(seed, c));
-      r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t });
+      r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t, rec: c });
     }
     for (const h of Object.values(galaxy.homes ?? {})) { const r = rowOf(h.persona, h.nick); r.home = h; r.nick = h.nick; }
     for (const r of rows.values()) { r.lv = civLevel(r.home); r.pts = civPoints(r.home); }
     // civilization first (level, then points), then colonies and time spent on them
-    const all = [...rows.values()].sort((a, b) => b.lv - a.lv || b.pts - a.pts || b.planets.length - a.planets.length || b.t - a.t);
+    const rank = (a, b) => b.lv - a.lv || b.pts - a.pts || b.planets.length - a.planets.length || b.t - a.t;
+    // the claims of the rows that will be shown are checked (a forged home or flag falls out and the list is ranked again)
+    const vetRow = (r) => {
+      if (r.vet) return;
+      r.vet = true;
+      if (r.home && !sound('home', r.home)) r.home = null;
+      r.planets = r.planets.filter((p) => sound('colony', p.rec, p.seed));
+      r.t = r.planets.reduce((x, p) => x + p.t, 0); r.lv = civLevel(r.home); r.pts = civPoints(r.home);
+    };
+    let all = [...rows.values()].sort(rank);
+    for (let round = 0; round < 8; round++) {
+      const todo = all.slice(0, 20).filter((r) => !r.vet);
+      if (!todo.length) break;
+      todo.forEach(vetRow); all = all.filter((r) => !r.vet || r.home || r.planets.length).sort(rank);
+    }
     const av = (p) => { const u = avatar(p, renderLeaderboard); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
     const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — Lv ${r.lv} ${civTitle(r.home)} · 👥 ${population(r.home)} · 🏗 ${r.home?.built.length ?? 0} · 🚩 ${r.planets.length}${r.t ? `, ${fmt(r.t)}` : ''}</summary>
       <ul>${r.home ? `<li>🏠 <a href="#${r.home.seed}">${app.esc(makeWorld(r.home.seed).name)}</a> <small style="display:inline">${r.home.animals.length} creatures</small></li>` : ''}${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
     const mine = all.findIndex((r) => r.persona === me);
+    if (mine >= 20) vetRow(all[mine]);
     document.getElementById('lbBody').innerHTML = all.length
       ? `<p><small>${all.length} explorers · ${Object.keys(galaxy.colonies ?? {}).length} colonies · ranked by civilization level (people, buildings, creatures), then colonies and time. Open a name to see their planets.</small></p>
         <ol>${all.slice(0, 20).map((r, i) => row(r, i + 1)).join('')}</ol>
@@ -307,7 +340,7 @@ export async function start(app) {
   const log = document.getElementById('chatLog'), form = document.getElementById('chatForm'), input = document.getElementById('chatText');
   let chat = { messages: {} }, seen = 0, open = false;
   try { open = localStorage.getItem('dw-chat-open') === '1'; } catch { /* sandbox */ }
-  const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000 && m.ts > Date.now() - CHAT_LIVE).sort((a, b) => a.ts - b.ts).slice(-100);
+  const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000 && m.ts > Date.now() - CHAT_LIVE && sound('message', m)).sort((a, b) => a.ts - b.ts).slice(-100);
   const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   function card(world) {
     const [seed, pos] = world.split('@'), w = makeWorld(seed), col = colonyOf(seed);
@@ -390,7 +423,7 @@ export async function start(app) {
     colonyOf,
     homeChanged,
     /** The common name of species or plant `id`: { name, nick } of its first namer, or null. */
-    nameOf: (id) => galaxy.names?.[id] ?? null,
+    nameOf: (id) => { const n = galaxy.names?.[id]; return n && sound('name', n) ? n : null; },
     canName: () => !!me && !!nick && level() >= COLONY_BITS,
     async nameIt(id, name) {
       if (!validText('x', name) || galaxy.names?.[id]) throw new Error('Pick 1-24 characters, without "|"; it may already have a name.');
@@ -398,7 +431,7 @@ export async function start(app) {
       galaxy.names = { ...galaxy.names, [id]: n };
     },
     /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
-    homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length),
+    homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length && sound('home', h)),
     atlasHtml() {
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);
       const av = (p) => { const u = avatar(p, () => {}); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };

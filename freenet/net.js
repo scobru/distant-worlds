@@ -246,6 +246,8 @@ const signApp = async (m) => ((await hasDelegate()) ? (await callDelegate({ op: 
 // Viso signs `wd1.<app key>.<nonce>` for this app's address: "this app key acts for me here".
 const VISO_KEY = 'GzHy3jnEtj26EoGqMsBpoawcY378hK9kp91rTcNYiAac';
 export const visoUrl = () => `${location.protocol}//${location.host}/v1/contract/web/${VISO_KEY}/`;
+/** The path the explorer's delegation is made for: what a record's certificate must name (see check.js). */
+export const appPath = () => APP_PATH;
 const linkBase = () => `${location.protocol}//${location.host}${APP_PATH}`;
 
 /** The signed-in persona, if its delegation still holds for this node's app key. */

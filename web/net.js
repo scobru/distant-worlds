@@ -12,6 +12,8 @@ ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 const { bytesToHex: hex, hexToBytes: unhex } = ed.etc;
 const enc = new TextEncoder();
 const BASE = new URL('./', location.href); // the server's APP_PATH
+/** The path the explorer's delegation is made for: what a record's certificate must name (see freenet/check.js). */
+export const appPath = () => BASE.pathname;
 
 const listeners = [];
 export const onUpdate = (f) => listeners.push(f);
