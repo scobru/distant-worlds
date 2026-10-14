@@ -1,6 +1,6 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
-import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed } from './world.js';
+import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
@@ -304,19 +304,17 @@ export function repair(st, i, g = 1) {
   return true;
 }
 
-// Breeding: each working stable lets two wild species living at home have a young one a day, for plants and
-// ore. The young (world.js breed) joins the home's creatures.
+// Breeding: each working stable lets two species living at home have a young one a day, for plants and
+// ore. The young (world.js breed) joins the home's creatures; it can breed in turn, up to MAX_GEN generations.
 export const BREED = { plant: 10, ore: 5 };
-const wild = (id) => !id.includes('+');
 export const breedsLeft = (st, day) => builtOf(st, 'longhouse') - (st.home.bred?.day === day ? st.home.bred.n : 0);
-/** Breeds species `a` and `b` (wild, both living at home) on `day`; returns the young's id, or null. */
+/** Breeds species `a` and `b` (both living at home) on `day`; returns the young's id, or null. */
 export function breedAt(st, a, b, day) {
-  const H = st.home;
-  if (a === b || !wild(a) || !wild(b) || !H.animals.includes(a) || !H.animals.includes(b)) return null;
+  const H = st.home, id = a === b ? null : bredId(a, b);
+  if (!id || generation(id) < 1 || !H.animals.includes(a) || !H.animals.includes(b)) return null;
   if (breedsLeft(st, day) < 1 || st.bag.plant < BREED.plant || st.bag.ore < BREED.ore) return null;
   st.bag.plant -= BREED.plant; st.bag.ore -= BREED.ore;
   H.bred = { day, n: (H.bred?.day === day ? H.bred.n : 0) + 1 };
-  const id = [a, b].sort().join('+');
   H.animals.push(id);
   return id;
 }
@@ -326,6 +324,7 @@ export function breedAt(st, a, b, day) {
 export const CROSS = { plant: 8, ore: 4 };
 export const crossesLeft = (st, day) => builtOf(st, 'windmill') - (st.home.crossed?.day === day ? st.home.crossed.n : 0);
 /** Crosses plant species `a` and `b` (wild, both in the garden) on `day`; returns the hybrid's id, or null (also if already grown). */
+const wild = (id) => !id.includes('+');
 export function crossAt(st, a, b, day) {
   const H = st.home, g = (H.garden ??= []), id = [a, b].sort().join('+');
   if (a === b || !wild(a) || !wild(b) || !g.includes(a) || !g.includes(b) || g.includes(id)) return null;

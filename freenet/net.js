@@ -19,7 +19,7 @@ import chatWasm from './chat.wasm?url';
 import { chatMsg } from './chat.js';
 import { identityInstance, IDENTITY_CODE_HASH, readPersona } from './viso.js';
 import identityWasm from './identity.wasm?url';
-import { msg as colonyMsg, homeMsg, raidMsg, raidKey } from './colony.js';
+import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg } from './colony.js';
 import { connectMessage } from './connect.js';
 export { personaName } from './connect.js';
 
@@ -32,7 +32,7 @@ const bytes = (s) => Array.from(enc.encode(s));
 // FreeNames / FreeTunes admin; the signed messages are domain-separated (dwb1).
 export const ADMIN = '4498bd4c2ab992afa152bc9b968e246cf70dc4fa5a670b23c33e73b8516ce9f3';
 const APP_PATH = location.pathname; // in dev "/": a separate dev galaxy
-const EMPTY = { colonies: {}, blocked: { ts: 0, list: [], sig: '' }, homes: {}, raids: {} };
+const EMPTY = { colonies: {}, blocked: { ts: 0, list: [], sig: '' }, homes: {}, raids: {}, names: {} };
 
 // ---------------------------------------------------------------- node connection
 const listeners = [], delegateWaiters = [];
@@ -153,6 +153,16 @@ export async function publishRaid({ nick, target, day, nonces, ante }) {
   r.sig = await s.sign(raidMsg(r));
   await send({ raids: { [raidKey(r)]: r } });
   return r;
+}
+
+/** Give species or plant `id` its common name (the earliest name wins), signed for the signed-in persona. */
+export async function publishName({ nick, id, name, ante }) {
+  const s = await session();
+  if (!s) throw new Error('Sign in first.');
+  const n = { persona: s.persona, nick, id, name, ts: Date.now(), ante, sig: '', cert: s.cert };
+  n.sig = await s.sign(nameMsg(n));
+  await send({ names: { [id]: n } });
+  return n;
 }
 
 /** Admin only: hide these stars or personas (replaces the whole blocklist); personas also leave the chat. */

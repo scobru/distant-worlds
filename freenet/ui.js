@@ -38,15 +38,14 @@ export async function start(app) {
   const signBtn = document.getElementById('signBtn'), plantBtn = document.getElementById('plantBtn');
 
   // Our home, published when it changes (and once after sign-in), so other explorers see it.
-  // shortcut: limits as in the contract (64 buildings, 64 creatures); older ones are left out, and bred young
-  // ("<id>+<id>") are not published: the contract takes wild species ids only. Widen is_animal to share them.
+  // shortcut: limits as in the contract (64 buildings, 64 creatures); older ones are left out.
   let homeTimer, lastHome = '';
   function homeChanged() {
     clearTimeout(homeTimer);
     homeTimer = setTimeout(async () => {
       const H = app.st().home;
       if (!H || !me || !nick || level() < COLONY_BITS) return;
-      const built = H.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = H.animals.filter((id) => !id.includes('+')).slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
+      const built = H.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = H.animals.slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
       if (key === lastHome && galaxy.homes?.[me]) return;
       try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, ante: anteHex() }) }; lastHome = key; }
       catch (e) { console.warn('home publish failed:', e); }
@@ -385,6 +384,14 @@ export async function start(app) {
     },
     colonyOf,
     homeChanged,
+    /** The common name of species or plant `id`: { name, nick } of its first namer, or null. */
+    nameOf: (id) => galaxy.names?.[id] ?? null,
+    canName: () => !!me && !!nick && level() >= COLONY_BITS,
+    async nameIt(id, name) {
+      if (!validText('x', name) || galaxy.names?.[id]) throw new Error('Pick 1-24 characters, without "|"; it may already have a name.');
+      const n = await net.publishName({ nick, id, name, ante: anteHex() });
+      galaxy.names = { ...galaxy.names, [id]: n };
+    },
     /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
     homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length),
     atlasHtml() {

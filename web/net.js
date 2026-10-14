@@ -4,7 +4,7 @@
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { chatMsg } from '../freenet/chat.js';
-import { msg as colonyMsg, homeMsg, raidMsg, raidKey } from '../freenet/colony.js';
+import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg } from '../freenet/colony.js';
 import { connectMessage } from '../freenet/connect.js';
 export { personaName } from '../freenet/connect.js';
 
@@ -74,6 +74,12 @@ export async function publishRaid({ nick, target, day, nonces, ante }) {
   r.sig = await s.sign(raidMsg(r));
   await call('galaxy', { raids: { [raidKey(r)]: r } });
   return r;
+}
+export async function publishName({ nick, id, name, ante }) {
+  const s = await signedIn(), n = { persona: s.persona, nick, id, name, ts: Date.now(), ante, sig: '', cert: s.cert };
+  n.sig = await s.sign(nameMsg(n));
+  await call('galaxy', { names: { [id]: n } });
+  return n;
 }
 export async function block(secretHex, list, ts = Math.floor(Date.now() / 1000)) {
   const signList = (l) => ({ ts, list: l, sig: hex(ed.sign(enc.encode(`dwb1|${ts}|${l.join(',')}`), unhex(secretHex))) });

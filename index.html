@@ -122,10 +122,11 @@
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
     and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
-  <p>🧬 <b>Breeding</b>: each Stable at home lets two wild species living there have a young one a day (🌿10 ⛏5). It takes each part from one parent,
-    sometimes something new, and joins your bestiary and your home. The same parents always give the same young.</p>
+  <p>🧬 <b>Breeding</b>: each Stable at home lets two species living there have a young one a day (🌿10 ⛏5). It takes each part from one parent,
+    sometimes something new, and joins your bestiary and your home; it can breed in turn, up to 3 generations from the wild. The same parents always give the same young.</p>
   <p>🌸 <b>Crossing</b>: each Mill lets two wild plant species of your garden give a hybrid a day (🌿8 ⛏4): it grows in your garden and goes into your herbarium.
     🔗 <b>Fusing</b> two buildings of different kinds (🌿10 ⛏10) makes one that does what both did; each new pair adds to your civilization's variety, but a raid damages both halves.</p>
+  <p>✎ <b>Names</b> (online): the first explorer to name a species or a plant from the Atlas gives it its common name, which everyone then sees.</p>
   <p>⚔ <b>Sieges</b> (Freenet): land on another explorer's home and press <b>⚔ Besiege</b> (⚡20 ⛏10). Stay there: every 2 minutes another raider joins.
     When you attack, your raiders against their defence decide it: win and you bring back ore. Once a day per home. A besieged home fights it like a pirate raid.
     Homes marked 🕊 Peaceful neither besiege nor get besieged.</p>
@@ -148,7 +149,7 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
+import { makeWorld, speciesOf, plantOf, bredId, generation, MAX_GEN, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
@@ -286,7 +287,7 @@ function showTip() {
   const found = hits.findLast(([[x0, y0, x1, y1]]) => px >= x0 && px <= x1 && py >= y0 && py <= y1);
   cv.style.cursor = found?.[1].take ? 'pointer' : '';
   if (!found) { tip.hidden = true; return; }
-  const d = describe(found[1], world, { relic: (k) => st.seen.includes(`relic:${k}`), species: (id) => st.species.some((x) => x.id === id), plant: (id) => (st.plants ?? []).some((x) => x.id === id) });
+  const d = describe(found[1], world, { relic: (k) => st.seen.includes(`relic:${k}`), species: (id) => st.species.some((x) => x.id === id), plant: (id) => (st.plants ?? []).some((x) => x.id === id), name: (id) => fn?.nameOf(id) });
   const html = `<b>${esc(d.title)}</b>${d.rarity ? ` <span class="badge ${d.rarity}">${d.rarity}</span>` : ''}${d.lines.filter(Boolean).map((l) => `<small>${esc(l)}</small>`).join('')}`;
   if (tip.innerHTML !== html) tip.innerHTML = html;
   tip.hidden = false;
@@ -704,11 +705,16 @@ const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `m
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
-// Breeding: two wild species living at home, in a stable (atlas.js breedAt, world.js breed).
+// The common name an explorer gave a species or plant (Freenet / web), or a button to give it one.
+function nameTag(id) {
+  const n = fn?.nameOf(id);
+  return n ? ` <i>“${esc(n.name)}”</i> <small style="display:inline">named by ${esc(n.nick)}</small>` : fn?.canName() ? ` <button data-name="${esc(id)}">✎ Name</button>` : '';
+}
+// Breeding: two species living at home, in a stable (atlas.js breedAt, world.js breed), up to MAX_GEN generations.
 function breedHtml(H) {
-  const ids = [...new Set(H.animals.filter((id) => !id.includes('+')))].filter((id) => speciesOf(id));
+  const ids = [...new Set(H.animals)].filter((id) => speciesOf(id));
   if (!H.built.some((b) => partsOf(b).includes('longhouse') && !b.damaged)) return '<p><small>🧬 Build a Stable to breed your creatures into new species.</small></p>';
-  if (ids.length < 2) return '<p><small>🧬 Bring home two different wild species to breed them in your stable.</small></p>';
+  if (ids.length < 2) return '<p><small>🧬 Bring home two different species to breed them in your stable.</small></p>';
   const opts = (sel) => ids.map((id, i) => `<option value="${esc(id)}"${i === sel ? ' selected' : ''}>${esc(speciesOf(id).name)}</option>`).join('');
   const left = breedsLeft(st, isoDay());
   return `<p>🧬 <select id="breedA" aria-label="First parent">${opts(0)}</select> × <select id="breedB" aria-label="Second parent">${opts(1)}</select>
@@ -761,7 +767,7 @@ function renderBuild() {
     const a = document.getElementById('breedA').value, b = document.getElementById('breedB').value;
     if (a === b) return toast(['Pick two different species.']);
     const id = breedAt(st, a, b, isoDay());
-    if (!id) return toast([`Breeding needs a free stable today and 🌿${BREED.plant} ⛏${BREED.ore}.`]);
+    if (!id) return toast([generation(bredId(a, b)) < 0 ? `Those two are too far apart: a young can be at most ${MAX_GEN} generations from the wild.` : `Breeding needs a free stable today and 🌿${BREED.plant} ⛏${BREED.ore}.`]);
     const sp = speciesOf(id), res = findSpecies(st, sp, { seed: st.home.seed, name: `${world.name} (bred)` });
     save(); pets = homePets(); fn?.homeChanged(); renderBuild(); sfx('pickup');
     toast([`🧬 A young ${esc(sp.name)} (${sp.rarity}) was born in your stable!`, ...res.achievements.map((x) => `🏆 Achievement: ${x}`)]);
@@ -948,12 +954,12 @@ document.getElementById('atlasBtn').onclick = () => {
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
     <h3>Bestiary <small>${st.species.length} species</small></h3>
     ${st.species.length ? `<ul>${st.species.slice(0, 60).map((sp) => `<li><canvas class="portrait" width="72" height="48" data-id="${esc(sp.id)}" aria-hidden="true"></canvas>
-      <b>${esc(sp.name)}</b> <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
+      <b>${esc(sp.name)}</b>${nameTag(sp.id)} <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No species yet. Walk through worlds with herds or giants.</small></p>'}
     ${fn ? fn.atlasHtml() : ''}
     <h3>Herbarium <small>${(st.plants ?? []).length} plants</small></h3>
     ${(st.plants ?? []).length ? `<ul>${st.plants.slice(0, 60).map((pl) => `<li><canvas class="portrait" width="72" height="48" data-plant="${esc(pl.id)}" aria-hidden="true"></canvas>
-      <b>${esc(pl.name)}</b> <small style="display:inline">${esc(pl.family)} · from <a href="#${encodeURIComponent(pl.world)}">${esc(pl.worldName)}</a></small></li>`).join('')}</ul>`
+      <b>${esc(pl.name)}</b>${nameTag(pl.id)} <small style="display:inline">${esc(pl.family)} · from <a href="#${encodeURIComponent(pl.world)}">${esc(pl.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No plants yet. Walk through green worlds: plants go here when you see them.</small></p>'}
     <h3>Logbook</h3>
     ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
@@ -963,6 +969,12 @@ document.getElementById('atlasBtn').onclick = () => {
   dlg.querySelectorAll('.x').forEach((b) => (b.onclick = () => { st.favs.splice(+b.dataset.i, 1); save(); updateFav(); dlg.close(); document.getElementById('atlasBtn').click(); }));
   dlg.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => dlg.close()));
   fn?.bindAtlas(dlg);
+  dlg.querySelectorAll('[data-name]').forEach((b) => (b.onclick = async () => {
+    const n = prompt('Its common name, for every explorer (1-24 characters). The first name given wins:', '')?.trim();
+    if (!n) return;
+    try { await fn.nameIt(b.dataset.name, n); toast([`✎ You named it “${esc(n)}”.`]); dlg.close(); document.getElementById('atlasBtn').click(); }
+    catch (e) { toast([esc(e.message)]); }
+  }));
 
   for (const cv2 of dlg.querySelectorAll('.portrait[data-plant]')) {
     const pl = plantOf(cv2.dataset.plant);
