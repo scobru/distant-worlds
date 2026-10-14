@@ -166,3 +166,26 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.equal(heritage(makeWorld('v1-1_2_3')), null, 'first worlds have no past');
   console.log('heritage ok:', ruins, 'ruins,', surv, 'survivors');
 }
+
+// Chronicle: newest world first, back to the star's first one, each born when the previous collapsed.
+{
+  const { chronicle, lexicon, inscription, languageOf, CONCEPTS } = await import('./world.js');
+  const ch = chronicle('v1-5_5_1.3');
+  assert.deepEqual(ch.map((c) => c.gen), [3, 2, 1, 0]);
+  for (let k = 1; k < ch.length; k++) assert.equal(ch[k].collapse, ch[k - 1].born);
+  assert.ok(ch.every((c) => c.story.includes(c.name)));
+  assert.equal(chronicle('abc123').length, 0, 'off the map: no chronicle');
+  assert.equal(chronicle('v1-5_5_1.20').length, 8, 'capped');
+  // Languages: one per culture plus the aliens, every concept a distinct word, learned in a fixed order.
+  for (const lang of ['alien', ...Object.keys((await import('./world.js')).CULTURES)]) {
+    const lex = lexicon(lang);
+    assert.deepEqual(lex, lexicon(lang));
+    assert.equal(new Set(Object.values(lex.words)).size, CONCEPTS.length, lang);
+    assert.deepEqual([...lex.order].sort(), [...CONCEPTS].sort());
+  }
+  const w = makeWorld('s1');
+  assert.deepEqual(inscription(w, 42), inscription(w, 42));
+  assert.ok(inscription(w, 42).every((c) => CONCEPTS.includes(c)));
+  assert.equal(languageOf({ civ: 'uninhabited', culture: 'nordic' }), null);
+  assert.equal(languageOf({ civ: 'aliens', culture: 'nordic' }), 'alien');
+}

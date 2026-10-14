@@ -119,6 +119,10 @@
     Point at (or tap) anything to see what it is.</p>
   <h3>🚀 Travel</h3>
   <p><b>New world</b> jumps to a random star (100⚡); the <b>Map</b> shows nearby stars (closer = cheaper, visited = free). <b>World of the day</b> and shared links are free.</p>
+  <h3>🧭 Expeditions</h3>
+  <p>Every 14 days a new expedition starts, the same for everyone: five stages to reach in order, each a kind of world to find. Each stage refuels you; the last one earns the season's badge. See it in the <b>Atlas</b>.</p>
+  <h3>🗣 Languages</h3>
+  <p>Each culture, and the aliens, speaks its own language. Every new inhabited world teaches you a word, every relic two. Buildings and relics carry inscriptions: point at them and the words you know are translated.</p>
   <h3>🏠 Home</h3>
   <p>On a world you like, press <b>🏠 Settle here</b>. From anywhere, <b>🏠 Go home</b> brings you back for free.
     Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
@@ -141,7 +145,7 @@
     If your home's world is dying, go to a young world and press <b>🚀 Move home here</b> before it is too late.</p>
   <h3>🏚 Heritage</h3>
   <p>A world born from a star where another one collapsed remembers it: the ruins of its buildings stand here and there, one of its species survives,
-    and the homes explorers built there (yours too) are left as ruins.</p>
+    and the homes explorers built there (yours too) are left as ruins. The <b>Atlas</b> keeps the chronicle of the star you are on: every world it held, who lived there and what survived.</p>
   <h3>🌱 Garden</h3>
   <p>The first time you harvest a plant species you also get its seeds. At home they are sown in your garden, so the plants you discover grow among your buildings.</p>
   <h3>✨ Events</h3>
@@ -154,11 +158,11 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
+import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -228,7 +232,11 @@ function load() {
 
   if (st.last !== seed) {
     st.last = seed;
-    const news = visit(st, W), [today, yesterday] = days(), msg = [];
+    const first = !st.stars.includes(seed), news = visit(st, W), [today, yesterday] = days(), msg = [];
+    let exp, words = 0;
+    news.achievements.push(...withAchievements(st, () => { exp = checkExpedition(st, W); if (first) words = learn(st, W, 1); }));
+    if (exp) msg.push(exp.done ? `🧭 Expedition complete! Season ${st.expeditions.at(-1)} badge earned · ⚡${EXPEDITION.fuel}` : `🧭 Expedition stage ${exp.stage}/${EXPEDITION.stages} reached · ⚡${EXPEDITION.fuel}`);
+    if (words) msg.push(`🗣 You learned a word of the ${languageOf(W)} language (${st.words[languageOf(W)]}/${CONCEPTS.length})`);
     if (news.entries.length) msg.push('New discovery: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
     addFuel(st, (news.entries.length + news.combos.length) * FUEL.entry);
     if (checkMission(st, W, today, yesterday)) { addFuel(st, FUEL.mission); msg.push(`✓ Daily mission complete! Streak: ${st.daily.streak} days · hyperdrive refuelled`); }
@@ -305,7 +313,7 @@ function showTip() {
   const found = hits.findLast(([[x0, y0, x1, y1]]) => px >= x0 && px <= x1 && py >= y0 && py <= y1);
   cv.style.cursor = found?.[1].take ? 'pointer' : '';
   if (!found) { tip.hidden = true; return; }
-  const d = describe(found[1], world, { relic: (k) => st.seen.includes(`relic:${k}`), species: (id) => st.species.some((x) => x.id === id), plant: (id) => (st.plants ?? []).some((x) => x.id === id), name: (id) => fn?.nameOf(id) });
+  const d = describe(found[1], world, { relic: (k) => st.seen.includes(`relic:${k}`), species: (id) => st.species.some((x) => x.id === id), plant: (id) => (st.plants ?? []).some((x) => x.id === id), name: (id) => fn?.nameOf(id), words: (l) => st.words?.[l] ?? 0 });
   const html = `<b>${esc(d.title)}</b>${d.rarity ? ` <span class="badge ${d.rarity}">${d.rarity}</span>` : ''}${d.lines.filter(Boolean).map((l) => `<small>${esc(l)}</small>`).join('')}`;
   if (tip.innerHTML !== html) tip.innerHTML = html;
   tip.hidden = false;
@@ -609,7 +617,9 @@ function relic(kind) {
   const news = findRelic(st, kind);
   if (!news.entries.length) return;
   addFuel(st, FUEL.relic);
-  save(); toast([`Relic found: ${kind}!`, ...news.achievements.map((a) => `🏆 Achievement: ${a}`)]);
+  let words;
+  news.achievements.push(...withAchievements(st, () => (words = learn(st, world, 2))));
+  save(); toast([`Relic found: ${kind}!`, words && `🗣 Its inscription taught you ${words} word${words > 1 ? 's' : ''}`, ...news.achievements.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
 }
 
 // Travel: arrow keys / A-D, drag on the landscape, or the walk toggle.
@@ -983,7 +993,8 @@ function foldAtlas(body) {
 }
 document.getElementById('close').onclick = () => dlg.close();
 document.getElementById('atlasBtn').onclick = () => {
-  const [today] = days(), m = mission(today), done = st.daily.done === today;
+  const [today] = days(), m = mission(today), done = st.daily.done === today, ex = expedition(), chron = chronicle(world.seed);
+  const expN = st.exp?.id === ex.id ? st.exp.n : 0, date = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
   const groups = Object.groupBy(ENTRIES, (e) => e.split(':')[0]);
   document.getElementById('atlasBody').innerHTML = `
     <p>Discoveries ${st.seen.filter((e) => ENTRIES.includes(e)).length + st.combos.length}/${ENTRIES.length + COMBOS.length} · Worlds explored ${st.count}</p>
@@ -997,6 +1008,16 @@ document.getElementById('atlasBtn').onclick = () => {
     <h3>Daily mission</h3>
     <p>${done ? '✓' : '○'} Find a world with ${m.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}.
       <br><small>Current streak ${st.daily.streak} · best ${st.daily.best}${matches(world, m) && done ? ' · this world fits' : ''}</small></p>
+    <h3>Expedition <small>season ${ex.id + 1}</small></h3>
+    <ol>${ex.stages.map((g, i) => `<li>${i < expN ? '✓' : i === expN ? '→' : '○'} A world with ${g.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}</li>`).join('')}</ol>
+    <p><small>Stages go in order, the same for every explorer; each gives ⚡${EXPEDITION.fuel}. Ends in ${left(ex.end - Date.now())}.${(st.expeditions ?? []).length ? ` Badges: ${st.expeditions.map((n) => `🧭${n}`).join(' ')}` : ''}</small></p>
+    <h3>Chronicle of this star</h3>
+    ${chron.length ? `<ul>${chron.map((c) => `<li><b>${esc(c.name)}</b> <span class="badge ${c.rarity}">${c.rarity}</span> <small style="display:inline">${c.gen ? `world ${c.gen + 1}` : 'first world'} · ${date(c.born)} – ${c.seed === world.seed ? 'today' : date(c.collapse)}</small>
+      <br><small>${esc(c.story)}${c.survivor ? ` Its ${esc(c.survivor)} survived into the next world.` : ''}</small></li>`).join('')}</ul>` : '<p><small>This world is not on the map: it has no star to remember.</small></p>'}
+    <h3>Languages <small>${Object.keys(st.words ?? {}).length} known</small></h3>
+    ${Object.keys(st.words ?? {}).length ? `<ul>${Object.entries(st.words).map(([l, n]) => { const lex = lexicon(l);
+      return `<li><b>${esc(l)}</b> ${n}/${CONCEPTS.length} <small>${lex.order.slice(0, n).map((c) => `${esc(lex.words[c])} = ${c}`).join(' · ')}</small></li>`; }).join('')}</ul>`
+      : '<p><small>Every new inhabited world teaches a word of its people\'s language, every relic two. Point at buildings to read their inscriptions.</small></p>'}
     <h3>Home planet</h3>
     <p>${st.home ? `<a href="#${encodeURIComponent(st.home.seed)}">${esc(makeWorld(st.home.seed).name)}</a> · Lv ${civLevel(st.home)} ${civTitle(st.home)} · 👥 ${population(st.home)} people · ${st.home.built.length} buildings · ${st.home.animals.length} creatures`
       : '<small>No home yet. Use 🏠 Settle here on a world you like.</small>'}${st.home && ageOf(st.home.seed) ? ` <small style="display:inline">· world age ${Math.floor(ageOf(st.home.seed).age)}/100</small>` : ''}</p>

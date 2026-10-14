@@ -64,8 +64,9 @@ export function randomSeed(rand = Math.random, now = Date.now()) {
 // everyone: each star has its own lifespan (30-120 days) and phase, counted from EPOCH.
 export const EPOCH = Date.UTC(2026, 9, 1), DAY = 864e5;
 /** The world star (sx, sy, i) holds at `now`: its seed, age (0-100) and when it collapses. */
+const lifespan = (sx, sy, i) => { const r = rngFrom(`life:${sx}_${sy}_${i}`), span = (30 + r() * 90) * DAY; return [span, r() * span]; };
 export function lifeOf(sx, sy, i, now = Date.now()) {
-  const r = rngFrom(`life:${sx}_${sy}_${i}`), span = (30 + r() * 90) * DAY, off = r() * span;
+  const [span, off] = lifespan(sx, sy, i);
   const u = (now - EPOCH + off) / span, gen = Math.max(0, Math.floor(u));
   return { seed: `${VERSION}-${sx}_${sy}_${i}${gen ? '.' + gen : ''}`, gen, age: (u - gen) * 100, collapse: EPOCH - off + (gen + 1) * span };
 }
@@ -754,3 +755,46 @@ export function survivors(w, her) {
     kind: 'species', dna: sp, x: -0.8 + r() * 1.2, range: 0.4 + r() * 0.4, speed, size: (0.03 + r() * 0.02) * (sp.scale ?? 1), phase: r() * 2, seed: Math.floor(r() * 2 ** 32),
   }));
 }
+
+// Chronicle of a star: its worlds, newest first, as every explorer would tell it.
+const STORY = {
+  humans: (w) => `The ${w.culture === 'temperate' ? '' : w.culture + ' '}people of ${w.name} lived there in the ${w.era} age.`,
+  aliens: (w) => `Aliens raised their spires on ${w.name}, in an age like our ${w.era}.`,
+  ruins: (w) => `${w.name} was already a land of ruins, left from a ${w.era} age.`,
+  uninhabited: (w) => `Nobody ever lived on ${w.name}; only its ${w.flora === 'barren' ? 'winds' : w.flora} remember it.`,
+};
+export function chronicle(seed, max = 8) {
+  const m = STAR.exec(seed);
+  if (!m) return [];
+  const [span, off] = lifespan(+m[1], +m[2], +m[3]), g = +(m[4] ?? 0);
+  return Array.from({ length: Math.min(g + 1, max) }, (_, k) => {
+    const gen = g - k, s = `v1-${m[1]}_${m[2]}_${m[3]}${gen ? '.' + gen : ''}`, w = makeWorld(s);
+    return { gen, seed: s, name: w.name, rarity: w.rarity, born: EPOCH - off + gen * span, collapse: EPOCH - off + (gen + 1) * span,
+      story: STORY[w.civ](w), survivor: k ? w.species[0]?.name ?? null : null };
+  });
+}
+
+// Languages: each culture (and the aliens) speaks its own, the same on every world. Explorers learn
+// its words one by one, in a fixed order; inscriptions on buildings and relics show what they know.
+export const CONCEPTS = ['we', 'sky', 'star', 'home', 'water', 'fire', 'stone', 'ancestors', 'children', 'sleep', 'build', 'remember',
+  'fall', 'rise', 'light', 'dark', 'path', 'end', 'begin', 'sing', 'beast', 'tree', 'gift', 'stranger'];
+const SAYINGS = [
+  ['ancestors', 'build', 'home', 'stone'], ['we', 'remember', 'fire', 'sky'], ['star', 'fall', 'water', 'sleep'], ['children', 'sing', 'light', 'rise'],
+  ['stranger', 'path', 'end', 'home'], ['beast', 'tree', 'gift', 'we'], ['dark', 'begin', 'star', 'remember'], ['sky', 'end', 'fire', 'children'],
+  ['we', 'sleep', 'stone', 'ancestors'], ['light', 'path', 'stranger', 'gift'], ['water', 'rise', 'tree', 'sing'], ['home', 'fall', 'dark', 'begin'],
+];
+const SOUNDS = ['ka', 've', 'lor', 'ny', 'tha', 'ri', 'os', 'mu', 'zen', 'ae', 'quel', 'dra', 'si', 'on', 'xi', 'ul', 'bre', 'ith', 'ko', 'sha', 'gar', 'yu', 'tep', 'im', 'vro', 'el'];
+export const languageOf = (w) => w.civ === 'uninhabited' ? null : w.civ === 'aliens' ? 'alien' : w.culture;
+export function lexicon(lang) {
+  const r = rngFrom(`lingua:${lang}`), sounds = SOUNDS.filter(() => r() < 0.5), words = {}, used = new Set();
+  for (const c of CONCEPTS) {
+    let word;
+    do word = Array.from({ length: 1 + Math.floor(r() * 3) }, () => sounds[Math.floor(r() * sounds.length)]).join(''); while (used.has(word));
+    used.add(word); words[c] = word;
+  }
+  const order = [...CONCEPTS];
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  return { words, order };
+}
+/** The inscription on something with `seed` on world `w`: concepts, in the world's language. */
+export const inscription = (w, seed) => SAYINGS[Math.floor(rngFrom(`${w.seed}:scritta:${seed}`)() * SAYINGS.length)];

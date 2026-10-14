@@ -1,6 +1,6 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
-import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId } from './world.js';
+import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
@@ -30,6 +30,8 @@ export const ACHIEVEMENTS = [
   ['Herbalist', 'Press 10 plants in your herbarium', (st) => (st.plants ?? []).length >= 10],
   ['Explorer', 'Explore 100 worlds', (st) => st.count >= 100],
   ['Steadfast', 'Daily mission 7 days in a row', (st) => st.daily.best >= 7],
+  ['Pathfinder', 'Finish a seasonal expedition', (st) => (st.expeditions ?? []).length >= 1],
+  ['Polyglot', 'Learn every word of a language', (st) => Object.values(st.words ?? {}).some((n) => n >= CONCEPTS.length)],
   ['Settler', 'Choose a home planet', (st) => !!st.home],
   ['Founder', 'Grow your home into a village', (st) => civLevel(st.home) >= 3],
   ['Mayor', 'Grow your home into a city', (st) => civLevel(st.home) >= 6],
@@ -85,17 +87,46 @@ export const isoDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMont
 // The daily world is a star on the map, the same for everyone that day.
 export const dailySeed = (day) => randomSeed(rngFrom('giorno:' + day));
 
-// Two trait constraints derived from the date, rare enough to hunt for but findable
-// (at least ~1 world in 40).
-export function mission(day) {
-  const r = rng(hashSeed('missione:' + day)), keys = Object.keys(TRAITS);
+// `n` trait constraints from `r`, found on at least `min` of the worlds (rare enough to hunt for).
+function goal(r, n, min) {
+  const keys = Object.keys(TRAITS);
   for (;;) {
-    const k1 = keys[Math.floor(r() * keys.length)], k2 = keys[Math.floor(r() * keys.length)];
-    if (k1 === k2) continue;
+    const ks = Array.from({ length: n }, () => keys[Math.floor(r() * keys.length)]);
+    if (new Set(ks).size < n) continue;
     const pick = (k) => { const t = Object.entries(TRAITS[k]).slice(1); const [v, w] = t[Math.floor(r() * t.length)]; return [k, v, w / Object.values(TRAITS[k]).reduce((a, b) => a + b)]; };
-    const a = pick(k1), b = pick(k2);
-    if (a[2] * b[2] >= 1 / 40) return [a, b].map(([k, v]) => [k, v]);
+    const g = ks.map(pick);
+    if (g.reduce((p, [, , q]) => p * q, 1) >= min) return g.map(([k, v]) => [k, v]);
   }
+}
+// Two trait constraints derived from the date, findable (at least ~1 world in 40).
+export const mission = (day) => goal(rng(hashSeed('missione:' + day)), 2, 1 / 40);
+
+// Seasonal expedition: every 14 days, the same chain of stages for every explorer. Stages are
+// done in order, each one by landing on a world that fits it; the last one is a badge.
+export const SEASON = 14 * DAY, EXPEDITION = { stages: 5, fuel: 50 };
+export function expedition(now = Date.now()) {
+  const id = Math.floor((now - EPOCH) / SEASON), r = rng(hashSeed('spedizione:' + id));
+  return { id, end: EPOCH + (id + 1) * SEASON, stages: Array.from({ length: EXPEDITION.stages }, (_, i) => goal(r, i < 2 ? 1 : 2, i < 2 ? 1 / 6 : 1 / 40)) };
+}
+/** Advances the expedition if `w` fits its next stage; returns { stage, done } or null. */
+export function checkExpedition(st, w, now = Date.now()) {
+  const ex = expedition(now);
+  if (st.exp?.id !== ex.id) st.exp = { id: ex.id, n: 0 };
+  if (st.exp.n >= ex.stages.length || !matches(w, ex.stages[st.exp.n])) return null;
+  st.exp.n++; addFuel(st, EXPEDITION.fuel);
+  const done = st.exp.n === ex.stages.length;
+  if (done) st.expeditions = [...(st.expeditions ?? []), ex.id + 1];
+  return { stage: st.exp.n, done };
+}
+
+// Languages: a new world teaches one word of its people's language, a relic two.
+export function learn(st, w, n) {
+  const lang = languageOf(w);
+  if (!lang) return 0;
+  st.words ??= {};
+  const had = st.words[lang] ?? 0;
+  st.words[lang] = Math.min(CONCEPTS.length, had + n);
+  return st.words[lang] - had;
 }
 export const matches = (w, m) => m.every(([k, v]) => w.traits[k] === v);
 
