@@ -671,15 +671,17 @@ export function foesNear(w, day, x0, x1) {
   for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1 && w.species.length; k++) {
     const r = rngFrom(`${w.seed}:foes:${day}:${k}`);
     if (k === 0 || r() > 0.3) continue;
-    out.push({ id: `foe${k}`, kind: 'species', x: k + 0.2 + r() * 0.6, dna: w.species[Math.floor(r() * w.species.length)], seed: Math.floor(r() * 2 ** 32), size: 0.04, level: 1 + Math.floor(Math.abs(k) / 4) });
+    const f = { id: `foe${k}`, kind: 'species', x: k + 0.2 + r() * 0.6, dna: w.species[Math.floor(r() * w.species.length)], seed: Math.floor(r() * 2 ** 32), size: 0.04, level: 1 + Math.floor(Math.abs(k) / 4), elite: r() < 0.2 };
+    if (f.elite) f.level += 2; // an elite is two levels above the rest
+    out.push(f);
   }
   return out;
 }
 
-// Diary pages (diary.js): one world in four keeps one, at a fixed spot near the arrival point.
+// Diary pages (diary.js): one world in three keeps one, at a fixed spot near the arrival point.
 export function pageNear(w, x0, x1) {
   const r = rngFrom(`${w.seed}:page`);
-  if (r() > 0.25) return [];
+  if (r() > 1 / 3) return [];
   const x = (r() < 0.5 ? -1 : 1) * (1 + r() * 2);
   return x > x0 - 1 && x < x1 + 1 ? [{ id: 'page', kind: 'page', x, phase: r() * 7 }] : [];
 }
