@@ -660,6 +660,18 @@ export function pickupsNear(w, day, x0, x1, time) {
   return out;
 }
 
+// Battle encounters (🗡 mode): a wild creature of this world waits on some stretches, the same for
+// everyone each day; never on the arrival spot. Farther from it they are stronger (`level`).
+export function foesNear(w, day, x0, x1) {
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1 && w.species.length; k++) {
+    const r = rngFrom(`${w.seed}:foes:${day}:${k}`);
+    if (k === 0 || r() > 0.3) continue;
+    out.push({ id: `foe${k}`, kind: 'species', x: k + 0.2 + r() * 0.6, dna: w.species[Math.floor(r() * w.species.length)], seed: Math.floor(r() * 2 ** 32), size: 0.04, level: 1 + Math.floor(Math.abs(k) / 4) });
+  }
+  return out;
+}
+
 // Diary pages (diary.js): one world in four keeps one, at a fixed spot near the arrival point.
 export function pageNear(w, x0, x1) {
   const r = rngFrom(`${w.seed}:page`);
