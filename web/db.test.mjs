@@ -4,7 +4,7 @@ import * as ed from '@noble/ed25519';
 import { open, isStar, anteLevel, isAnimal } from './db.js';
 import { grindAnte } from '../freenet/viso.js';
 import { connectMessage } from '../freenet/connect.js';
-import { chatMsg } from '../freenet/chat.js';
+import { chatMsg, hereMsg } from '../freenet/chat.js';
 import { homeMsg, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE, colonyLimit } from '../freenet/colony.js';
 
 const { bytesToHex: hex } = ed.etc, enc = new TextEncoder();
@@ -34,6 +34,14 @@ for (let ts = 100; ts < 105; ts++) db.applyChat({ messages: [resign({ ...m, text
 assert.deepEqual(Object.values(JSON.parse(db.chat()).messages).map((x) => x.ts).sort(), [102, 103, 104]);
 assert.throws(() => db.applyChat({ messages: [resign({ ...m, persona: b.persona, cert: b.cert })] }), /level too low/);
 assert.throws(() => db.applyChat({ messages: [resign({ ...m, ts: 6, cert: { ...a.cert, base: 'http://x/other/' } })] }), /another app/);
+
+// presence: one per persona, the newer one wins in any order; it needs a position and a signature
+const here = (world, ts) => { const h = { persona: a.persona, nick: 'Ann', world, ts, ante: a.ante, sig: '', cert: a.cert }; h.sig = sign(hereMsg(h)); return h; };
+db.applyChat({ here: [here('v1-1_2_3@6', 11)] });
+db.applyChat({ here: [here('v1-1_2_3@4.5', 10)] });
+assert.deepEqual(Object.values(JSON.parse(db.chat()).here).map((h) => h.world), ['v1-1_2_3@6']);
+assert.throws(() => db.applyChat({ here: [here('v1-1_2_3', 12)] }), /bad presence/);
+assert.throws(() => db.applyChat({ here: [{ ...here('v1-1_2_3@1', 12), world: 'v1-1_2_3@2' }] }), /bad signature/);
 
 // homes: the newest signed one wins
 const home = (ts) => { const h = { persona: a.persona, nick: 'Ann', seed: 'v1-1_2_3', built: [['house', 10]], animals: ['v1-4_5_6#1'], ts, ante: a.ante, sig: '', cert: a.cert }; h.sig = sign(homeMsg(h)); return h; };
@@ -94,7 +102,7 @@ assert.throws(() => db.applyChat({ blocked: bl }), /bad signature/); // a galaxy
 db.applyGalaxy({ blocked: bl });
 db.applyChat({ blocked: { ...bl, sig: sign(`dwb2|chat|3|${a.persona}`, admin) } });
 const g = JSON.parse(db.galaxy());
-assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(g.names).length, Object.keys(JSON.parse(db.chat()).messages).length], [0, 0, 0, 0]);
+assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(g.names).length, Object.keys(JSON.parse(db.chat()).messages).length, Object.keys(JSON.parse(db.chat()).here).length], [0, 0, 0, 0, 0]);
 console.log('web db ok');
 
 // a delta is a few records, not thousands (web only)

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Explorers on the same planet see each other, near-live: a signed presence per persona in the chat contract (`Here`, `dwp1|…`), the same on Freenet and web; ☰ 👁 hides you.
+- Shared world cards carry the explorer's position (they carried a layer coordinate), so links and ghosts land where they were shared.
+- Battles and raids show: shakes and a red flash.
+- Breaking for the chat: the chat contract is new and starts empty (the galaxy is unchanged).
+
 ## 1.0.0
 
 First release. A procedural galaxy of worlds from a seed, playable on Freenet or on a plain web server.

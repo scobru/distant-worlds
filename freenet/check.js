@@ -6,7 +6,7 @@ import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { score, raidScore, msg as colonyMsg, homeMsg, raidMsg, nameMsg, LANES, MAX_SCORE, COLONY_BITS } from './colony.js';
 import { generation, parentsOf } from '../world.js';
-import { chatMsg, MAX_TEXT, CHAT_BITS } from './chat.js';
+import { chatMsg, hereMsg, MAX_TEXT, CHAT_BITS } from './chat.js';
 import { connectMessage } from './connect.js';
 import { cborDecode, anteBits } from './viso.js';
 
@@ -87,6 +87,12 @@ export function checkName(app, n) {
   return { persona: n.persona, nick: n.nick, id: n.id, name: n.name, ts: n.ts, ante: n.ante, sig: n.sig, cert: cert(n.cert) };
 }
 const worldOk = (w) => w === '' || (typeof w === 'string' && w.length <= 40 && /^v1-[0-9]{1,4}_[0-9]{1,4}_[0-9](@[-+0-9.]{1,12})?$/.test(w) && Number.isFinite(Number(w.split('@')[1] ?? 0)));
+export function checkHere(app, h) {
+  const n = [...(h?.nick ?? '')].length;
+  if (!isPersona(h?.persona) || n === 0 || n > 24 || typeof h.nick !== 'string' || /[\p{Cc}|]/u.test(h.nick) || !uint(h.ts) || h.ts === 0 || typeof h.world !== 'string' || !h.world.includes('@') || !worldOk(h.world)) fail('bad presence');
+  signed(app, h.persona, h.ante, CHAT_BITS, hereMsg(h), h.sig, h.cert);
+  return { persona: h.persona, nick: h.nick, world: h.world, ts: h.ts, ante: h.ante, sig: h.sig, cert: cert(h.cert) };
+}
 export function checkMessage(app, m) {
   const n = [...(m?.nick ?? '')].length, t = typeof m?.text === 'string' ? [...m.text].length : 0;
   if (!isPersona(m.persona) || t === 0 || t > MAX_TEXT || n === 0 || n > 24 || typeof m.nick !== 'string' || /[\p{Cc}|]/u.test(m.nick) || !uint(m.ts) || m.ts === 0 || !worldOk(m.world ?? '')) fail('bad message');

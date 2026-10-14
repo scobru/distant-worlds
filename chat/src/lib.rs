@@ -10,6 +10,10 @@
 //! order converges. There is no trusted clock: `ts` is the author's, and clients hide messages from the
 //! future; the per-persona cap bounds what one persona can do with fake times. Admin-signed blocklist
 //! (`dwb2|chat|<ts>|<personas joined by ,>`) removes personas.
+//!
+//! Presence: each persona also keeps one `Here` record, where it is now (a star seed with a position),
+//! signed like a message and replaced by its newer one (ts, then signature); the newest MAX_HERE are
+//! kept. Clients show explorers whose presence is a couple of minutes old (HERE_LIVE in freenet/chat.js).
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -18,6 +22,7 @@ use whoiam_delegation::{check, key, verify, Cert};
 pub const MIN_ANTE_BITS: u32 = 16;
 pub const MAX_MESSAGES: usize = 50;
 pub const MAX_PER_PERSONA: usize = 3;
+pub const MAX_HERE: usize = 100;
 const MAX_TEXT: usize = 280;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -33,6 +38,18 @@ pub struct Message {
     pub cert: Cert,
 }
 
+/// Where an explorer is now: `world` is `<seed>@<position>`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Here {
+    pub persona: String,
+    pub nick: String,
+    pub world: String,
+    pub ts: u64,
+    pub ante: String,
+    pub sig: String, // by the delegated app key over `here_msg()`
+    pub cert: Cert,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Blocklist {
     pub ts: u64,
@@ -44,12 +61,16 @@ pub struct Blocklist {
 pub struct ChatState {
     pub messages: BTreeMap<String, Message>, // sig -> message
     pub blocked: Blocklist,
+    #[serde(default)]
+    pub here: BTreeMap<String, Here>, // persona -> presence
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Summary {
     pub sigs: BTreeSet<String>,
     pub blocked_ts: u64,
+    #[serde(default)]
+    pub here: BTreeMap<String, u64>, // persona -> ts
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -58,12 +79,18 @@ pub struct Delta {
     pub messages: Vec<Message>,
     #[serde(default)]
     pub blocked: Option<Blocklist>,
+    #[serde(default)]
+    pub here: Vec<Here>,
 }
 
 type R<T> = Result<T, String>;
 
 pub fn msg(m: &Message) -> String {
     format!("dwm1|{}|{}|{}|{}|{}", m.persona, m.nick, m.ts, m.world, m.text)
+}
+
+pub fn here_msg(h: &Here) -> String {
+    format!("dwp1|{}|{}|{}|{}", h.persona, h.nick, h.ts, h.world)
 }
 
 
@@ -96,12 +123,24 @@ pub fn check_message(app: &str, m: &Message) -> R<()> {
     if m.text.chars().any(|c| c.is_control() && c != '\n') {
         return Err("bad text".into());
     }
-    let ante = hex::decode(&m.ante).map_err(|e| e.to_string())?;
-    if viso_ante::verify_slot(&key(&m.persona)?, &ante)? < MIN_ANTE_BITS {
+    signed(app, &m.persona, &m.ante, &m.cert, &msg(m), &m.sig)
+}
+
+fn signed(app: &str, persona: &str, ante: &str, cert: &Cert, text: &str, sig: &str) -> R<()> {
+    let ante = hex::decode(ante).map_err(|e| e.to_string())?;
+    if viso_ante::verify_slot(&key(persona)?, &ante)? < MIN_ANTE_BITS {
         return Err("persona level too low".into());
     }
-    let app_key = check(&m.persona, app, &m.cert)?;
-    verify(&app_key, msg(m).as_bytes(), &m.sig)
+    let app_key = check(persona, app, cert)?;
+    verify(&app_key, text.as_bytes(), sig)
+}
+
+pub fn check_here(app: &str, h: &Here) -> R<()> {
+    let n = h.nick.chars().count();
+    if !is_persona(&h.persona) || n == 0 || n > 24 || h.nick.contains('|') || h.nick.chars().any(char::is_control) || h.ts == 0 || !h.world.contains('@') || !world_ok(&h.world) {
+        return Err("bad presence".into());
+    }
+    signed(app, &h.persona, &h.ante, &h.cert, &here_msg(h), &h.sig)
 }
 
 fn check_blocklist(admin: &str, b: &Blocklist) -> R<()> {
@@ -138,15 +177,23 @@ fn prune(s: &mut ChatState) {
             s.messages.remove(&sig);
         }
     }
+    if s.here.len() > MAX_HERE {
+        let mut all: Vec<((u64, String), String)> = s.here.iter().map(|(p, h)| ((h.ts, h.sig.clone()), p.clone())).collect();
+        all.sort_by(|a, b| b.cmp(a));
+        for (_, p) in all.into_iter().skip(MAX_HERE) {
+            s.here.remove(&p);
+        }
+    }
 }
 
 pub fn validate(admin: &str, app: &str, s: &ChatState) -> R<()> {
     check_blocklist(admin, &s.blocked)?;
     let mut copy = s.clone();
     prune(&mut copy);
-    if copy.messages.len() != s.messages.len() || s.messages.values().any(|m| s.blocked.list.contains(&m.persona)) {
+    if copy.messages.len() != s.messages.len() || copy.here.len() != s.here.len() || s.messages.values().any(|m| s.blocked.list.contains(&m.persona)) || s.here.values().any(|h| s.blocked.list.contains(&h.persona)) {
         return Err("state out of bounds".into());
     }
+    s.here.iter().try_for_each(|(p, h)| if *p == h.persona { check_here(app, h) } else { Err("bad key".into()) })?;
     s.messages.iter().try_for_each(|(sig, m)| if *sig == m.sig { check_message(app, m) } else { Err("bad key".into()) })
 }
 
@@ -164,20 +211,29 @@ pub fn apply(admin: &str, app: &str, s: &mut ChatState, d: Delta) -> R<()> {
         check_message(app, &m)?;
         s.messages.insert(m.sig.clone(), m);
     }
+    for h in d.here {
+        if s.blocked.list.contains(&h.persona) || s.here.get(&h.persona).is_some_and(|old| (old.ts, &old.sig) >= (h.ts, &h.sig)) {
+            continue;
+        }
+        check_here(app, &h)?;
+        s.here.insert(h.persona.clone(), h);
+    }
     let blocked = s.blocked.list.clone();
     s.messages.retain(|_, m| !blocked.contains(&m.persona));
+    s.here.retain(|_, h| !blocked.contains(&h.persona));
     prune(s);
     Ok(())
 }
 
 pub fn summarize(s: &ChatState) -> Summary {
-    Summary { sigs: s.messages.keys().cloned().collect(), blocked_ts: s.blocked.ts }
+    Summary { sigs: s.messages.keys().cloned().collect(), blocked_ts: s.blocked.ts, here: s.here.iter().map(|(p, h)| (p.clone(), h.ts)).collect() }
 }
 
 pub fn delta(s: &ChatState, sum: &Summary) -> Delta {
     Delta {
         messages: s.messages.iter().filter(|(k, _)| !sum.sigs.contains(*k)).map(|(_, m)| m.clone()).collect(),
         blocked: (s.blocked.ts > sum.blocked_ts).then(|| s.blocked.clone()),
+        here: s.here.iter().filter(|(p, h)| sum.here.get(*p).is_none_or(|ts| h.ts > *ts)).map(|(_, h)| h.clone()).collect(),
     }
 }
 
@@ -232,7 +288,7 @@ impl ContractInterface for Contract {
             let d: Delta = match u {
                 UpdateData::State(st) => {
                     let o: ChatState = de(st.as_ref())?;
-                    Delta { messages: o.messages.into_values().collect(), blocked: Some(o.blocked) }
+                    Delta { messages: o.messages.into_values().collect(), blocked: Some(o.blocked), here: o.here.into_values().collect() }
                 }
                 UpdateData::Delta(d) => de(d.as_ref())?,
                 UpdateData::StateAndDelta { delta, .. } => de(delta.as_ref())?,
@@ -286,7 +342,7 @@ mod tests {
         m
     }
     fn send(s: &mut ChatState, m: Message) -> R<()> {
-        apply(&pk(&sk(1)), APP, s, Delta { messages: vec![m], blocked: None })
+        apply(&pk(&sk(1)), APP, s, Delta { messages: vec![m], blocked: None, here: vec![] })
     }
 
     #[test]
@@ -314,6 +370,45 @@ mod tests {
         validate(&admin, APP, &s1).unwrap();
     }
 
+    fn here(persona: &SigningKey, world: &str, ts: u64) -> Here {
+        let m = message(persona, "x", "", ts);
+        let mut h = Here { persona: m.persona, nick: m.nick, world: world.into(), ts, ante: m.ante, sig: String::new(), cert: m.cert };
+        h.sig = hex::encode(sk(100).sign(here_msg(&h).as_bytes()).to_bytes());
+        h
+    }
+
+    #[test]
+    fn presence_newest_wins_and_is_capped() {
+        let admin = pk(&sk(1));
+        let (old, new) = (here(&sk(2), "v1-1_2_3@4.5", 10), here(&sk(2), "v1-1_2_3@6", 11));
+        let put = |s: &mut ChatState, h: Here| apply(&admin, APP, s, Delta { messages: vec![], blocked: None, here: vec![h] });
+        let (mut s1, mut s2) = (ChatState::default(), ChatState::default());
+        put(&mut s1, old.clone()).unwrap();
+        put(&mut s1, new.clone()).unwrap();
+        put(&mut s2, new.clone()).unwrap();
+        put(&mut s2, old.clone()).unwrap(); // an older presence does not replace a newer one
+        assert_eq!(s1, s2);
+        assert_eq!(s1.here[&pk(&sk(2))].world, "v1-1_2_3@6");
+        validate(&admin, APP, &s1).unwrap();
+        assert!(delta(&s1, &summarize(&s1)).here.is_empty());
+        assert_eq!(delta(&s1, &summarize(&ChatState::default())).here, vec![new.clone()]);
+
+        assert!(put(&mut s1, here(&sk(3), "v1-1_2_3", 5)).is_err()); // no position
+        let mut forged = here(&sk(3), "v1-1_2_3@1", 5);
+        forged.world = "v1-1_2_3@2".into();
+        assert!(put(&mut s1, forged).is_err());
+        let mut lying = s1.clone();
+        lying.here.insert(pk(&sk(9)), new.clone()); // filed under another persona
+        assert!(validate(&admin, APP, &lying).is_err());
+
+        for i in 0..(MAX_HERE as u8 + 3) {
+            put(&mut s1, here(&sk(10 + i), "v1-1_2_3@0", 100 + i as u64)).unwrap();
+        }
+        assert_eq!(s1.here.len(), MAX_HERE);
+        assert!(!s1.here.contains_key(&pk(&sk(2)))); // the oldest left
+        validate(&admin, APP, &s1).unwrap();
+    }
+
     #[test]
     fn rejects_bad_messages_and_blocks() {
         let mut s = ChatState::default();
@@ -328,11 +423,12 @@ mod tests {
         weak.ante = hex::encode(viso_ante::make_slot(&sk(2), 0, 1)); // nonce 0: almost surely < 16 bits
         assert!(check_message(APP, &weak).is_err());
         send(&mut s, good.clone()).unwrap();
+        apply(&pk(&sk(1)), APP, &mut s, Delta { messages: vec![], blocked: None, here: vec![here(&sk(2), "v1-1_2_3@1", 5)] }).unwrap();
 
         let list = vec![pk(&sk(2))];
         let sig = hex::encode(sk(1).sign(format!("dwb2|chat|1|{}", list.join(",")).as_bytes()).to_bytes());
-        apply(&pk(&sk(1)), APP, &mut s, Delta { messages: vec![], blocked: Some(Blocklist { ts: 1, list, sig }) }).unwrap();
-        assert!(s.messages.is_empty());
+        apply(&pk(&sk(1)), APP, &mut s, Delta { messages: vec![], blocked: Some(Blocklist { ts: 1, list, sig }), here: vec![] }).unwrap();
+        assert!(s.messages.is_empty() && s.here.is_empty());
         send(&mut s, good).unwrap();
         assert!(s.messages.is_empty());
     }

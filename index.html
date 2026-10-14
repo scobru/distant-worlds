@@ -96,6 +96,7 @@
     <button id="share">Share</button>
     <button id="day">World of the day</button>
     <button id="battleBtn" aria-pressed="false">🗡 Battles: off</button>
+    <button id="seenBtn" hidden aria-pressed="true">👁 Visible to others: on</button>
     <button id="logBtn">📜 Log</button>
     <button id="guideBtn">❓ Guide</button>
     <button id="tutBtn">🔁 Tutorial</button>
@@ -281,6 +282,7 @@ const left = (ms) => ms > 2 * 864e5 ? `${Math.round(ms / 864e5)} days` : ms > 2 
 // Camera position in screen widths (of the nearest layer); hash is "#seed" or "#seed@pos".
 let enteredId = null; // the building the explorer is inside
 let hop = { y: 0, vy: 0 }, jumpHinted = false; // the explorer's height in explorer sizes, and its climb
+const others = new Map(); // persona -> x where another explorer is drawn (it walks to its latest position)
 let cam = 0, explored = [0, 0], keys = 0, walking = false, lastCam = 0, facing = 1, movingUntil = 0, pets = [], cache = new Map(), seenNow = new Set(), interest = 0;
 
 function load() {
@@ -773,14 +775,18 @@ function frame(t, maxDt = 100) {
   if (v) { facing = Math.sign(v); movingUntil = t + 120; }
   const LN = W.layers.at(-1), gx = cam * LN.parallax + 0.5, as = 0.09 * m;
   drawAvatar(g, st.avatar, w / 2, (deep ? h * 0.94 : (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m) - hop.y * as, as, facing, gx * w / (as * 0.15), t < movingUntil || !canJump(hop), t, st.look, deep);
-  // explorers who shared a position here a few minutes ago (chat): faint, fading with age
+  // other explorers: those here now (presence) walk towards where they last said they were; those who shared
+  // a position here a few minutes ago (chat) stand faint, fading with age
   if (!deep) for (const gh of fn?.ghostsOn?.(W.seed) ?? []) {
-    const dx = (gh.x - cam) * LN.parallax;
+    const was = others.get(gh.persona) ?? gh.x, gap = gh.x - was; // walk at a run, jump there if far (just arrived)
+    const x = gh.live && Math.abs(gap) < 3 ? was + Math.sign(gap) * Math.min(Math.abs(gap), 0.3 * dt / 1000) : gh.x;
+    others.set(gh.persona, x);
+    const dx = (x - cam) * LN.parallax, y = (LN.base - height(LN, x * LN.parallax + 0.5) * LN.span) * h;
     if (Math.abs(dx) > 0.6) continue;
-    g.save(); g.globalAlpha = 0.5 - 0.35 * gh.age;
-    drawAvatar(g, gh.persona, w / 2 + dx * w, (LN.base - height(LN, gh.x * LN.parallax + 0.5) * LN.span) * h + 0.01 * m, as, 1, 0, false, t, null);
+    g.save(); g.globalAlpha = gh.live ? 0.95 : 0.5 - 0.35 * gh.age;
+    drawAvatar(g, gh.persona, w / 2 + dx * w, y + 0.01 * m, as, Math.sign(gh.x - x) || 1, x * LN.parallax * w / (as * 0.15), x !== gh.x, t, null);
     g.font = `${11 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
-    g.fillText(`${gh.nick} · ${Math.max(1, Math.round(gh.age * 15))} min ago`, w / 2 + dx * w, (LN.base - height(LN, gh.x * LN.parallax + 0.5) * LN.span) * h - as * 1.3); g.restore();
+    g.fillText(gh.live ? gh.nick : `${gh.nick} · ${Math.max(1, Math.round(gh.age * 15))} min ago`, w / 2 + dx * w, y - as * 1.3); g.restore();
   }
   if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
   const fall = Math.max(inst, ev?.kind === 'meteors' ? 0.75 : 0);
@@ -1217,7 +1223,7 @@ function showClaim() {
 }
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
-    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
+    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, pos: () => cam, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
     setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,

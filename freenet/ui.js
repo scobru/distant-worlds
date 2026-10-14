@@ -2,11 +2,11 @@
 // leaderboard and progress kept in the node. index.html calls the returned hooks; it never imports
 // this file unless a node serves the page.
 import * as net from './net.js';
-import { checkColony, checkHome, checkRaid, checkName, checkMessage } from './check.js';
+import { checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere } from './check.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
 import { colonyCost, canColonize, payColony, partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
-import { textOk, CHAT_BITS, CHAT_LIVE } from './chat.js';
+import { textOk, CHAT_BITS, CHAT_LIVE, HERE_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, colonyLimit, validText, raidHash, raidScore, raidKey, today } from './colony.js';
 
@@ -36,7 +36,7 @@ export async function start(app) {
   // Whatever another explorer published is checked here again, with the rules the contracts and the web server
   // apply (check.js), before it is shown or acted on: a server or a node that lies cannot make us see a flag, a
   // home, a name, a message or a raid that was not signed. A record is checked once (then remembered).
-  const vetted = new WeakMap(), vettedKey = new Map(), RULES = { colony: checkColony, home: checkHome, raid: checkRaid, name: checkName, message: checkMessage };
+  const vetted = new WeakMap(), vettedKey = new Map(), RULES = { colony: checkColony, home: checkHome, raid: checkRaid, name: checkName, message: checkMessage, here: checkHere };
   function sound(kind, rec, seed) {
     if (!rec || typeof rec !== 'object') return false;
     if (vetted.has(rec)) return vetted.get(rec);
@@ -392,13 +392,33 @@ export async function start(app) {
   document.getElementById('chatShare').onclick = () => {
     const w = app.world();
     if (!w.sector) return app.toast(['Only worlds on the star map can be shared.']);
-    post(input.value.trim() || `Look at ${w.name}!`, `${w.seed}@${app.cam().toFixed(1)}`);
+    post(input.value.trim() || `Look at ${w.name}!`, `${w.seed}@${app.pos().toFixed(1)}`);
   };
   log.addEventListener('click', (e) => { if (e.target.closest('a.card') && innerWidth < 640) setOpen(false); });
   net.onUpdate(refreshChat);
   setInterval(renderChat, 60_000); // old messages fade out
   await refreshChat();
   setOpen(open);
+
+  // ---------------------------------------------------------------- presence
+  // Where we stand, republished at most every 20 s while we move and every minute while we stay (HERE_LIVE
+  // is 2 minutes), so explorers on the same planet see each other. ☰ 👁 hides us: we then just fade out.
+  const seenBtn = document.getElementById('seenBtn');
+  let unseen = false, lastHere = { world: '', at: 0 };
+  try { unseen = localStorage.getItem('dw-unseen') === '1'; } catch { /* sandbox */ }
+  const setSeenBtn = () => { seenBtn.textContent = `👁 Visible to others: ${unseen ? 'off' : 'on'}`; seenBtn.setAttribute('aria-pressed', !unseen); };
+  seenBtn.hidden = false; setSeenBtn();
+  seenBtn.onclick = () => { unseen = !unseen; try { localStorage.setItem('dw-unseen', unseen ? '1' : '0'); } catch { /* sandbox */ } setSeenBtn(); };
+  async function sayHere() {
+    const w = app.world(), now = Date.now();
+    if (unseen || !me || !nick || level() < CHAT_BITS || !w.sector || document.visibilityState !== 'visible') return;
+    const x = app.pos(), [seed, px] = lastHere.world.split('@');
+    const wait = seed !== w.seed ? 3000 : Math.abs(x - Number(px)) > 0.3 ? 20_000 : 60_000;
+    if (now - lastHere.at < wait) return;
+    lastHere = { world: `${w.seed}@${x.toFixed(1)}`, at: now };
+    try { await net.postHere(lastHere.world, nick, anteHex()); } catch (e) { console.warn('presence not sent:', e); }
+  }
+  setInterval(sayHere, 3000);
 
   return {
     onWorld: () => { saveMiner(); loadMiner().then(update); update(); },
@@ -442,14 +462,20 @@ export async function start(app) {
       const n = await net.publishName({ nick, id, name, ante: anteHex() });
       galaxy.names = { ...galaxy.names, [id]: n };
     },
-    /** Explorers who shared a position on this planet in the last minutes (chat), newest per persona: { persona, nick, x, age 0..1 }. */
+    /** Explorers on this planet: those here now (presence, `live`), then those who shared a position here in the
+     *  last minutes (chat) and are not live anywhere; newest per persona: { persona, nick, x, age 0..1, live }. */
     ghostsOn(seed) {
       if (ghosts.key !== seed || Date.now() - ghosts.at > 1000) {
-        const seen = new Set(), now = Date.now();
-        ghosts = { key: seed, at: now, list: visible().reverse().filter((m) => m.persona !== me && !seen.has(m.persona) && seen.add(m.persona)).flatMap((m) => {
-          const [s, pos] = (m.world ?? '').split('@'), x = Number(pos);
-          return s === seed && pos !== undefined && Number.isFinite(x) ? [{ persona: m.persona, nick: m.nick, x, age: Math.min(1, Math.max(0, (now - m.ts) / CHAT_LIVE)) }] : [];
-        }) };
+        const now = Date.now(), at = (world) => { const [s, pos] = (world ?? '').split('@'), x = Number(pos); return s === seed && pos !== undefined && Number.isFinite(x) ? x : null; };
+        const live = Object.values(chat.here ?? {}).filter((h) => sound('here', h) && h.persona !== me && h.ts > now - HERE_LIVE && h.ts < now + 5 * 60_000);
+        const seen = new Set(live.map((h) => h.persona));
+        ghosts = { key: seed, at: now, list: [
+          ...live.flatMap((h) => (at(h.world) === null ? [] : [{ persona: h.persona, nick: h.nick, x: at(h.world), age: 0, live: true }])),
+          ...visible().reverse().filter((m) => m.persona !== me && !seen.has(m.persona) && seen.add(m.persona)).flatMap((m) => {
+            const x = at(m.world);
+            return x === null ? [] : [{ persona: m.persona, nick: m.nick, x, age: Math.min(1, Math.max(0, (now - m.ts) / CHAT_LIVE)) }];
+          }),
+        ] };
       }
       return ghosts.list;
     },

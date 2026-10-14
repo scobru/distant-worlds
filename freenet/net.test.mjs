@@ -31,8 +31,10 @@ assert.equal(hex(ed.sign(connectMessage(ed.getPublicKey(gsk), 'https://example.c
 assert.equal(personaName('2a76f1666f3aac4f859a1f35300050b69275202d3b880d9f165083c92818b0b5'), '3rmKPdMLRKZPKpEc2UThti8k4EdxzsAH3j7eWx8GhqYY');
 
 // Chat: message text rules.
-const { textOk } = await import('./chat.js');
+const { textOk, hereMsg } = await import('./chat.js');
 assert.ok(textOk('hi\nthere') && !textOk('') && !textOk('x'.repeat(281)) && !textOk('bell\u0007'));
+// presence: signed as chat/src/lib.rs here_msg()
+assert.equal(hereMsg({ persona: 'ab', nick: 'Ann', ts: 5, world: 'v1-1_2_3@4.5' }), 'dwp1|ab|Ann|5|v1-1_2_3@4.5');
 console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
 
 // Viso: vectors made with viso-core / viso-ante (freenet/viso.vector.json, see the README).
