@@ -678,6 +678,34 @@ export function foesNear(w, day, x0, x1) {
   return out;
 }
 
+// Obstacles to jump on the nearest ground: low things in the way (own stream, so `v1` worlds keep all else).
+// `w` is the half width in layer units, `h` the height in explorer sizes (a jump clears about 1). Never at the arrival spot.
+const OBSTACLE_KIND = { temperate: 'log', jungle: 'log', nordic: 'log', arctic: 'ice', western: 'crate', war: 'crate', apocalyptic: 'crate', desert: 'rock', japanese: 'rock' };
+export function obstaclesNear(w, x0, x1) {
+  const out = [];
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
+    const r = rngFrom(`${w.seed}:obst:${k}`);
+    if (r() > 0.6) continue;
+    const x = k + 0.12 + r() * 0.76;
+    if (Math.abs(x - 0.5) < 0.1) continue;
+    out.push({ id: `obst${k}`, kind: OBSTACLE_KIND[w.culture] ?? 'rock', x, w: 0.006 + r() * 0.005, h: 0.4 + r() * 0.18, seed: Math.floor(r() * 2 ** 32) });
+  }
+  return out;
+}
+
+// Buildings big enough to walk into, on the nearest ground (own stream, never at the arrival spot): the ones of
+// the world's own kit that have a room. A chest waits inside (`atlas.js` `chestLoot`).
+const ENTERABLE = new Set(['house', 'castle', 'temple', 'windmill', 'factory', 'tower', 'dome', 'pagoda', 'minka', 'longhouse', 'stavechurch', 'mosque', 'mudhouse', 'pyramid', 'steppyramid', 'stilthut', 'saloon', 'igloo', 'lighthouse', 'shack', 'bunker', 'watchtower']);
+export function foreStructsNear(w, x0, x1) {
+  const out = [], kinds = (w.pop.structs ?? []).filter((k) => ENTERABLE.has(k));
+  for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1 && kinds.length; k++) {
+    const r = rngFrom(`${w.seed}:fore:${k}`);
+    if (k === 0 || r() > 0.25) continue;
+    out.push({ id: `fore${k}`, kind: kinds[Math.floor(r() * kinds.length)], x: k + 0.3 + r() * 0.4, size: 0.13 + r() * 0.04, seed: Math.floor(r() * 2 ** 32), broken: w.civ === 'ruins' });
+  }
+  return out;
+}
+
 // Diary pages (diary.js): one world in three keeps one, at a fixed spot near the arrival point.
 export function pageNear(w, x0, x1) {
   const r = rngFrom(`${w.seed}:page`);

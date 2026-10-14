@@ -467,6 +467,47 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
     const elites = [...Array(40)].flatMap((_, i) => foesNear(mkw(`v1-${i}_4_1`), '2026-10-14', -12, 12)), el = elites.filter((f) => f.elite).length / elites.length;
     assert.ok(el > 0.1 && el < 0.3, `about one in five is elite (${el.toFixed(2)})`);
   }
+  { // jumping: obstacles stop a walker that stays on the ground; a leap clears them; auto-walk leaps by itself on any gravity
+    const { walkBy, settle, startJump, jumpStep, canJump, shouldLeap, JUMP } = await import('./atlas.js');
+    const { obstaclesNear } = await import('./world.js');
+    const o = [{ x: 1, w: 0.007, h: 0.3 }];
+    let gx = 0.5; for (let k = 0; k < 200; k++) gx += walkBy(gx, 0, 0.01, o);
+    assert.ok(Math.abs(gx - (1 - 0.007 - JUMP.reach)) < 1e-9, 'stopped at the edge');
+    assert.ok(Math.abs(walkBy(0.98, 0.5, 0.05, o) - 0.05) < 1e-9, 'higher than it: free');
+    assert.ok(settle(1.005, 0.1, o) !== 1.005 && settle(1.005, 0.5, o) === 1.005, 'landing on it steps off; flying over it does not');
+    const j = { y: 0, vy: 0 }; startJump(j); let apex = 0; for (let k = 0; k < 120; k++) { jumpStep(j, 1 / 60, 1); apex = Math.max(apex, j.y); }
+    assert.ok(canJump(j) && apex > 1.3 && apex < 1.5, `a jump rises about one and a half explorers (${apex.toFixed(2)})`);
+    const heavy = { y: 0, vy: 0 }; startJump(heavy); let low = 0; for (let k = 0; k < 120; k++) { jumpStep(heavy, 1 / 60, 2); low = Math.max(low, heavy.y); }
+    assert.ok(low < apex && low > 0.6, 'lower on a heavy world, but still over the tallest obstacle');
+    const w0 = mkw('v1-3_4_1'), obs = obstaclesNear(w0, -3, 12);
+    assert.deepEqual(obs, obstaclesNear(w0, -3, 12));
+    assert.ok(obs.length > 4 && obs.every((x) => Math.abs(x.x - 0.5) >= 0.1 && x.h >= 0.4 && x.h <= 0.58 && x.w >= 0.006 && x.w <= 0.011), 'none at the arrival spot, all clearable');
+    for (const grav of [1, 1.5, 2]) for (let i = 0; i < 12; i++) { // an auto-walk over ten screens
+      const all = obstaclesNear(mkw(`v1-${i}_4_1`), -3, 12), air = 0.05 * JUMP.boost, jj = { y: 0, vy: 0 };
+      let at = 0.5;
+      for (let t = 0; t < 600 && at < 11; t += 1 / 60) {
+        const near = all.filter((q) => Math.abs(q.x - at) < 1);
+        if (canJump(jj) && shouldLeap(at, 1, near, 0.12 * air)) startJump(jj);
+        jumpStep(jj, 1 / 60, grav);
+        at = settle(at + walkBy(at, jj.y, (jj.y > 0 ? air : 0.05 / grav) / 60, near), jj.y, near);
+      }
+      assert.ok(at >= 11, `auto-walk gets through world ${i} at gravity ×${grav} (stopped at ${at.toFixed(2)})`);
+    }
+  }
+  { // rooms: buildings to walk into, and the chest inside
+    const { foreStructsNear } = await import('./world.js'), { chestLoot, collect } = await import('./atlas.js');
+    const ws = [...Array(80)].map((_, i) => mkw(`v1-${i}_5_1`)), all = ws.flatMap((x) => foreStructsNear(x, -4, 8));
+    assert.deepEqual(foreStructsNear(ws[3], -4, 8), foreStructsNear(ws[3], -4, 8));
+    assert.ok(all.length > 40 && all.every((b) => Math.floor(b.x) !== 0 && b.size >= 0.13 && b.size <= 0.17), 'a few per world, never at the arrival spot');
+    assert.ok(ws.filter((x) => x.civ === 'uninhabited').every((x) => !foreStructsNear(x, -4, 8).length), 'nobody lives there, no rooms');
+    assert.ok(all.every((b) => !['obelisk', 'block', 'antenna', 'arch', 'spire', 'orb', 'pods'].includes(b.kind)), 'only buildings with a room');
+    assert.deepEqual(chestLoot('v1-1_1_1', 'fore2', '2026-10-14'), chestLoot('v1-1_1_1', 'fore2', '2026-10-14'));
+    const kinds = new Set(Array.from({ length: 200 }, (_, i) => Object.keys(chestLoot('v1-1_1_1', 'fore2', `d${i}`))[0]));
+    assert.deepEqual([...kinds].sort(), ['fuel', 'ore', 'plant'], 'fuel, plants or ore');
+    const c = es(), chest = { id: 'fore2', kind: 'chest' }, loot = chestLoot('v1-1_1_1', 'fore2', 'x'), before = { ore: c.bag.ore, plant: c.bag.plant, fuel: (c.fuel = 50) };
+    assert.ok(collect(c, 'x', 'v1-1_1_1', chest, 0) && !collect(c, 'x', 'v1-1_1_1', chest, 0), 'once a day');
+    assert.equal(c.bag.ore - before.ore, loot.ore ?? 0); assert.equal(c.bag.plant - before.plant, loot.plant ?? 0); assert.equal(c.fuel - 50, loot.fuel ?? 0);
+  }
   const st2 = es(); st2.bag.ore = 0;
   assert.ok(winBattle(st2, a.b) > 0 && st2.bag.ore > 0 && st2.wins === 1 && battleLevel(st2) === 2);
   const fw = [...Array(50)].map((_, i) => mkw(`v1-${i}_4_1`)).find((x) => x.species.length), foes = foesNear(fw, '2026-10-14', -6, 6);
