@@ -235,6 +235,7 @@ export async function start(app) {
   const signDlg = document.getElementById('signDlg');
   signBtn.onclick = () => signDlg.showModal();
   document.getElementById('signClose').onclick = () => signDlg.close();
+  document.getElementById('signViso').parentElement.hidden = !net.startSignIn; // the web version has no Viso
   document.getElementById('signViso').onclick = async () => { try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); } };
   const withKey = async (sk) => {
     signDlg.close();

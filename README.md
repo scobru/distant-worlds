@@ -90,3 +90,21 @@ fdev website publish dist --key distant-worlds    # later: fdev website update d
 ```
 
 Admin: open the app with `?admin`; the Atlas then shows a button to sign and send the blocklist (stars and personas; personas are also removed from the chat).
+
+## Web version (SQLite)
+
+The same multiplayer game without Freenet: a small Node server keeps the galaxy (colonies, homes, sieges, blocklist) and the chat in a SQLite file, using Node's built-in `node:sqlite` (Node 22.13+, no new dependency).
+
+- Same records, same rules: `web/db.js` ports the contracts' checks (signatures, the whoiam delegation, the persona level, the proof of work, limits) and merge rules, so the client code (`freenet/ui.js`) is unchanged. `web/net.js` replaces `freenet/net.js` in the web build (`vite --mode web`).
+- No Viso: explorers create or import a key in the game (kept in `localStorage`, backed up from the Atlas). Its level is built in the browser as on Freenet.
+- Live updates through server-sent events (`/api/events`); `GET`/`POST /api/galaxy` and `/api/chat` read the state and send deltas, in the contracts' JSON shapes.
+
+```bash
+npm install && npm run build:web     # -> dist/
+npm start                            # http://localhost:8080 (env: PORT, DB=distant-worlds.sqlite, DIST=dist, APP_PATH=/, ADMIN=<hex pubkey>)
+
+# dev: the server in one terminal, vite (proxies /api) in another
+npm start & npm run dev:web          # http://localhost:5173
+```
+
+Known limits: the server trusts no one more than the contracts did (same self-declared homes and honest-rate miner), and the database has to be backed up like any file. Behind a sub-path set `APP_PATH` (e.g. `/dw/`, with the trailing slash): it is part of every explorer's delegation, so changing it invalidates every key signed in so far (explorers have to sign in again).

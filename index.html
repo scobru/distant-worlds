@@ -795,7 +795,8 @@ document.getElementById('share').onclick = async (e) => {
 };
 // Freenet: sign-in, colonies and leaderboard (freenet/). Loaded only when a node serves the page (or
 // with ?node=host:port in dev), so the plain static site needs neither a build nor a node.
-const onFreenet = location.pathname.includes('/v1/contract/web/') || new URLSearchParams(location.search).has('node');
+// The web version (`vite --mode web`, web/) loads the same layer against its own server.
+const onFreenet = location.pathname.includes('/v1/contract/web/') || new URLSearchParams(location.search).has('node') || import.meta.env?.MODE === 'web';
 let fn = null;
 function showClaim() {
   document.getElementById('name').textContent = world.name;

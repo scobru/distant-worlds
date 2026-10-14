@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node world.test.mjs && node atlas.test.mjs && node compose.test.mjs && node freenet/net.test.mjs"
+    "dev:web": "vite --mode web",
+    "build:web": "vite build --mode web",
+    "start": "node web/server.js",
+    "test": "node world.test.mjs && node atlas.test.mjs && node compose.test.mjs && node freenet/net.test.mjs && node web/db.test.mjs"
   },
   "dependencies": {
     "@freenetorg/freenet-stdlib": "^0.4.0",

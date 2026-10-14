@@ -1,4 +1,18 @@
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 
 // base "./": Freenet serves the app from a sandboxed iframe under a contract path.
-export default defineConfig({ base: './', build: { target: 'es2022', assetsInlineLimit: 0 } });
+// --mode web: the web version (web/), whose server keeps the galaxy in SQLite; freenet/net.js becomes web/net.js.
+export default defineConfig(({ mode }) => ({
+  base: './',
+  build: { target: 'es2022', assetsInlineLimit: 0 },
+  plugins: mode === 'web' ? [{
+    name: 'web-net',
+    enforce: 'pre',
+    async resolveId(id, importer) {
+      const r = await this.resolve(id, importer, { skipSelf: true });
+      if (r?.id.endsWith('/freenet/net.js')) return fileURLToPath(new URL('./web/net.js', import.meta.url));
+    },
+  }] : [],
+  server: mode === 'web' ? { proxy: { '/api': 'http://localhost:8080' } } : {},
+}));

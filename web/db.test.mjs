@@ -1,0 +1,67 @@
+// The web server's rules (web/db.js) against records signed the way the client signs them.
+import assert from 'node:assert/strict';
+import * as ed from '@noble/ed25519';
+import { open, isStar, anteLevel } from './db.js';
+import { grindAnte } from '../freenet/viso.js';
+import { connectMessage } from '../freenet/connect.js';
+import { chatMsg } from '../freenet/chat.js';
+import { homeMsg, raidMsg, raidKey, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE } from '../freenet/colony.js';
+
+const { bytesToHex: hex } = ed.etc, enc = new TextEncoder();
+const admin = new Uint8Array(32).fill(9), app = new Uint8Array(32).fill(7);
+const db = open(':memory:', { admin: hex(ed.getPublicKey(admin)), app: '/' });
+const sign = (m, k = app) => hex(ed.sign(enc.encode(m), k));
+function explorer(seed) {
+  const sk = new Uint8Array(32).fill(seed), persona = hex(ed.getPublicKey(sk));
+  const cert = { base: 'http://localhost:8080/', challenge: `wd1.${hex(ed.getPublicKey(app))}.n${seed}`, ts: 1, sig: '' };
+  cert.sig = hex(ed.sign(connectMessage(ed.getPublicKey(sk), cert.base, cert.challenge, cert.ts), sk));
+  return { sk, persona, cert };
+}
+const a = explorer(1), b = explorer(2);
+a.ante = hex(await grindAnte(a.sk, 20));
+assert.ok(anteLevel(a.persona, a.ante) >= 20 && anteLevel(b.persona, a.ante) === 0);
+assert.ok(isStar('v1-12_9999_3') && isStar('v1-1_2_3.7') && !isStar('v1-01_2_3') && !isStar('v1-1_2_3.0') && !isStar('v1-10000_1_1'));
+
+// chat: signed messages go in, forgeries and personas without a level do not
+const m = { persona: a.persona, nick: 'Ann', text: 'hello', world: 'v1-1_2_3@4.5', ts: 5, ante: a.ante, sig: '', cert: a.cert };
+m.sig = sign(chatMsg(m));
+db.applyChat({ messages: [m] });
+assert.equal(Object.keys(JSON.parse(db.chat()).messages).length, 1);
+assert.throws(() => db.applyChat({ messages: [{ ...m, text: 'forged', sig: sign(chatMsg({ ...m, text: 'forged' }), b.sk) }] }), /bad signature/);
+const resign = (x) => ({ ...x, sig: sign(chatMsg(x)) });
+assert.throws(() => db.applyChat({ messages: [resign({ ...m, persona: b.persona, cert: b.cert })] }), /level too low/);
+assert.throws(() => db.applyChat({ messages: [resign({ ...m, ts: 6, cert: { ...a.cert, base: 'http://x/other/' } })] }), /another app/);
+
+// homes: the newest signed one wins
+const home = (ts) => { const h = { persona: a.persona, nick: 'Ann', seed: 'v1-1_2_3', built: [['house', 10]], animals: ['v1-4_5_6#1'], ts, ante: a.ante, sig: '', cert: a.cert }; h.sig = sign(homeMsg(h)); return h; };
+db.applyGalaxy({ homes: { [a.persona]: home(20) } });
+db.applyGalaxy({ homes: { [a.persona]: home(10) } });
+assert.equal(JSON.parse(db.galaxy()).homes[a.persona].ts, 20);
+assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: { ...home(30), built: [['palace', 1]] } } }), /bad home fields/);
+
+// colonies need the time spent (score under MAX_SCORE), and a whole delta fails together
+const seed = 'v1-1_2_3', miner = newMiner();
+while (minerScore(miner) === null || minerScore(miner) > MAX_SCORE) mineSome(miner, seed, a.persona, 200_000);
+const c = { persona: a.persona, name: 'Nova', nick: 'Ann', x: 12, ts: 1, nonces: [...miner.nonces], ante: a.ante, sig: '', cert: a.cert };
+c.sig = sign(colonyMsg(seed, c));
+assert.throws(() => db.applyGalaxy({ colonies: { [seed]: c }, homes: { [a.persona]: { ...home(40), sig: '00' } } }));
+assert.equal(JSON.parse(db.galaxy()).colonies[seed], undefined);
+db.applyGalaxy({ colonies: { [seed]: c } });
+assert.equal(JSON.parse(db.galaxy()).colonies[seed].name, 'Nova');
+const weak = { ...c, nonces: Array(8).fill(0), ts: 2 };
+weak.sig = sign(colonyMsg(seed, weak));
+assert.throws(() => db.applyGalaxy({ colonies: { [seed]: weak } }), /not enough time/);
+
+// raids are keyed by attacker, target and day
+const r = { attacker: a.persona, nick: 'Ann', target: b.persona, day: 20000, nonces: [...miner.nonces], ante: a.ante, sig: '', cert: a.cert };
+assert.throws(() => db.applyGalaxy({ raids: { [raidKey(r)]: { ...r, sig: sign(raidMsg(r)) } } }), /siege too short/); // a colony's nonces are not a siege
+
+// the admin blocklist removes a persona everywhere
+const bl = { ts: 3, list: [a.persona], sig: '' };
+bl.sig = sign(`dwb1|3|${a.persona}`, admin);
+assert.throws(() => db.applyGalaxy({ blocked: { ...bl, sig: sign(`dwb1|3|${a.persona}`) } }), /bad signature/);
+db.applyGalaxy({ blocked: bl });
+db.applyChat({ blocked: bl });
+const g = JSON.parse(db.galaxy());
+assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(JSON.parse(db.chat()).messages).length], [0, 0, 0]);
+console.log('web db ok');
