@@ -484,7 +484,7 @@ export function makeSpecies(worldSeed, k, giant) {
   const dna = Object.fromEntries(Object.entries(DNA).map(([part, t]) => [part, wpick(t)]));
   dna.legs = +dna.legs;
   const name = SYL[Math.floor(r() * SYL.length)] + SYL[Math.floor(r() * SYL.length)] + SUFFIX[Math.floor(r() * SUFFIX.length)];
-  return {
+  const sp = {
     id: `${worldSeed}#${k}`,
     name: name[0].toUpperCase() + name.slice(1),
     ...dna,
@@ -496,11 +496,17 @@ export function makeSpecies(worldSeed, k, giant) {
     bits,
     scale: sizeOf(r(), SPECIES_SIZES),
   };
+  // the tiniest and the hugest are rarer finds
+  sp.bits += sizeBits(sp.scale);
+  sp.rarity = SPECIES_RARITY.findLast(([, min]) => sp.bits >= min)[0];
+  return sp;
 }
 // How big a species or plant grows next to the usual (×1): drawn last, so older traits stay the same.
 const SPECIES_SIZES = [[0.12, 0.55], [0.32, 0.8], [0.72, 1], [0.9, 1.6], [1, 2.6]];
 const PLANT_SIZES = [[0.15, 0.6], [0.7, 1], [0.9, 1.8], [1, 3.5]];
 const sizeOf = (u, table) => table.find(([p]) => u < p)[1];
+// rarity bits for a species' size: the extremes are rarer
+const sizeBits = (scale) => (scale >= 2.6 || scale <= 0.55 ? 0.6 : scale >= 1.6 ? 0.25 : 0);
 /** A word for a scale (species or plant), or '' for the usual size. */
 export const sizeWord = (scale) => (scale >= 3 ? 'giant' : scale >= 1.5 ? 'large' : scale <= 0.6 ? 'tiny' : scale < 1 ? 'small' : '');
 
@@ -595,12 +601,14 @@ export function makePlant(worldSeed, k, family) {
   const r = rngFrom(`${worldSeed}:plant:${k}`), syl = () => SYL[Math.floor(r() * SYL.length)];
   const genus = syl() + syl() + GENUS[Math.floor(r() * GENUS.length)], epithet = syl() + EPITHET[Math.floor(r() * EPITHET.length)];
   const bloom = r() < 0.35, tall = 0.7 + r() * 0.8, wide = 0.7 + r() * 0.6;
-  return {
+  const pl = {
     id: `${worldSeed}~${k}`, family, name: `${genus[0].toUpperCase()}${genus.slice(1)} ${epithet}`,
     tall, wide, hue: Math.floor(r() * 360), bloom,
     rarity: bloom && (tall > 1.35 || wide > 1.2) ? 'rare' : 'common',
     scale: sizeOf(r(), PLANT_SIZES),
   };
+  if (pl.scale >= 3.5) pl.rarity = pl.rarity === 'rare' ? 'epic' : 'rare'; // a giant is a find
+  return pl;
 }
 
 // Crossing (at home, with a mill): like breeding, the hybrid of two wild plant species takes each trait from

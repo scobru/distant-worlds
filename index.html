@@ -154,7 +154,7 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
+import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
@@ -753,6 +753,8 @@ const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `m
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
+// How big a species or plant grows, next to its name in the Atlas (nothing for the usual size).
+const sizeTag = (scale) => { const s = sizeWord(scale ?? 1); return s ? ` <span class="chip">${{ giant: '⬆⬆', large: '⬆', small: '⬇', tiny: '⬇⬇' }[s]} ${s}</span>` : ''; };
 // The common name an explorer gave a species or plant (Freenet / web), or a button to give it one.
 function nameTag(id) {
   const n = fn?.nameOf(id);
@@ -1002,12 +1004,12 @@ document.getElementById('atlasBtn').onclick = () => {
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
     <h3>Bestiary <small>${st.species.length} species</small></h3>
     ${st.species.length ? `<ul>${st.species.slice(0, 60).map((sp) => `<li><canvas class="portrait" width="72" height="48" data-id="${esc(sp.id)}" aria-hidden="true"></canvas>
-      <b>${esc(sp.name)}</b>${nameTag(sp.id)} <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
+      <b>${esc(sp.name)}</b>${nameTag(sp.id)}${sizeTag(speciesOf(sp.id)?.scale)} <span class="badge ${speciesOf(sp.id)?.rarity ?? sp.rarity}">${speciesOf(sp.id)?.rarity ?? sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No species yet. Walk through worlds with herds or giants.</small></p>'}
     ${fn ? fn.atlasHtml() : ''}
     <h3>Herbarium <small>${(st.plants ?? []).length} plants</small></h3>
     ${(st.plants ?? []).length ? `<ul>${st.plants.slice(0, 60).map((pl) => `<li><canvas class="portrait" width="72" height="48" data-plant="${esc(pl.id)}" aria-hidden="true"></canvas>
-      <b>${esc(pl.name)}</b>${nameTag(pl.id)} <small style="display:inline">${esc(pl.family)} · from <a href="#${encodeURIComponent(pl.world)}">${esc(pl.worldName)}</a></small></li>`).join('')}</ul>`
+      <b>${esc(pl.name)}</b>${nameTag(pl.id)}${sizeTag(plantOf(pl.id)?.scale)} <small style="display:inline">${esc(pl.family)} · from <a href="#${encodeURIComponent(pl.world)}">${esc(pl.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No plants yet. Walk through green worlds: plants go here when you see them.</small></p>'}
     <h3>Logbook</h3>
     ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
