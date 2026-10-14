@@ -141,7 +141,8 @@ export function checkMission(st, w, day, yesterday) {
 
 // Hyperdrive fuel: earned by exploring the current world, spent to jump to an unvisited one.
 // Revisiting stars, saved worlds, the daily world and shared links are free.
-export const FUEL = { max: 100, perScreen: 4, maxPerSecond: 0.3, entry: 10, combo: 10, species: 15, rareSpecies: 25, relic: 30, mission: 100, random: 100 };
+// `auto`: what auto-walk burns per screen (walking by hand burns nothing and earns `perScreen` on new ground)
+export const FUEL = { max: 100, perScreen: 4, auto: 1, maxPerSecond: 0.3, entry: 10, combo: 10, species: 15, rareSpecies: 25, relic: 30, mission: 100, random: 100 };
 export const addFuel = (st, n) => (st.fuel = Math.min(FUEL.max, (st.fuel ?? FUEL.max) + n));
 
 // Cost to jump from sector `from` (null: off the map) to the star in sector `to`: near is cheap.

@@ -158,9 +158,13 @@ export async function start(app) {
 
   // Background "time miner": runs while the planet is on screen. When the work wins the planet, the
   // Plant flag button appears; a colonist's own extra time is published quietly to defend the planet.
+  // In a hidden tab it goes on only while auto-walking, mining for the time actually elapsed (hidden
+  // tabs throttle timers to about once a second), so the rate stays the same honest one.
+  let mined = performance.now();
   setInterval(() => {
-    if (!miner || document.visibilityState !== 'visible' || minerSeed !== app.world().seed || siegeHere(victim())) return; // a siege takes the whole rate
-    mineSome(miner, minerSeed, me, Math.round((rate * (app.boost(minerSeed) ? 3 : 1)) / 5)); // a time shard triples the rate
+    const now = performance.now(), ms = Math.min(2000, now - mined); mined = now;
+    if (!miner || (document.visibilityState !== 'visible' && !app.walking()) || minerSeed !== app.world().seed || siegeHere(victim())) return; // a siege takes the whole rate
+    mineSome(miner, minerSeed, me, Math.round((rate * (app.boost(minerSeed) ? 3 : 1)) * ms / 1000)); // a time shard triples the rate
   }, 200);
   setInterval(async () => {
     if (!miner) return;

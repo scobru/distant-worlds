@@ -189,3 +189,11 @@ console.log('ok', a.name, '/', c.name, '—', things, 'things,', relics, 'relics
   assert.equal(languageOf({ civ: 'uninhabited', culture: 'nordic' }), null);
   assert.equal(languageOf({ civ: 'aliens', culture: 'nordic' }), 'alien');
 }
+{
+  // The explorer's look: random from the seed, the player's choices on top.
+  const { avatarLook } = await import('./draw.js');
+  const a = avatarLook('abc');
+  assert.deepEqual(avatarLook('abc'), a, 'the same seed, the same explorer');
+  assert.deepEqual(avatarLook('abc', { hat: 4, pack: false }), { ...a, hat: 4, pack: false });
+  console.log('avatar look ok');
+}
