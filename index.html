@@ -124,6 +124,8 @@
     and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
   <p>🧬 <b>Breeding</b>: each Stable at home lets two species living there have a young one a day (🌿10 ⛏5). It takes each part from one parent,
     sometimes something new, and joins your bestiary and your home; it can breed in turn, up to 3 generations from the wild. The same parents always give the same young.</p>
+  <p>🌸 <b>Crossing</b>: each Mill lets two wild plant species of your garden give a hybrid a day (🌿8 ⛏4): it grows in your garden and goes into your herbarium.
+    🔗 <b>Fusing</b> two buildings of different kinds (🌿10 ⛏10) makes one that does what both did; each new pair adds to your civilization's variety, but a raid damages both halves.</p>
   <p>✎ <b>Names</b> (online): the first explorer to name a species or a plant from the Atlas gives it its common name, which everyone then sees.</p>
   <p>⚔ <b>Sieges</b> (Freenet): land on another explorer's home and press <b>⚔ Besiege</b> (⚡20 ⛏10). Stay there: every 2 minutes another raider joins.
     When you attack, your raiders against their defence decide it: win and you bring back ore. Once a day per home. A besieged home fights it like a pirate raid.
@@ -147,11 +149,11 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, bredId, generation, MAX_GEN, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
+import { makeWorld, speciesOf, plantOf, bredId, generation, MAX_GEN, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft } from './atlas.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -241,7 +243,6 @@ function load() {
 }
 
 // Captured creatures roam among the buildings of the home planet (around the arrival point before any is built).
-const worldsMemo = new Map();
 function homePets(H = st.home?.seed === world.seed && st.home) {
   if (!H) return [];
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.2, span = Math.max(0.8, ...xs) + 0.2 - lo;
@@ -256,9 +257,7 @@ function homeGarden(H = st.home?.seed === world.seed && st.home) {
   if (!H?.garden?.length) return [];
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.3, span = Math.max(0.8, ...xs) + 0.3 - lo;
   return H.garden.slice(-30).flatMap((id, k) => {
-    const [seed, i] = id.split('~'), r = rngFrom(`garden:${id}:${k}`);
-    if (!worldsMemo.has(seed)) worldsMemo.set(seed, makeWorld(seed));
-    const pl = worldsMemo.get(seed).plants[i];
+    const r = rngFrom(`garden:${id}:${k}`), pl = plantOf(id);
     return pl ? Array.from({ length: 2 + Math.floor(r() * 2) }, () => ({ kind: pl.family, plant: pl, x: lo + r() * span, size: 0.03 + r() * 0.03, seed: Math.floor(r() * 2 ** 32) })) : [];
   }).sort((a, b) => b.size - a.size);
 }
@@ -435,8 +434,9 @@ function draw(t) {
         if (bx < -s * 3 || bx > w + s * 3) continue;
         if (b.damaged) g.globalAlpha = 0.45; // raided by pirates: dark and dim until repaired
         drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12 }, bx, by, s, { ...o, lights: !b.damaged });
+        if (b.fused) drawThing(g, { kind: b.fused, seed: b.seed + 1, size: 0.08 }, bx + s * 0.45, by, s * 0.65, { ...o, lights: !b.damaged }); // fused: the second half as an annex
         g.globalAlpha = 1;
-        hit({ type: 'home', name: BUILDINGS[b.kind].name, kind: b.kind, owner: H.nick, damaged: b.damaged }, bx, by, s);
+        hit({ type: 'home', name: buildingName(b), kind: b.kind, owner: H.nick, damaged: b.damaged }, bx, by, s);
       }
       if (H.nick) { // another explorer's home: who lives here
         const bx = X(H.built[0].x);
@@ -713,13 +713,33 @@ function nameTag(id) {
 // Breeding: two species living at home, in a stable (atlas.js breedAt, world.js breed), up to MAX_GEN generations.
 function breedHtml(H) {
   const ids = [...new Set(H.animals)].filter((id) => speciesOf(id));
-  if (!H.built.some((b) => b.kind === 'longhouse' && !b.damaged)) return '<p><small>🧬 Build a Stable to breed your creatures into new species.</small></p>';
+  if (!H.built.some((b) => partsOf(b).includes('longhouse') && !b.damaged)) return '<p><small>🧬 Build a Stable to breed your creatures into new species.</small></p>';
   if (ids.length < 2) return '<p><small>🧬 Bring home two different species to breed them in your stable.</small></p>';
   const opts = (sel) => ids.map((id, i) => `<option value="${esc(id)}"${i === sel ? ' selected' : ''}>${esc(speciesOf(id).name)}</option>`).join('');
   const left = breedsLeft(st, isoDay());
   return `<p>🧬 <select id="breedA" aria-label="First parent">${opts(0)}</select> × <select id="breedB" aria-label="Second parent">${opts(1)}</select>
     <button id="breedBtn"${left > 0 ? '' : ' disabled'}>Breed 🌿${BREED.plant} ⛏${BREED.ore}</button>
     <small style="display:inline">${left > 0 ? `${left} more today` : 'your stables rest until tomorrow'}</small></p>`;
+}
+// Crossing: two wild plant species in the garden, with a mill (atlas.js crossAt, world.js crossPlant).
+function crossHtml(H) {
+  const ids = [...new Set((H.garden ?? []).filter((id) => !id.includes('+')))].filter((id) => plantOf(id));
+  if (!H.built.some((b) => partsOf(b).includes('windmill') && !b.damaged)) return '<p><small>🌸 Build a Mill to cross the plants of your garden into new species.</small></p>';
+  if (ids.length < 2) return '<p><small>🌸 Sow two different wild plant species in your garden to cross them at your mill.</small></p>';
+  const opts = (sel) => ids.map((id, i) => `<option value="${esc(id)}"${i === sel ? ' selected' : ''}>${esc(plantOf(id).name)}</option>`).join('');
+  const left = crossesLeft(st, isoDay());
+  return `<p>🌸 <select id="crossA" aria-label="First plant">${opts(0)}</select> × <select id="crossB" aria-label="Second plant">${opts(1)}</select>
+    <button id="crossBtn"${left > 0 ? '' : ' disabled'}>Cross 🌿${CROSS.plant} ⛏${CROSS.ore}</button>
+    <small style="display:inline">${left > 0 ? `${left} more today` : 'your mills rest until tomorrow'}</small></p>`;
+}
+// Fusing: two working buildings of different kinds into one (atlas.js fuse).
+function fuseHtml(H) {
+  const ok = H.built.map((b, i) => [b, i]).filter(([b]) => !b.fused && !b.damaged);
+  if (new Set(ok.map(([b]) => b.kind)).size < 2) return '';
+  const opts = (sel) => ok.map(([b, i], n) => `<option value="${i}"${n === sel ? ' selected' : ''}>${esc(BUILDINGS[b.kind].name)} · ${b.x.toFixed(1)}</option>`).join('');
+  return `<p>🔗 <select id="fuseA" aria-label="First building">${opts(0)}</select> + <select id="fuseB" aria-label="Second building">${opts(1)}</select>
+    <button id="fuseBtn">Fuse 🌿${FUSE.plant} ⛏${FUSE.ore}</button>
+    <small>One building that does what both did, where the first stands. A new pair counts as a new kind; a raid damages both halves.</small></p>`;
 }
 function renderBuild() {
   const H = st.home;
@@ -731,15 +751,16 @@ function renderBuild() {
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
     ${breedHtml(H)}
+    ${crossHtml(H)}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
-      <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => x.kind === k).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
+      <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Walk to the spot you want, then move a building there.</small></p>
-    <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b.kind, grav()))}</button>` : ''} <b>${BUILDINGS[b.kind].name}</b>${b.damaged ? ' (damaged)' : ''}
-      <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>` : ''}`;
+    <ul>${H.built.map((b, i) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
+      <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();
     save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
-    sfx('move'); toast([`🏗 ${BUILDINGS[st.home.built[+b.dataset.move].kind].name} moved`]);
+    sfx('move'); toast([`🏗 ${buildingName(st.home.built[+b.dataset.move])} moved`]);
   }));
   const bb = document.getElementById('breedBtn');
   if (bb) bb.onclick = () => {
@@ -751,14 +772,35 @@ function renderBuild() {
     save(); pets = homePets(); fn?.homeChanged(); renderBuild(); sfx('pickup');
     toast([`🧬 A young ${esc(sp.name)} (${sp.rarity}) was born in your stable!`, ...res.achievements.map((x) => `🏆 Achievement: ${x}`)]);
   };
+  const cb = document.getElementById('crossBtn');
+  if (cb) cb.onclick = () => {
+    const a = document.getElementById('crossA').value, b = document.getElementById('crossB').value;
+    if (a === b) return toast(['Pick two different plants.']);
+    const id = crossAt(st, a, b, isoDay());
+    if (!id) return toast([`Crossing needs a free mill today and 🌿${CROSS.plant} ⛏${CROSS.ore} (and two plants you have not crossed yet).`]);
+    const pl = plantOf(id), res = findPlant(st, pl, { seed: st.home.seed, name: `${world.name} (crossed)` });
+    save(); garden = homeGarden(); renderBuild(); sfx('pickup');
+    toast([`🌸 A new plant grows in your garden: ${esc(pl.name)} (${pl.rarity})!`, ...res.achievements.map((x) => `🏆 Achievement: ${x}`)]);
+  };
+  const fb = document.getElementById('fuseBtn');
+  if (fb) fb.onclick = () => {
+    const i = +document.getElementById('fuseA').value, j = +document.getElementById('fuseB').value, H = st.home;
+    if (H.built[i].kind === H.built[j].kind) return toast(['Pick two buildings of different kinds.']);
+    let ok;
+    const ach = withAchievements(st, () => { produce(st, Date.now()); ok = fuse(st, i, j); });
+    if (!ok) return toast([`Fusing needs 🌿${FUSE.plant} ⛏${FUSE.ore}.`]);
+    const b = H.built[j < i ? i - 1 : i];
+    save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); renderBuild(); sfx('build');
+    toast([`🔗 ${buildingName(b)} built · ${civTitle(H)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
+  };
   const pc = document.getElementById('peaceChk');
   if (pc) pc.onchange = () => { st.home.peace = pc.checked; save(); fn?.homeChanged(); toast([pc.checked ? '🕊 Your home is peaceful.' : '⚔ Your home can besiege and be besieged.']); };
   buildDlg.querySelectorAll('[data-repair]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.repair;
     produce(st, Date.now()); // it starts producing again now
-    if (!repair(st, i, grav())) return toast([`You need ${costText(repairCost(st.home.built[i].kind, grav()))} to repair it.`]);
+    if (!repair(st, i, grav())) return toast([`You need ${costText(repairCost(st.home.built[i], grav()))} to repair it.`]);
     save(); renderBuild();
-    sfx('build'); toast([`🔧 ${BUILDINGS[st.home.built[i].kind].name} repaired`]);
+    sfx('build'); toast([`🔧 ${buildingName(st.home.built[i])} repaired`]);
   }));
   buildDlg.querySelectorAll('[data-k]').forEach((b) => (b.onclick = () => {
     let ok;
@@ -935,7 +977,7 @@ document.getElementById('atlasBtn').onclick = () => {
   }));
 
   for (const cv2 of dlg.querySelectorAll('.portrait[data-plant]')) {
-    const [seed, k] = cv2.dataset.plant.split('~'), pl = makeWorld(seed).plants[k];
+    const pl = plantOf(cv2.dataset.plant);
     if (pl) drawThing(cv2.getContext('2d'), { kind: pl.family, seed: 5, size: 0.1, plant: pl }, 36, 46, 34, { color: '#9a9', accent: '#9cf', light: '#ffd', style: 'classic', lights: false, night: false, t: 0 });
   }
   for (const cv2 of dlg.querySelectorAll('.portrait[data-id]')) {

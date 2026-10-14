@@ -6,7 +6,7 @@ import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { score, raidScore, raidKey, msg as colonyMsg, homeMsg, raidMsg, nameMsg, LANES, MAX_SCORE, COLONY_BITS } from '../freenet/colony.js';
-import { generation } from '../world.js';
+import { generation, parentsOf } from '../world.js';
 import { chatMsg, MAX_TEXT, CHAT_BITS } from '../freenet/chat.js';
 import { connectMessage } from '../freenet/connect.js';
 import { cborDecode, anteBits } from '../freenet/viso.js';
@@ -33,7 +33,8 @@ export function isStar(seed) {
 const isKind = (a, sep) => typeof a === 'string' && new RegExp(`^(.+)${sep}[0-9]{1,2}$`).test(a) && isStar(a.slice(0, a.lastIndexOf(sep)));
 // wild '<seed>#<k>' or bred (world.js bredId), as the contract's is_animal; plants '<seed>~<k>'
 export const isAnimal = (a) => generation(a, (x) => isKind(x, '#')) >= 0;
-const isPlant = (p) => isKind(p, '~');
+// wild '<seed>~<k>', or two wild ones crossed at a mill (world.js crossPlant), as the contract's is_plant
+const isPlant = (p) => isKind(p, '~') || (typeof p === 'string' && (parentsOf(p)?.every((x) => isKind(x, '~')) ?? false));
 const verify = (sig, m, pk) => { try { return ed.verify(sig, typeof m === 'string' ? enc.encode(m) : m, pk); } catch { return false; } };
 const cat = (...p) => ed.etc.concatBytes(...p);
 const u32le = (n) => new Uint8Array(new Uint32Array([n]).buffer), u64le = (n) => new Uint8Array(new BigUint64Array([BigInt(n)]).buffer);

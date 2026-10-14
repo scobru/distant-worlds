@@ -285,6 +285,11 @@ fn generation(id: &str) -> Option<u32> {
     (g <= MAX_GEN).then_some(g)
 }
 
+/// A plant id: wild "<star seed>~<k>", or two wild ones crossed at a mill ("a+b", sorted; world.js crossPlant).
+fn is_plant(p: &str) -> bool {
+    is_kind(p, '~') || parents(p).is_some_and(|(a, b)| is_kind(a, '~') && is_kind(b, '~'))
+}
+
 /// A species id: wild "<star seed>#<k>", or bred (world.js bredId) up to MAX_GEN generations.
 pub fn is_animal(a: &str) -> bool {
     generation(a).is_some()
@@ -295,7 +300,7 @@ pub fn name_msg(n: &Name) -> String {
 }
 
 pub fn check_name(app: &str, n: &Name) -> R<()> {
-    if !is_persona(&n.persona) || !text_ok(&n.nick, 24) || !text_ok(&n.name, 24) || !(is_animal(&n.id) || is_kind(&n.id, '~')) {
+    if !is_persona(&n.persona) || !text_ok(&n.nick, 24) || !text_ok(&n.name, 24) || !(is_animal(&n.id) || is_plant(&n.id)) {
         return Err("bad name".into());
     }
     let ante = hex::decode(&n.ante).map_err(|e| e.to_string())?;
@@ -856,9 +861,11 @@ mod tests {
         assert_eq!(s1, s2);
         assert_eq!(s1.names[id].name, "Fluffy");
         apply(&admin, APP, &mut s1, names(name(&sk(2), "v1-1_2_3~1", "Moonleaf", 30))).unwrap();
+        apply(&admin, APP, &mut s1, names(name(&sk(2), "v1-1_2_3~1+v1-4_5_6~0", "Duskbell", 40))).unwrap(); // a hybrid plant
+        assert!(check_name(APP, &name(&sk(2), "v1-4_5_6~0+v1-1_2_3~1", "Unsorted", 1)).is_err());
         validate(&admin, APP, &s1).unwrap();
         assert!(delta(&s1, &summarize(&s1)).names.is_empty());
-        assert_eq!(delta(&s1, &Summary::default()).names.len(), 2);
+        assert_eq!(delta(&s1, &Summary::default()).names.len(), 3);
 
         assert!(check_name(APP, &name(&sk(2), "v1-1_2_3#0+v1-1_2_3#0", "Same", 1)).is_err(), "not a species");
         assert!(check_name(APP, &name(&sk(2), id, "a|b", 1)).is_err(), "bad text");

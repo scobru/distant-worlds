@@ -1,0 +1,14 @@
+services:
+  distant-worlds:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      APP_PATH: ${APP_PATH:-/}
+      # ADMIN: <hex ed25519 pubkey that signs blocklists>
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+volumes:
+  data:

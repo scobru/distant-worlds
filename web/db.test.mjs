@@ -68,6 +68,8 @@ db.applyGalaxy({ names: { 'v1-1_2_3~0': nm('v1-1_2_3~0', 'Later', 30) } });
 db.applyGalaxy({ names: { 'v1-1_2_3~0': nm('v1-1_2_3~0', 'Earlier', 10) } });
 assert.equal(JSON.parse(db.galaxy()).names['v1-1_2_3~0'].name, 'Earlier');
 assert.throws(() => db.applyGalaxy({ names: { x: nm('x', 'Bad', 1) } }), /bad name/);
+db.applyGalaxy({ names: { 'v1-1_2_3~1+v1-4_5_6~0': nm('v1-1_2_3~1+v1-4_5_6~0', 'Duskbell', 40) } }); // a hybrid plant
+assert.throws(() => db.applyGalaxy({ names: { 'v1-4_5_6~0+v1-1_2_3~1': nm('v1-4_5_6~0+v1-1_2_3~1', 'Unsorted', 1) } }), /bad name/);
 
 // the admin blocklist removes a persona everywhere
 const bl = { ts: 3, list: [a.persona], sig: '' };
