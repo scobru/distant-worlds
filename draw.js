@@ -528,22 +528,32 @@ export function avatarLook(seed, look = {}) {
   d.hat = Math.floor(r() * 4); d.pack = r() < 0.7; d.wide = 0.85 + r() * 0.3;
   return { ...d, ...look };
 }
-export function drawAvatar(g, seed, x, y, s, facing, stride, moving, t, look) {
+/** `back`: seen from behind (worlds walked into): the pack in the middle, legs stepping one after the other. */
+export function drawAvatar(g, seed, x, y, s, facing, stride, moving, t, look, back = false) {
   const { hue, hat, pack, wide, ...L } = avatarLook(seed, look), skin = SKINS[L.skin];
   const suit = `hsl(${hue} 55% 45%)`, dark = `hsl(${hue} 45% 25%)`, trim = `hsl(${(hue + 150) % 360} 80% 60%)`;
   const swing = moving ? Math.sin(stride) * 0.45 : 0, bob = moving ? Math.abs(Math.cos(stride)) * 0.03 : Math.sin(t / 600) * 0.01;
   g.save(); g.translate(x, y); g.scale(facing < 0 ? -s : s, s); g.lineCap = 'round';
   const limb = (x0, y0, a, len, w, c) => { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.sin(a) * len, y0 + Math.cos(a) * len); g.stroke(); };
-  limb(0, -0.45, -swing, 0.45, 0.13, dark); // back leg
-  if (pack) { g.fillStyle = dark; g.beginPath(); g.roundRect(-0.27 * wide, -0.88 - bob, 0.17, 0.36, 0.05); g.fill(); }
-  limb(0, -0.82 - bob, swing, 0.36, 0.1, dark); // back arm
-  g.fillStyle = suit; g.beginPath(); g.roundRect(-0.16 * wide, -0.92 - bob, 0.32 * wide, 0.52, 0.12); g.fill();
-  g.fillStyle = trim; g.fillRect(-0.16 * wide, -0.56 - bob, 0.32 * wide, 0.05);
-  limb(0, -0.45, swing, 0.45, 0.13, suit); // front leg
-  limb(0, -0.82 - bob, -swing, 0.36, 0.1, suit); // front arm
   const hy = -1.08 - bob;
-  g.fillStyle = skin; g.beginPath(); g.arc(0, hy, 0.15, 0, 7); g.fill();
-  g.fillStyle = '#222'; g.beginPath(); g.arc(0.07, hy - 0.02, 0.025, 0, 7); g.fill();
+  if (back) {
+    const up = (v) => Math.max(0, v) * 0.18; // the stepping leg lifts
+    limb(-0.07, -0.45, 0, 0.45 - up(swing), 0.13, dark); limb(0.07, -0.45, 0, 0.45 - up(-swing), 0.13, dark);
+    limb(-0.21 * wide, -0.82 - bob, swing * 0.4, 0.36, 0.1, dark); limb(0.21 * wide, -0.82 - bob, -swing * 0.4, 0.36, 0.1, dark);
+    g.fillStyle = suit; g.beginPath(); g.roundRect(-0.16 * wide, -0.92 - bob, 0.32 * wide, 0.52, 0.12); g.fill();
+    if (pack) { g.fillStyle = dark; g.beginPath(); g.roundRect(-0.1, -0.86 - bob, 0.2, 0.36, 0.05); g.fill(); }
+    g.fillStyle = skin; g.beginPath(); g.arc(0, hy, 0.15, 0, 7); g.fill();
+  } else {
+    limb(0, -0.45, -swing, 0.45, 0.13, dark); // back leg
+    if (pack) { g.fillStyle = dark; g.beginPath(); g.roundRect(-0.27 * wide, -0.88 - bob, 0.17, 0.36, 0.05); g.fill(); }
+    limb(0, -0.82 - bob, swing, 0.36, 0.1, dark); // back arm
+    g.fillStyle = suit; g.beginPath(); g.roundRect(-0.16 * wide, -0.92 - bob, 0.32 * wide, 0.52, 0.12); g.fill();
+    g.fillStyle = trim; g.fillRect(-0.16 * wide, -0.56 - bob, 0.32 * wide, 0.05);
+    limb(0, -0.45, swing, 0.45, 0.13, suit); // front leg
+    limb(0, -0.82 - bob, -swing, 0.36, 0.1, suit); // front arm
+    g.fillStyle = skin; g.beginPath(); g.arc(0, hy, 0.15, 0, 7); g.fill();
+    g.fillStyle = '#222'; g.beginPath(); g.arc(0.07, hy - 0.02, 0.025, 0, 7); g.fill();
+  }
   g.fillStyle = g.strokeStyle = trim; g.lineWidth = 0.04;
   if (hat === 0) { g.globalAlpha = 0.35; g.fillStyle = '#cff'; g.beginPath(); g.arc(0, hy, 0.22, 0, 7); g.fill(); g.globalAlpha = 1; g.stroke(); } // bubble helmet
   if (hat === 1) { g.fillStyle = dark; g.fillRect(-0.28, hy - 0.12, 0.56, 0.05); g.fillRect(-0.14, hy - 0.3, 0.28, 0.2); } // wide hat
