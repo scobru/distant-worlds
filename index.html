@@ -48,7 +48,10 @@
     #chat { top: 8px; right: 8px; left: 8px; width: auto; bottom: 200px; }
     .ui { padding: 10px; gap: 6px; } h1 { flex-basis: 100%; font-size: 16px; }
     button { padding: 6px 11px; font-size: 13px; }
+    /* the world's details take one line; tap the name to read them all */
+    h1 small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } h1.open small { white-space: normal; } h1 { cursor: pointer; }
   }
+  #logBody li { padding: 4px 0; border-bottom: 1px solid #fff1; } #logBody time { opacity: .5; font-size: 12px; margin-right: 6px; }
   dialog a { color: inherit; } dialog .x { padding: 0 8px; margin-left: 6px; font-size: 12px; }
   .row { display: flex; justify-content: space-between; align-items: center; }
   #more { inset: auto 16px 72px auto; margin: 0; flex-direction: column; gap: 6px; padding: 10px; background: #0b0b12ee; color: inherit;
@@ -79,6 +82,7 @@
     <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
     <button id="share">Share</button>
     <button id="day">World of the day</button>
+    <button id="logBtn">📜 Log</button>
     <button id="guideBtn">❓ Guide</button>
   </div>
 </div>
@@ -90,6 +94,7 @@
   <form id="chatForm"><input id="chatText" maxlength="280" placeholder="Message" aria-label="Message" autocomplete="off">
     <button>Send</button><button type="button" id="chatShare" title="Share the world you are on">🌍 Share world</button></form>
 </aside>
+<dialog id="logDlg"><div class="row"><h2>📜 Log</h2><button id="logClose">Close</button></div><ol id="logBody" style="list-style:none;padding:0;margin:0"></ol></dialog>
 <dialog id="map"><div class="row"><h2 id="mapTitle">Map</h2><button id="mapClose">Close</button></div>
   <p id="mapInfo"></p><div id="mapSvg"></div>
   <div class="pan"><button data-d="-1,0" aria-label="West">←</button><button data-d="0,-1" aria-label="North">↑</button>
@@ -153,8 +158,8 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, bredId, generation, MAX_GEN, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
-import { drawThing, drawCreature, drawRiver, drawIsland, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
+import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
+import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
@@ -166,7 +171,7 @@ try { st = { ...emptyState(), ...JSON.parse(localStorage.getItem(KEY)) }; } catc
 // each player gets their own explorer, random the first time
 st.avatar ??= Math.random().toString(36).slice(2);
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
-const LABEL = { culture: 'culture', relief: 'relief', era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', rarity: 'rarity', relic: 'relics' };
+const LABEL = { culture: 'culture', relief: 'relief', era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', volcanoes: 'volcanoes', falls: 'waterfalls', rarity: 'rarity', relic: 'relics' };
 const days = () => { const d = new Date(); const y = new Date(d); y.setDate(d.getDate() - 1); return [isoDay(d), isoDay(y)]; };
 
 let toastTimer, shown = [];
@@ -177,8 +182,20 @@ function toast(lines) {
   const stem = (l) => l.replace(/\d.*$/, ''), same = (x) => lines.some((l) => /\d/.test(l) && stem(l) === stem(x));
   shown = [...(+el.style.opacity ? shown.filter((x) => !same(x)) : []), ...lines].slice(-5);
   el.innerHTML = shown.join('<br>'); el.style.opacity = 1;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.style.opacity = 0), 3500);
+  // longer messages stay longer (4 to 12 s); every message also goes into the 📜 Log
+  const chars = shown.join('').replace(/<[^>]*>/g, '').length;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.style.opacity = 0), Math.min(12000, 4000 + chars * 45));
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  logged = [...lines.filter(Boolean).map((l) => [now, l]), ...logged].slice(0, 100);
 }
+let logged = []; // newest first, this session only
+document.getElementById('logBtn').onclick = () => {
+  document.getElementById('more').hidePopover?.();
+  document.getElementById('logBody').innerHTML = logged.length ? logged.map(([at, l]) => `<li><time>${at}</time>${l}</li>`).join('') : '<li><small>No messages yet.</small></li>';
+  document.getElementById('logDlg').showModal();
+};
+document.getElementById('logClose').onclick = () => document.getElementById('logDlg').close();
+document.querySelector('h1').onclick = (e) => e.currentTarget.classList.toggle('open');
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -255,8 +272,9 @@ function homePets(H = st.home?.seed === world.seed && st.home) {
   if (!H) return [];
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.2, span = Math.max(0.8, ...xs) + 0.2 - lo;
   return H.animals.slice(-24).map((id, k) => {
-    const r = rngFrom(`pet:${id}:${k}`);
-    return { kind: 'species', dna: speciesOf(id), x: lo + r() * span * 0.8, range: 0.15 + r() * span * 0.3, speed: (2 + r() * 4) * 1e-6, size: 0.04 + r() * 0.02, phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
+    const r = rngFrom(`pet:${id}:${k}`), sp = speciesOf(id);
+    if (sp?.flyer) return { kind: sp.flyer, dna: sp, lift: 0.15 + r() * 0.2, x: lo + r() * span * 0.8, range: 0.2 + r() * span * 0.4, speed: (2 + r() * 4) * 1e-6, size: { flock: 0.008, jellyfish: 0.025, whale: 0.09 }[sp.flyer], phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
+    return { kind: 'species', dna: sp, x: lo + r() * span * 0.8, range: 0.15 + r() * span * 0.3, speed: (2 + r() * 4) * 1e-6, size: (0.04 + r() * 0.02) * Math.min(2, sp?.scale ?? 1), phase: r() * 2, seed: Math.floor(r() * 2 ** 32) };
   }).filter((p) => p.dna);
 }
 
@@ -266,7 +284,7 @@ function homeGarden(H = st.home?.seed === world.seed && st.home) {
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.3, span = Math.max(0.8, ...xs) + 0.3 - lo;
   return H.garden.slice(-30).flatMap((id, k) => {
     const r = rngFrom(`garden:${id}:${k}`), pl = plantOf(id);
-    return pl ? Array.from({ length: 2 + Math.floor(r() * 2) }, () => ({ kind: pl.family, plant: pl, x: lo + r() * span, size: 0.03 + r() * 0.03, seed: Math.floor(r() * 2 ** 32) })) : [];
+    return pl ? Array.from({ length: 2 + Math.floor(r() * 2) }, () => ({ kind: pl.family, plant: pl, x: lo + r() * span, size: (0.03 + r() * 0.03) * Math.min(2.5, pl.scale ?? 1), seed: Math.floor(r() * 2 ** 32) })) : [];
   }).sort((a, b) => b.size - a.size);
 }
 let garden = [];
@@ -366,12 +384,30 @@ function draw(t) {
   const co = { accent: W.accent, style: W.style, lights: W.lights, t,
     bird: W.night ? '#fff8' : '#0009', whale: W.layers[0].color };
   const hit = (e, x, y, s) => hits.push([boxOf(e, x, y, s), e]);
-  for (const c of W.flyers) { drawCreature(g, c, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m, co); hit({ type: 'flyer', ...c }, wrap(c) * w, (c.y ?? 0.2) * h, c.size * m); }
+  // flyers can be captured too, when one passes over the explorer (one per flyer a day, like walkers)
+  for (const c of W.flyers) {
+    const take = c.dna && { id: c.seed, kind: 'creature', dna: c.dna.id, name: c.dna.name };
+    if (take && picked(st, day, W.seed, take)) continue;
+    const fx = wrap(c) * w, fy = (c.y ?? 0.2) * h;
+    drawCreature(g, c, fx, fy, c.size * m, co);
+    hit({ type: 'flyer', ...c, ...(take && { take, reach: near(fx) }) }, fx, fy, c.size * m);
+    if (c.dna && fx > 0 && fx < w && !seenNow.has(c.dna.id)) { seenNow.add(c.dna.id); species(c.dna); }
+  }
 
   const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
   const next = new Map(), step = 4 * devicePixelRatio;
   let seen = 0; // how much is on screen: drives the music
   W.layers.forEach((L, i) => {
+    // the sea lies in front of the far ranges (their waterfalls pour into it) and behind the walkable ground
+    if (W.water && i === Math.max(1, W.layers.length - 2)) {
+      const top = (L.base - L.span * 0.8) * h;
+      g.fillStyle = W.water; g.fillRect(0, top, w, h);
+      g.fillStyle = '#fff2';
+      for (let y = top + 2; y < h; y += 6 * devicePixelRatio)
+        g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
+      g.fillStyle = '#fff1'; // waves rolling in
+      for (let k = 0; k < 6; k++) { const wy = top + ((k / 6 + t / 9000) % 1) * (h - top) * 0.6; g.fillRect(0, wy, w, devicePixelRatio); }
+    }
     const off = cam * L.parallax, X = (x) => (x - off) * w, Y = (x) => (L.base - height(L, x) * L.span) * h;
     g.fillStyle = L.color; g.beginPath(); g.moveTo(0, h);
     for (let sx = -step; sx < w + step; sx += step) g.lineTo(sx, Y(off + sx / w));
@@ -385,6 +421,24 @@ function draw(t) {
       g.save(); g.clip();
       for (const rv of rivers) drawRiver(g, X(rv.x), Y(rv.x) - 2, h, rv.width * m * 0.12, depth, rv.phase, t, W.river);
       g.restore();
+    }
+    // volcanoes and waterfalls on the range just behind the walkable ground
+    if (i === Math.max(0, W.layers.length - 3)) for (const v of volcanoesNear(W, off - 0.6, off + 1.6)) {
+      const vx = X(v.x), vy = Y(v.x), s = v.size * m * 0.16;
+      drawVolcano(g, vx, vy, s, v, t, L.color, W.night);
+      hits.push([[vx - s, vy - s * 1.1, vx + s, vy], { type: 'volcano', erupting: v.erupting }]);
+    }
+    if (i === Math.max(0, W.layers.length - 3)) {
+      const falls = fallsNear(W, off - 0.5, off + 1.5);
+      if (falls.length) {
+        g.save(); g.clip();
+        for (const f of falls) {
+          const fx = X(f.x), fw = f.width * m * 0.08 * (0.6 + depth);
+          drawWaterfall(g, fx, Y(f.x) + 2, Math.min(h, L.base * h + 0.04 * h), fw, t, f.phase, W.river);
+          hits.push([[fx - fw, Y(f.x), fx + fw, L.base * h], { type: 'falls' }]);
+        }
+        g.restore();
+      }
     }
     // smoke rises from the second range, behind the nearer ones
     if (i === 1) for (const sm of smokeNear(W, off - 0.3, off + 1.3)) drawSmoke(g, X(sm.x), Y(sm.x), sm.size * m * 0.05, t, sm.phase, W.night ? '#666' : '#444');
@@ -454,9 +508,9 @@ function draw(t) {
       // home animals in a warm colour of their own, so they stand out from the ground (and at night)
       const pc = { ...co, color: `hsl(32 45% ${W.night ? 45 : 40}%)`, accent: '#ffd27a', lights: true };
       for (const cr of H.pets) {
-        const [x, dir] = walkerAt(cr, t), s = cr.size * m;
-        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, pc);
-        hit({ type: 'pet', ...cr, owner: H.nick }, X(x), Y(x) + s * 0.05, s);
+        const [x, dir] = walkerAt(cr, t), s = cr.size * m, y = Y(x) + s * 0.05 - (cr.lift ?? 0) * m; // flyers circle above the home
+        drawCreature(g, { ...cr, speed: dir }, X(x), y, s, pc);
+        hit({ type: 'pet', ...cr, owner: H.nick }, X(x), y, cr.lift ? Math.max(s, 0.03 * m) : s);
       }
     }
     if (i === W.layers.length - 2 && her) {
@@ -522,12 +576,6 @@ function draw(t) {
         drawPickup(g, px, py, s, p.kind, t, p.phase, W.culture, !reach);
         hits.push([[px - s, py - s * 1.4, px + s, py], { type: 'pickup', ...p, take: p, reach }]);
       }
-    }
-    if (W.water && i === 0) {
-      g.fillStyle = W.water; g.fillRect(0, h * 0.62, w, h);
-      g.fillStyle = '#fff2';
-      for (let y = h * 0.63; y < h; y += 6 * devicePixelRatio)
-        g.fillRect(S.x * w - m * S.size * (1 + Math.sin(y + t / 400)), y, m * S.size * 2, devicePixelRatio);
     }
   });
   // the explorer, on the nearest ground; legs follow the distance walked
@@ -715,6 +763,8 @@ const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `m
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
+// How big a species or plant grows, next to its name in the Atlas (nothing for the usual size).
+const sizeTag = (scale) => { const s = sizeWord(scale ?? 1); return s ? ` <span class="chip">${{ giant: '⬆⬆', large: '⬆', small: '⬇', tiny: '⬇⬇' }[s]} ${s}</span>` : ''; };
 // The common name an explorer gave a species or plant (Freenet / web), or a button to give it one.
 function nameTag(id) {
   const n = fn?.nameOf(id);
@@ -722,7 +772,7 @@ function nameTag(id) {
 }
 // Breeding: two species living at home, in a stable (atlas.js breedAt, world.js breed), up to MAX_GEN generations.
 function breedHtml(H) {
-  const ids = [...new Set(H.animals)].filter((id) => speciesOf(id));
+  const ids = [...new Set(H.animals)].filter((id) => speciesOf(id) && !isFlyerId(id)); // flyers do not breed
   if (!H.built.some((b) => partsOf(b).includes('longhouse') && !b.damaged)) return '<p><small>🧬 Build a Stable to breed your creatures into new species.</small></p>';
   if (ids.length < 2) return '<p><small>🧬 Bring home two different species to breed them in your stable.</small></p>';
   const opts = (sel) => ids.map((id, i) => `<option value="${esc(id)}"${i === sel ? ' selected' : ''}>${esc(speciesOf(id).name)}</option>`).join('');
@@ -975,12 +1025,12 @@ document.getElementById('atlasBtn').onclick = () => {
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
     <h3>Bestiary <small>${st.species.length} species</small></h3>
     ${st.species.length ? `<ul>${st.species.slice(0, 60).map((sp) => `<li><canvas class="portrait" width="72" height="48" data-id="${esc(sp.id)}" aria-hidden="true"></canvas>
-      <b>${esc(sp.name)}</b>${nameTag(sp.id)} <span class="badge ${sp.rarity}">${sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
+      <b>${esc(sp.name)}</b>${nameTag(sp.id)}${sizeTag(speciesOf(sp.id)?.scale)} <span class="badge ${speciesOf(sp.id)?.rarity ?? sp.rarity}">${speciesOf(sp.id)?.rarity ?? sp.rarity}</span> <small style="display:inline">from <a href="#${encodeURIComponent(sp.world)}">${esc(sp.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No species yet. Walk through worlds with herds or giants.</small></p>'}
     ${fn ? fn.atlasHtml() : ''}
     <h3>Herbarium <small>${(st.plants ?? []).length} plants</small></h3>
     ${(st.plants ?? []).length ? `<ul>${st.plants.slice(0, 60).map((pl) => `<li><canvas class="portrait" width="72" height="48" data-plant="${esc(pl.id)}" aria-hidden="true"></canvas>
-      <b>${esc(pl.name)}</b>${nameTag(pl.id)} <small style="display:inline">${esc(pl.family)} · from <a href="#${encodeURIComponent(pl.world)}">${esc(pl.worldName)}</a></small></li>`).join('')}</ul>`
+      <b>${esc(pl.name)}</b>${nameTag(pl.id)}${sizeTag(plantOf(pl.id)?.scale)} <small style="display:inline">${esc(pl.family)} · from <a href="#${encodeURIComponent(pl.world)}">${esc(pl.worldName)}</a></small></li>`).join('')}</ul>`
       : '<p><small>No plants yet. Walk through green worlds: plants go here when you see them.</small></p>'}
     <h3>Logbook</h3>
     ${st.favs.length ? `<ul>${st.favs.map((f, i) => `<li><a href="#${encodeURIComponent(f.seed)}">${esc(f.name)}</a>
@@ -1002,8 +1052,8 @@ document.getElementById('atlasBtn').onclick = () => {
     if (pl) drawThing(cv2.getContext('2d'), { kind: pl.family, seed: 5, size: 0.1, plant: pl }, 36, 46, 34, { color: '#9a9', accent: '#9cf', light: '#ffd', style: 'classic', lights: false, night: false, t: 0 });
   }
   for (const cv2 of dlg.querySelectorAll('.portrait[data-id]')) {
-    const dna = speciesOf(cv2.dataset.id);
-    if (dna) drawCreature(cv2.getContext('2d'), { kind: 'species', dna, speed: 1, seed: 1 }, 36, 44, 38, { color: '#ccc', accent: '#9cf', style: 'classic', lights: false, t: 0 });
+    const dna = speciesOf(cv2.dataset.id), fly = dna?.flyer;
+    if (dna) drawCreature(cv2.getContext('2d'), { kind: fly ?? 'species', dna, speed: 1, seed: 1 }, fly === 'flock' ? 30 : 36, fly ? 24 : 44, { flock: 1.5, jellyfish: 22, whale: 24 }[fly] ?? 38, { color: '#ccc', accent: '#9cf', style: 'classic', lights: false, t: 0 });
   }
   dlg.showModal();
 };

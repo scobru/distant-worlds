@@ -1,11 +1,11 @@
 // Player progress: discoveries, achievements, saved worlds, daily world. Pure logic on a
 // plain object; index.html persists it in localStorage.
-import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, EPOCH, DAY, CONCEPTS, languageOf } from './world.js';
+import { TRAITS, RARITY, RELICS, hashSeed, rng, rngFrom, randomSeed, bredId, generation, MAX_GEN, isFlyerId, EPOCH, DAY, CONCEPTS, languageOf } from './world.js';
 
 // Every discoverable entry, as "trait:value".
 export const ENTRIES = [
   ...Object.entries(TRAITS).flatMap(([k, t]) => Object.keys(t).map((v) => `${k}:${v}`)),
-  'night:true', 'rings:true', 'sea:true',
+  'night:true', 'rings:true', 'sea:true', 'volcanoes:true', 'falls:true',
   ...RARITY.map(([r]) => `rarity:${r}`),
   ...RELICS.map((r) => `relic:${r}`),
 ];
@@ -342,7 +342,7 @@ export const breedsLeft = (st, day) => builtOf(st, 'longhouse') - (st.home.bred?
 /** Breeds species `a` and `b` (both living at home) on `day`; returns the young's id, or null. */
 export function breedAt(st, a, b, day) {
   const H = st.home, id = a === b ? null : bredId(a, b);
-  if (!id || generation(id) < 1 || !H.animals.includes(a) || !H.animals.includes(b)) return null;
+  if (!id || generation(id) < 1 || isFlyerId(a) || isFlyerId(b) || !H.animals.includes(a) || !H.animals.includes(b)) return null; // flyers do not breed
   if (breedsLeft(st, day) < 1 || st.bag.plant < BREED.plant || st.bag.ore < BREED.ore) return null;
   st.bag.plant -= BREED.plant; st.bag.ore -= BREED.ore;
   H.bred = { day, n: (H.bred?.day === day ? H.bred.n : 0) + 1 };
