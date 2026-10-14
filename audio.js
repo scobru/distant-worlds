@@ -9,7 +9,14 @@ export function startAudio(M, getInterest) {
   const ac = new AudioContext(), t0 = ac.currentTime, song = makeSong(M);
   const master = ac.createGain();
   master.gain.setValueAtTime(0, t0); master.gain.linearRampToValueAtTime(0.6, t0 + 3);
-  master.connect(ac.destination);
+  // Output chain (from eph): cut sub-rumble, a limiter for the peaks when voices stack, then a soft
+  // clipper that is transparent below ~-4 dB and never passes 1.0, since a compressor is not a brickwall.
+  const sub = ac.createBiquadFilter(), lim = ac.createDynamicsCompressor(), safe = ac.createWaveShaper(), curve = new Float32Array(4096);
+  sub.type = 'highpass'; sub.frequency.value = 28;
+  lim.threshold.value = -4; lim.knee.value = 10; lim.ratio.value = 6; lim.attack.value = 0.003; lim.release.value = 0.25;
+  curve.forEach((_, i) => { const x = (i / 4095) * 2 - 1, m = Math.abs(x); curve[i] = Math.sign(x) * (m <= 0.6 ? m : 0.6 + 0.4 * Math.tanh((m - 0.6) / 0.4)); });
+  safe.curve = curve; safe.oversample = '2x';
+  master.connect(sub); sub.connect(lim); lim.connect(safe); safe.connect(ac.destination);
 
   // Reverb: impulse response is just decaying stereo noise; length = size of the space.
   const verb = ac.createConvolver(), len = Math.floor(ac.sampleRate * M.space);
@@ -18,14 +25,23 @@ export function startAudio(M, getInterest) {
   verb.buffer = ir;
   const wet = ac.createGain(); wet.gain.value = 0.45; verb.connect(wet); wet.connect(master);
   const bus = ac.createBiquadFilter(); bus.frequency.value = M.cutoff; bus.connect(master); bus.connect(verb);
-  const echo = ac.createDelay(), fb = ac.createGain();
-  echo.delayTime.value = 60 / song.bpm * 0.75; fb.gain.value = 0.35; echo.connect(fb); fb.connect(echo); echo.connect(bus);
+  // Ping-pong echo (from cabasa): left -> right -> feedback -> left, one loop so the ring gain is fb;
+  // the repeats lose lows and highs each time round, dub style (from eph).
+  const echo = ac.createDelay(2), echoR = ac.createDelay(2), fb = ac.createGain(), hp = ac.createBiquadFilter(), lp = ac.createBiquadFilter();
+  echo.delayTime.value = echoR.delayTime.value = 60 / song.bpm * 0.75; fb.gain.value = 0.35;
+  hp.type = 'highpass'; hp.frequency.value = 280; lp.frequency.value = 3200;
+  echo.connect(echoR); echoR.connect(hp); hp.connect(lp); lp.connect(fb); fb.connect(echo);
+  for (const [d, p] of [[echo, -0.7], [echoR, 0.7]]) { const pan = ac.createStereoPanner(); pan.pan.value = p; d.connect(pan); pan.connect(bus); }
+  // each voice sits in its own place across the stereo field; bass stays in the middle
+  const PAN = { lead: -0.2, comp: 0.35, bass: 0, pad: -0.45 }, place = {};
+  for (const v in PAN) { place[v] = ac.createStereoPanner(); place[v].pan.value = PAN[v]; place[v].connect(bus); }
+  let out = bus; // where amp() sends a note: the panner of the voice being played
 
   const noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
   noise.getChannelData(0).forEach((_, i, d) => (d[i] = Math.random() * 2 - 1));
   const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
   const osc = (type, f, t, end, dest) => { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.connect(dest); o.start(t); if (end) o.stop(end); return o; };
-  const amp = (t, peak, attack, decay, dest = bus) => {
+  const amp = (t, peak, attack, decay, dest = out) => {
     const g = ac.createGain(); g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(peak, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
     g.connect(dest); return g;
@@ -42,10 +58,11 @@ export function startAudio(M, getInterest) {
       m.gain.setValueAtTime(f * 1.5, t); m.gain.exponentialRampToValueAtTime(1, t + 1);
       osc('sine', f * 2.01, t, t + 2.5, m).connect(m); m.connect(car.frequency); e.connect(echo);
     },
-    pluck(f, t) { // plucked: sawtooth through a closing low-pass
-      const e = amp(t, 0.12, 0.003, 0.7), lp = ac.createBiquadFilter();
-      lp.frequency.setValueAtTime(f * 10, t); lp.frequency.exponentialRampToValueAtTime(f * 1.2, t + 0.25); lp.connect(e);
-      osc('sawtooth', f, t, t + 1, lp); e.connect(echo);
+    pluck(f, t) { // a real plucked string: Karplus-Strong (from eph), a noise burst fed back through a one-period delay
+      const sr = ac.sampleRate, n = Math.max(2, Math.round(sr / f)), buf = ac.createBuffer(1, Math.ceil(sr * 1.2), sr), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = i < n ? Math.random() * 2 - 1 : 0.498 * (d[i - n] + d[i - n + 1]); // < 0.5 or it never dies out
+      const s = ac.createBufferSource(), e = amp(t, 0.16, 0.002, 1.1);
+      s.buffer = buf; s.connect(e); s.start(t); e.connect(echo);
     },
     marimba(f, t) {
       const e = amp(t, 0.16, 0.002, 0.6), e2 = amp(t, 0.05, 0.002, 0.12);
@@ -98,6 +115,7 @@ export function startAudio(M, getInterest) {
     bus.frequency.setTargetAtTime(M.cutoff * (0.7 + interest * 0.08), ac.currentTime, 2);
     while (next < ac.currentTime + 1) {
       for (const x of song.bar(n, interest).notes) {
+        out = place[x.voice] ?? bus;
         const t = next + x.beat * beat, f = hz(x.midi) * (M.microtonal && x.voice === 'lead' ? 2 ** ((r() - 0.5) * 0.05) : 1), dur = x.dur * beat;
         if (x.voice === 'lead') INSTR[M.lead](f, t, dur);
         if (x.voice === 'comp') groove ? INSTR.pluck(f, t) : INSTR.piano(f, t, dur, x.vel * (0.6 + interest * 0.04));
