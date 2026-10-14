@@ -508,6 +508,15 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
     assert.ok(collect(c, 'x', 'v1-1_1_1', chest, 0) && !collect(c, 'x', 'v1-1_1_1', chest, 0), 'once a day');
     assert.equal(c.bag.ore - before.ore, loot.ore ?? 0); assert.equal(c.bag.plant - before.plant, loot.plant ?? 0); assert.equal(c.fuel - 50, loot.fuel ?? 0);
   }
+  { // play numbers: what is earned, lost to a full tank and gathered
+    const { stat, addFuel, collect, PICKUP } = await import('./atlas.js');
+    const s = es(); s.fuel = 95; addFuel(s, 10);
+    assert.deepEqual([s.fuel, s.stats.fuelIn, s.stats.fuelLost], [100, 5, 5], 'five fitted, five did not');
+    stat(s, 'ms', 1500); stat(s, 'ms', 500); assert.equal(s.stats.ms, 2000);
+    collect(s, 'd', 'v1-1_1_1', { id: 'a', kind: 'plant' }, 0); collect(s, 'd', 'v1-1_1_1', { id: 'b', kind: 'ore', amount: 3 }, 0); collect(s, 'd', 'v1-1_1_1', { id: 'c', kind: 'creature', dna: 'x' }, 0);
+    assert.deepEqual([s.stats.plant, s.stats.ore, s.stats.creature], [1, 3, 1]);
+    assert.equal(PICKUP.fuel, 10);
+  }
   const st2 = es(); st2.bag.ore = 0;
   assert.ok(winBattle(st2, a.b) > 0 && st2.bag.ore > 0 && st2.wins === 1 && battleLevel(st2) === 2);
   const fw = [...Array(50)].map((_, i) => mkw(`v1-${i}_4_1`)).find((x) => x.species.length), foes = foesNear(fw, '2026-10-14', -6, 6);

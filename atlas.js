@@ -146,7 +146,14 @@ export function checkMission(st, w, day, yesterday) {
 // Revisiting stars, saved worlds, the daily world and shared links are free.
 // `auto`: what auto-walk burns per screen (walking by hand burns nothing and earns `perScreen` on new ground)
 export const FUEL = { max: 100, perScreen: 4, auto: 1, maxPerSecond: 0.3, entry: 10, combo: 10, species: 15, rareSpecies: 25, relic: 30, mission: 100, random: 100 };
-export const addFuel = (st, n) => (st.fuel = Math.min(FUEL.max, (st.fuel ?? FUEL.max) + n));
+// Local play numbers (they stay in the browser): what was earned, spent and wasted, to tune the game from real play.
+export const stat = (st, key, n = 1) => { const s = (st.stats ??= {}); s[key] = (s[key] ?? 0) + n; };
+export function addFuel(st, n) {
+  const before = st.fuel ?? FUEL.max;
+  st.fuel = Math.min(FUEL.max, before + n);
+  stat(st, 'fuelIn', st.fuel - before); stat(st, 'fuelLost', n - (st.fuel - before)); // lost: it did not fit in the tank
+  return st.fuel;
+}
 
 // Cost to jump from sector `from` (null: off the map) to the star in sector `to`: near is cheap.
 export function jumpCost(from, to, size) {
@@ -156,7 +163,7 @@ export function jumpCost(from, to, size) {
 }
 
 // Pickups: each one can be collected once a day per explorer; at most 3 time shards a day per planet.
-export const PICKUP = { fuel: 15, boost: 3, boostMs: 90_000, timePerPlanetDay: 3 };
+export const PICKUP = { fuel: 10, boost: 3, boostMs: 90_000, timePerPlanetDay: 3 };
 const pickKey = (seed, p) => `${seed}|${p.id}|${p.kind}`;
 export const picked = (st, day, seed, p) => st.picked?.day === day && st.picked.ids.includes(pickKey(seed, p));
 
@@ -300,10 +307,10 @@ export function collect(st, day, seed, p, now) {
   if (p.kind === 'chest') { const l = chestLoot(seed, p.id, day); if (l.fuel) addFuel(st, l.fuel); st.bag.plant += l.plant ?? 0; st.bag.ore += l.ore ?? 0; }
   // gathered on the way, spent on the home planet
   // home buildings make gathering richer
-  if (p.kind === 'plant' || p.kind === 'ore') st.bag[p.kind] += (p.amount ?? 1) + gatherBonus(st, p.kind);
+  if (p.kind === 'plant' || p.kind === 'ore') { const n = (p.amount ?? 1) + gatherBonus(st, p.kind); st.bag[p.kind] += n; stat(st, p.kind, n); }
   // the first harvest of a plant species also gives its seeds, sown at home on the next visit
   if (p.kind === 'plant' && p.species && !(st.bag.seeds ??= []).includes(p.species) && !st.home?.garden?.includes(p.species)) st.bag.seeds.push(p.species);
-  if (p.kind === 'creature') for (let k = 1 + gatherBonus(st, 'creature'); k--;) st.bag.creature.push(p.dna);
+  if (p.kind === 'creature') for (let k = 1 + gatherBonus(st, 'creature'); k--;) { st.bag.creature.push(p.dna); stat(st, 'creature'); }
   return true;
 }
 export const boostOn = (st, seed, now) => st.boost?.seed === seed && now < st.boost.until;
@@ -366,7 +373,7 @@ export function voyage(st, seed) {
 export function sendShip(st, seed, now) {
   const v = voyage(st, seed);
   if (seed === st.home?.seed || (st.fleet ??= []).length >= fleetSize(st) || (st.fuel ?? FUEL.max) < v.fuel) return false;
-  st.fuel -= v.fuel;
+  st.fuel -= v.fuel; stat(st, 'fuelShip', v.fuel);
   st.fleet.push({ seed, at: now, back: now + v.hours * 3.6e6 });
   return true;
 }
@@ -443,6 +450,7 @@ export function build(st, kind, x, g = 1) {
   const c = costOf(kind, g);
   st.bag.plant -= c.plant; st.bag.ore -= c.ore;
   st.home.built.push({ kind, x, seed: st.home.built.length + 1 });
+  stat(st, 'built');
   return true;
 }
 
@@ -494,7 +502,7 @@ export const siegeLoot = (crew) => 5 + Math.floor(crew / 2);
 export const canSiege = (st) => (st.fuel ?? 0) >= SIEGE.fuel && st.bag.ore >= SIEGE.ore;
 export function payForSiege(st) {
   if (!canSiege(st)) return false;
-  st.fuel -= SIEGE.fuel; st.bag.ore -= SIEGE.ore;
+  st.fuel -= SIEGE.fuel; stat(st, 'fuelSiege', SIEGE.fuel); st.bag.ore -= SIEGE.ore;
   return true;
 }
 /** Another explorer besieged our home with `crew` raiders at time `at` (`key` identifies the raid): fought
