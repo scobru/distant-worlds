@@ -21,6 +21,7 @@
   #tip[hidden] { display: none; } #tip b { font-size: 14px; } #tip small { display: block; opacity: .75; margin-top: 2px; }
   #tut { position: fixed; left: 16px; bottom: 96px; width: min(92vw, 380px); background: #000d; border: 1px solid #fff4; border-radius: 14px; padding: 10px 14px; z-index: 5; }
   #tut[hidden] { display: none; }
+  .need { display: grid; grid-template-columns: 11em 1fr; gap: 2px 10px; align-items: center; margin: 4px 0; } .need small { grid-column: 2; margin: 0; opacity: .75; } .need meter { width: 100%; height: 12px; } .need.top span { font-weight: 600; }
   @media (max-width: 760px) { #tut { left: 50%; transform: translateX(-50%); bottom: 150px; } }
   #tut b { display: block; margin-bottom: 2px; } #tut p { margin: 0 0 6px; opacity: .9; font-size: .92em; }
   #tut .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; } #tut button { padding: 4px 12px; font-size: .85em; }
@@ -134,6 +135,8 @@
     🌿 Heal eats 3 plants instead of striking; worn down to a quarter of its life, a creature can be 🐾 captured (6 times in 10).
     Every third round it gathers its strength and then hits twice as hard: that is the round to 🛡 Guard (no blow, half the damage). Some are ⭐ elite, two levels above the rest, and they get tougher as your battle level grows.
     Win and you take ore, and your battle level grows (more life, harder blows); lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
+  <h3>📊 What your home needs</h3>
+  <p>The 🏗 Build dialog shows bars for what your home lacks: <b>food stock</b> (the plants in your bag), <b>food</b>, <b>homes</b>, <b>defence</b> against the biggest pirate raid, and <b>stables</b> (one per 8 creatures). The weakest one is named, with the cheapest building that mends it (marked ⭐ in the list).</p>
   <h3>🎓 First steps</h3>
   <p>A new explorer gets a short tour (walk, gather, jump, Atlas, Auto), each step done by doing it. Skip it, or run it again from the ☰ menu (🔁 Tutorial).</p>
   <h3>🚪 Rooms</h3>
@@ -200,7 +203,7 @@ import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterf
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -1072,13 +1075,16 @@ function renderBuild() {
     <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double), and eats 🌿${EAT} an hour from your bag (🌿${Math.round(population(H) * EAT * 24)} a day): with no plants, some starve.${H.lost ? ` 💀 ${Math.ceil(H.lost)} starved: one comes back every ${REGROW} hours everyone eats.` : ''}
     <br>☠ Defence ${defence(H)} against pirate crews of about ${pirateThreat(H)} (from ${Math.round(pirateThreat(H) / 2)} to ${Math.round(pirateThreat(H) * 1.5)}): castles, towers, one per 5 people, one per 3 creatures. Bigger civilizations draw bigger crews.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
+    ${(() => { const needs = homeNeeds(st), adv = homeAdvice(st, needs);
+      return `<h3>What your home needs</h3>${needs.map((n) => `<div class="need${adv?.need === n ? ' top' : ''}"><span>${n.icon} ${n.label}</span><meter min="0" max="1" low="0.5" high="0.85" optimum="1" value="${Math.max(0.04, n.v)}"></meter><small>${esc(n.text)}</small></div>`).join('')}
+        <p>${adv ? `👉 <b>${esc(adv.need.label)}</b> is the weakest: build a <b>${BUILDINGS[adv.kind].name}</b> (${costText(costOf(adv.kind, grav()))}).` : '✓ Everything is covered: more of anything makes your home grow.'}</p>`; })()}
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
     ${fleetHtml(H)}
     ${breedHtml(H)}
     ${crossHtml(H)}
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
-      <b>${b.name}</b> <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
+      <b>${b.name}</b>${k === homeAdvice(st)?.kind ? ' ⭐' : ''} <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings</h3><p><small>Nearest first. Walk to the spot you want, then move a building there.</small></p>
     <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;

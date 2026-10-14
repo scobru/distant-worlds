@@ -464,6 +464,31 @@ export const defence = (home) => kinds(home).reduce((a, k) => a + (BUILDINGS[k].
   + Math.floor(population(home) / 5) + Math.floor((home?.animals.length ?? 0) / 3);
 /** Average pirate crew for a home of this civilization level (a raid ranges from half to 1.5 times it). */
 export const pirateThreat = (home) => 2 + 2 * civLevel(home);
+/** What the home lacks, as meters from 0 to 1 (1: covered), each with the buildings that mend it, best first:
+ *  homes (places for the people the land can feed), food (the land against the places), defence (against the
+ *  biggest raid), stables (one per 8 creatures) and the plants in the bag (a day of food for everyone). */
+export function homeNeeds(st) {
+  const H = st.home, k = kinds(H), sum = (f) => k.reduce((a, x) => a + (BUILDINGS[x][f] ?? 0), 0);
+  const shelter = sum('house'), feed = BASE_FOOD + sum('food'), pop = population(H), top = Math.round(1.5 * pirateThreat(H)), def = defence(H);
+  const animals = H.animals.length, stables = builtOf(st, 'longhouse'), wanted = animals >= 2 ? Math.ceil(animals / 8) : 0;
+  const hours = pop ? st.bag.plant / (pop * EAT) : Infinity;
+  return [
+    { key: 'stock', icon: '🌿', label: 'Food stock', v: Math.min(1, hours / 24), text: pop ? `the bag feeds them for ${Math.floor(hours)} h` : 'nobody lives here yet', build: ['windmill', 'house'] },
+    { key: 'food', icon: '🍞', label: 'Food', v: feed >= shelter ? 1 : feed / shelter, text: `the land feeds ${feed}, there are places for ${shelter}`, build: ['windmill', 'dome'] },
+    { key: 'homes', icon: '🏠', label: 'Homes', v: shelter >= feed ? 1 : shelter / feed, text: `places for ${shelter}, the land feeds ${feed}`, build: ['house', 'castle'] },
+    { key: 'defence', icon: '🛡', label: 'Defence', v: Math.min(1, def / top), text: `${def} against raids of up to ${top}`, build: ['castle', 'tower'] },
+    { key: 'stables', icon: '🐾', label: 'Stables', v: wanted ? Math.min(1, stables / wanted) : 1, text: animals < 2 ? 'a stable breeds your creatures, once you have two' : `${stables} for ${animals} creatures (one per 8)`, build: ['longhouse'] },
+  ];
+}
+/** The most pressing need and the cheapest of its buildings, or null when all is covered. The first need in the
+ *  order above that is below 60% comes first (a growing home needs people fed and housed before it needs walls);
+ *  if none is, the lowest meter below 90%. */
+export function homeAdvice(st, needs = homeNeeds(st)) {
+  const n = needs.find((x) => x.v < 0.6) ?? needs.reduce((a, x) => (x.v < a.v ? x : a));
+  if (n.v >= 0.9) return null;
+  const cost = (b) => (BUILDINGS[b].cost.plant ?? 0) + (BUILDINGS[b].cost.ore ?? 0) + 10 * (BUILDINGS[b].cost.animals ?? 0), ok = n.build.filter((b) => canBuild(st, b));
+  return { need: n, kind: [...(ok.length ? ok : n.build)].sort((a, b) => cost(a) - cost(b))[0] };
+}
 /** The raid on `home` in clock slot `slot`, or null: { at, crew } (the same for everyone, from the seed). */
 export function raidAt(home, slot) {
   const r = rngFrom(`${home.seed}:pirates:${slot}`);
