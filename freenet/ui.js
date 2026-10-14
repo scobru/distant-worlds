@@ -5,7 +5,7 @@ import * as net from './net.js';
 import { checkColony, checkHome, checkRaid, checkName, checkMessage } from './check.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
-import { partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
+import { colonyCost, canColonize, payColony, partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS, CHAT_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText, raidHash, raidScore, raidKey, today } from './colony.js';
@@ -205,17 +205,21 @@ export async function start(app) {
     if (!me || !nick || mine === null || level() < COLONY_BITS || (col && col.persona === me) || timeHere() < target(w, col)) return false;
     return mine <= MAX_SCORE && (!col || mine < colScore(w.seed, col));
   }
+  const costHere = () => colonyCost(Object.values(galaxy.colonies ?? {}).filter((c) => c.persona === me).length, !!colonyOf(app.world().seed));
   setInterval(() => {
     const ready = canPlant();
     plantBtn.hidden = !ready;
-    if (ready) plantBtn.textContent = colonyOf(app.world().seed) ? '🚩 Take this planet' : '🚩 Plant flag';
+    if (ready) { const c = costHere(); plantBtn.textContent = `${colonyOf(app.world().seed) ? '🚩 Take this planet' : '🚩 Plant flag'} (⛏${c.ore} 🌿${c.plant})`; }
   }, 1000);
   plantBtn.onclick = async () => {
     if (!canPlant()) return;
     const w = app.world(), col = colonyOf(w.seed);
+    const cost = costHere();
+    if (!canColonize(app.st(), cost)) return app.toast([`A flag costs ⛏${cost.ore} ore and 🌿${cost.plant} plants (it grows with every colony you hold).`]);
     plantBtn.disabled = true;
     try {
       await publish();
+      payColony(app.st(), cost); app.save();
       app.toast([col ? `🚩 You spent more time here than ${app.esc(col.nick)}: ${app.esc(w.name)} is now your colony!` : `🚩 Your flag flies on ${app.esc(w.name)}!`]);
     } catch (e) { app.toast([app.esc(e.message)]); }
     finally { plantBtn.disabled = false; }
@@ -341,6 +345,7 @@ export async function start(app) {
   let chat = { messages: {} }, seen = 0, open = false;
   try { open = localStorage.getItem('dw-chat-open') === '1'; } catch { /* sandbox */ }
   const visible = () => Object.values(chat.messages ?? {}).filter((m) => m.ts < Date.now() + 5 * 60_000 && m.ts > Date.now() - CHAT_LIVE && sound('message', m)).sort((a, b) => a.ts - b.ts).slice(-100);
+  let ghosts = { key: '', at: 0, list: [] };
   const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   function card(world) {
     const [seed, pos] = world.split('@'), w = makeWorld(seed), col = colonyOf(seed);
@@ -429,6 +434,17 @@ export async function start(app) {
       if (!validText('x', name) || galaxy.names?.[id]) throw new Error('Pick 1-24 characters, without "|"; it may already have a name.');
       const n = await net.publishName({ nick, id, name, ante: anteHex() });
       galaxy.names = { ...galaxy.names, [id]: n };
+    },
+    /** Explorers who shared a position on this planet in the last minutes (chat), newest per persona: { persona, nick, x, age 0..1 }. */
+    ghostsOn(seed) {
+      if (ghosts.key !== seed || Date.now() - ghosts.at > 1000) {
+        const seen = new Set(), now = Date.now();
+        ghosts = { key: seed, at: now, list: visible().reverse().filter((m) => m.persona !== me && !seen.has(m.persona) && seen.add(m.persona)).flatMap((m) => {
+          const [s, pos] = (m.world ?? '').split('@'), x = Number(pos);
+          return s === seed && pos !== undefined && Number.isFinite(x) ? [{ persona: m.persona, nick: m.nick, x, age: Math.min(1, Math.max(0, (now - m.ts) / CHAT_LIVE)) }] : [];
+        }) };
+      }
+      return ghosts.list;
     },
     /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
     homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length && sound('home', h)),

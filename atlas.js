@@ -521,6 +521,14 @@ function fight(st, raid, key) {
 
 // Sieges (Freenet): an explorer spends time on another explorer's home; each 2 minutes of siege is one
 // raider. A siege costs fuel and ore to start; a won one brings back ore from the defeated home.
+// A flag costs what you carry: it grows 1.8x with every colony you already hold, and taking another explorer's planet costs double.
+export const colonyCost = (owned, taken = false) => { const k = 1.8 ** owned * (taken ? 2 : 1); return { ore: Math.round(100 * k), plant: Math.round(150 * k) }; };
+export const canColonize = (st, cost) => st.bag.ore >= cost.ore && st.bag.plant >= cost.plant;
+export function payColony(st, cost) {
+  if (!canColonize(st, cost)) return false;
+  st.bag.ore -= cost.ore; st.bag.plant -= cost.plant;
+  return true;
+}
 export const SIEGE = { fuel: 20, ore: 10, minutesPerRaider: 2 };
 export const siegeCrew = (seconds) => Math.floor(seconds / 60 / SIEGE.minutesPerRaider);
 export const siegeLoot = (crew) => 5 + Math.floor(crew / 2);

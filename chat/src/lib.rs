@@ -9,7 +9,7 @@
 //! then signature); clients show only the last few minutes (CHAT_LIVE in freenet/chat.js). Both are "keep the top k" rules, so every merge
 //! order converges. There is no trusted clock: `ts` is the author's, and clients hide messages from the
 //! future; the per-persona cap bounds what one persona can do with fake times. Admin-signed blocklist
-//! (`dwb1|<ts>|<personas joined by ,>`) removes personas.
+//! (`dwb2|chat|<ts>|<personas joined by ,>`) removes personas.
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -111,7 +111,7 @@ fn check_blocklist(admin: &str, b: &Blocklist) -> R<()> {
     if b.list.len() > 10_000 || !b.list.iter().all(|s| is_persona(s)) {
         return Err("bad blocklist".into());
     }
-    verify(&key(admin)?, format!("dwb1|{}|{}", b.ts, b.list.join(",")).as_bytes(), &b.sig)
+    verify(&key(admin)?, format!("dwb2|chat|{}|{}", b.ts, b.list.join(",")).as_bytes(), &b.sig)
 }
 
 /// Newest MAX_PER_PERSONA per persona, then newest MAX_MESSAGES overall.
@@ -330,7 +330,7 @@ mod tests {
         send(&mut s, good.clone()).unwrap();
 
         let list = vec![pk(&sk(2))];
-        let sig = hex::encode(sk(1).sign(format!("dwb1|1|{}", list.join(",")).as_bytes()).to_bytes());
+        let sig = hex::encode(sk(1).sign(format!("dwb2|chat|1|{}", list.join(",")).as_bytes()).to_bytes());
         apply(&pk(&sk(1)), APP, &mut s, Delta { messages: vec![], blocked: Some(Blocklist { ts: 1, list, sig }) }).unwrap();
         assert!(s.messages.is_empty());
         send(&mut s, good).unwrap();

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { makeWorld, sectorOf } from './world.js';
-import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay } from './atlas.js';
+import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay, colonyCost, canColonize, payColony } from './atlas.js';
 
 const st = emptyState();
 let found = 0, missionWorld;
@@ -567,4 +567,15 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   learn(l, { civ: 'ruins', culture: 'nordic' }, 99);
   assert.equal(l.words.nordic, CONCEPTS.length);
   assert.ok(A.find(([n]) => n === 'Polyglot')[2](l));
+}
+
+{ // a flag costs more with every colony, and double when taken from someone
+  assert.deepEqual(colonyCost(0), { ore: 100, plant: 150 });
+  assert.deepEqual(colonyCost(2), { ore: 324, plant: 486 });
+  assert.deepEqual(colonyCost(2, true), { ore: 648, plant: 972 });
+  const s = emptyState(); s.bag.ore = 400; s.bag.plant = 400;
+  assert.equal(payColony(s, colonyCost(2)), false);
+  assert.equal(payColony(s, colonyCost(1)), true);
+  assert.deepEqual([s.bag.ore, s.bag.plant], [220, 130]);
+  assert.equal(canColonize(s, colonyCost(1)), false);
 }

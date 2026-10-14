@@ -4,7 +4,7 @@
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { chatMsg } from '../freenet/chat.js';
-import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg } from '../freenet/colony.js';
+import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg, blockMsg } from '../freenet/colony.js';
 import { connectMessage } from '../freenet/connect.js';
 export { personaName } from '../freenet/connect.js';
 
@@ -84,9 +84,9 @@ export async function publishName({ nick, id, name, ante }) {
   return n;
 }
 export async function block(secretHex, list, ts = Math.floor(Date.now() / 1000)) {
-  const signList = (l) => ({ ts, list: l, sig: hex(ed.sign(enc.encode(`dwb1|${ts}|${l.join(',')}`), unhex(secretHex))) });
-  await call('galaxy', { blocked: signList(list) });
-  await call('chat', { blocked: signList(list.filter((x) => /^[0-9a-f]{64}$/.test(x))) });
+  const signList = (kind, l) => ({ ts, list: l, sig: hex(ed.sign(enc.encode(blockMsg(kind, ts, l)), unhex(secretHex))) });
+  await call('galaxy', { blocked: signList('galaxy', list) });
+  await call('chat', { blocked: signList('chat', list.filter((x) => /^[0-9a-f]{64}$/.test(x))) });
 }
 
 export const startSignIn = null, finishSignIn = null; // Viso needs a Freenet node

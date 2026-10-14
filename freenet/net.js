@@ -19,7 +19,7 @@ import chatWasm from './chat.wasm?url';
 import { chatMsg } from './chat.js';
 import { identityInstance, IDENTITY_CODE_HASH, readPersona } from './viso.js';
 import identityWasm from './identity.wasm?url';
-import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg } from './colony.js';
+import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg, blockMsg } from './colony.js';
 import { connectMessage } from './connect.js';
 export { personaName } from './connect.js';
 
@@ -29,7 +29,7 @@ const enc = new TextEncoder(), dec = new TextDecoder();
 const bytes = (s) => Array.from(enc.encode(s));
 
 // The galaxy address depends on this admin key and on the app path (its parameters). Same key as the
-// FreeNames / FreeTunes admin; the signed messages are domain-separated (dwb1).
+// FreeNames / FreeTunes admin; the signed messages are domain-separated (dwb2, one per contract).
 export const ADMIN = '4498bd4c2ab992afa152bc9b968e246cf70dc4fa5a670b23c33e73b8516ce9f3';
 const APP_PATH = location.pathname; // in dev "/": a separate dev galaxy
 const EMPTY = { colonies: {}, blocked: { ts: 0, list: [], sig: '' }, homes: {}, raids: {}, names: {} };
@@ -167,9 +167,9 @@ export async function publishName({ nick, id, name, ante }) {
 
 /** Admin only: hide these stars or personas (replaces the whole blocklist); personas also leave the chat. */
 export async function block(secretHex, list, ts = Math.floor(Date.now() / 1000)) {
-  const sign = (l) => ({ ts, list: l, sig: hex(ed.sign(enc.encode(`dwb1|${ts}|${l.join(',')}`), unhex(secretHex))) });
-  await send({ blocked: sign(list) });
-  await chat.send({ blocked: sign(list.filter((x) => /^[0-9a-f]{64}$/.test(x))) });
+  const sign = (kind, l) => ({ ts, list: l, sig: hex(ed.sign(enc.encode(blockMsg(kind, ts, l)), unhex(secretHex))) });
+  await send({ blocked: sign('galaxy', list) });
+  await chat.send({ blocked: sign('chat', list.filter((x) => /^[0-9a-f]{64}$/.test(x))) });
 }
 
 // ---------------------------------------------------------------- identity delegate (from FreeNames)
