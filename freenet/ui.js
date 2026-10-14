@@ -253,7 +253,7 @@ export async function start(app) {
   };
 
   // Viso callback
-  if (q.has('viso')) {
+  if (q.has('viso') && net.finishSignIn) {
     try { await signedIn(await net.finishSignIn(q)); app.toast(['Signed in with Viso.']); }
     catch (e) { app.toast([app.esc(e.message)]); }
     for (const k of ['viso', 'pk', 'sig', 'challenge', 'ts']) q.delete(k);
