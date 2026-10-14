@@ -113,7 +113,7 @@
     In the <b>Atlas</b> (Your explorer) you choose your suit colour, skin, headgear and backpack.</p>
   <h3>✋ Gather</h3>
   <p>When something is close to your explorer (the middle of the screen), click it or press <b>E</b>:
-    plants 🌿 are harvested, creatures 🐾 captured, ore deposits ⛏ mined, fuel cells, map fragments and time shards picked up.
+    plants 🌿 are harvested, creatures 🐾 captured, ore deposits ⛏ mined, fuel cells, map fragments and time shards picked up. Some worlds keep a page of 📜 <b>Ilen's diary</b> near where you land: each one is the next page of her story (read it in the Atlas).
     What you take grows back the next day. Your bag is shown under the world's name.</p>
   <h3>🔭 Discover</h3>
   <p>Every species, plant, relic and kind of world you see goes into the <b>Atlas</b>, with achievements and a daily mission.
@@ -121,7 +121,7 @@
   <h3>🚀 Travel</h3>
   <p><b>New world</b> jumps to a random star (100⚡); the <b>Map</b> shows nearby stars (closer = cheaper, visited = free). <b>World of the day</b> and shared links are free.</p>
   <h3>🧭 Expeditions</h3>
-  <p>Every 14 days a new expedition starts, the same for everyone: five stages to reach in order, each a kind of world to find. Each stage refuels you; the last one earns the season's badge. Each season is also a chapter of the <b>Saga</b>, and every stage reveals a page of it. See it in the <b>Atlas</b>.</p>
+  <p>Every 14 days a new expedition starts, the same for everyone: five stages to reach in order, each a kind of world to find. Each stage refuels you; the last one earns the season's badge. See it in the <b>Atlas</b>.</p>
   <h3>🗣 Languages</h3>
   <p>Each culture, and the aliens, speaks its own language. Every new inhabited world teaches you a word, every relic two. Buildings and relics carry inscriptions: point at them and the words you know are translated.</p>
   <h3>🏠 Home</h3>
@@ -164,11 +164,12 @@
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
 <script type="module">
-import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
+import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, pageNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
-import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, SAGA, saga, learn } from './atlas.js';
+import { PAGES } from './diary.js';
+import { FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -241,7 +242,7 @@ function load() {
     const first = !st.stars.includes(seed), news = visit(st, W), [today, yesterday] = days(), msg = [];
     let exp, words = 0;
     news.achievements.push(...withAchievements(st, () => { exp = checkExpedition(st, W); if (first) words = learn(st, W, 1); }));
-    if (exp) msg.push(exp.done ? `🧭 Expedition complete! Season ${st.expeditions.at(-1)} badge earned · ⚡${EXPEDITION.fuel}` : `🧭 Expedition stage ${exp.stage}/${EXPEDITION.stages} reached · ⚡${EXPEDITION.fuel}`, `📖 ${saga().lines[exp.stage]}`);
+    if (exp) msg.push(exp.done ? `🧭 Expedition complete! Season ${st.expeditions.at(-1)} badge earned · ⚡${EXPEDITION.fuel}` : `🧭 Expedition stage ${exp.stage}/${EXPEDITION.stages} reached · ⚡${EXPEDITION.fuel}`);
     if (words) msg.push(`🗣 You learned a word of the ${languageOf(W)} language (${st.words[languageOf(W)]}/${CONCEPTS.length})`);
     if (news.entries.length) msg.push('New discovery: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
     addFuel(st, (news.entries.length + news.combos.length) * FUEL.entry);
@@ -601,8 +602,8 @@ function frame(t, maxDt = 100) {
         }
       }
       const time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
-      for (const p of pickupsNear(W, day, off - 0.5, off + 1.5, time)) {
-        if (picked(st, day, W.seed, p)) continue;
+      for (const p of [...pickupsNear(W, day, off - 0.5, off + 1.5, time), ...pageNear(W, off - 0.5, off + 1.5)]) {
+        if (p.kind === 'page' ? hasPage(st, W.seed) : picked(st, day, W.seed, p)) continue;
         const px = X(p.x), py = Y(p.x), s = 0.045 * m, reach = near(px);
         drawPickup(g, px, py, s, p.kind, t, p.phase, W.culture, !reach);
         hits.push([[px - s, py - s * 1.4, px + s, py], { type: 'pickup', ...p, take: p, reach }]);
@@ -707,11 +708,14 @@ function take(e) {
   if (!e.reach) return toast([e.trade ? 'Walk to the stall to trade.' : 'Walk closer to take it.']);
   if (e.trade) return openTrade();
   const p = e.take;
-  if (!collect(st, days()[0], world.seed, p, Date.now())) return p.kind === 'time' && toast(['You already took as many time shards as this planet gives today.']);
+  let ok;
+  const won = withAchievements(st, () => (ok = collect(st, days()[0], world.seed, p, Date.now())));
+  if (!ok) return p.kind === 'time' && toast(['You already took as many time shards as this planet gives today.']);
   save(); sfx(p.kind === 'plant' || p.kind === 'ore' || p.kind === 'creature' ? p.kind : 'pickup');
-  toast([{ fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
+  const n = (st.diary ?? []).length;
+  toast([{ page: `📜 Ilen's diary, page ${n}/${PAGES.length}: "${esc(PAGES[n - 1])}"`, fuel: `⚡ Fuel cell: +${PICKUP.fuel} fuel`, time: `⏳ Time shard: your time here runs ×${PICKUP.boost} for ${PICKUP.boostMs / 1000} s`,
     map: '🧭 Map fragment: your next jump to a new star costs half', plant: `🌿 Harvested ${esc(p.name)}`, ore: `⛏ +${p.amount} ore`,
-    creature: `🐾 Captured ${esc(p.name)}: it will live on your home planet` }[p.kind]]);
+    creature: `🐾 Captured ${esc(p.name)}: it will live on your home planet` }[p.kind], ...won.map((a) => `🏆 Achievement: ${a}`)]);
 }
 cv.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') pointer = null; });
 
@@ -1057,7 +1061,7 @@ function foldAtlas(body) {
 }
 document.getElementById('close').onclick = () => dlg.close();
 document.getElementById('atlasBtn').onclick = () => {
-  const [today] = days(), m = mission(today), done = st.daily.done === today, ex = expedition(), sg = saga(), chron = chronicle(world.seed);
+  const [today] = days(), m = mission(today), done = st.daily.done === today, ex = expedition(), chron = chronicle(world.seed);
   const expN = st.exp?.id === ex.id ? st.exp.n : 0, date = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
   const groups = Object.groupBy(ENTRIES, (e) => e.split(':')[0]);
   document.getElementById('atlasBody').innerHTML = `
@@ -1075,11 +1079,11 @@ document.getElementById('atlasBtn').onclick = () => {
     <h3>Expedition <small>season ${ex.id + 1}</small></h3>
     <ol>${ex.stages.map((g, i) => `<li>${i < expN ? '✓' : i === expN ? '→' : '○'} A world with ${g.map(([k, v]) => `<b>${LABEL[k]}: ${esc(v)}</b>`).join(' and ')}</li>`).join('')}</ol>
     <p><small>Stages go in order, the same for every explorer; each gives ⚡${EXPEDITION.fuel}. Ends in ${left(ex.end - Date.now())}.${(st.expeditions ?? []).length ? ` Badges: ${st.expeditions.map((n) => `🧭${n}`).join(' ')}` : ''}</small></p>
-    <h3>Saga <small>chapter ${sg.chapter}/${SAGA.length}: ${esc(sg.title)}</small></h3>
-    ${sg.lines.slice(0, expN + 1).map((l) => `<p>${esc(l)}</p>`).join('')}${expN < EXPEDITION.stages ? '<p><small>Reach the next expedition stage to read on.</small></p>' : ''}
     <h3>Chronicle of this star</h3>
     ${chron.length ? `<ul>${chron.map((c) => `<li><b>${esc(c.name)}</b> <span class="badge ${c.rarity}">${c.rarity}</span> <small style="display:inline">${c.gen ? `world ${c.gen + 1}` : 'first world'} · ${date(c.born)} – ${c.seed === world.seed ? 'today' : date(c.collapse)}</small>
       <br><small>${esc(c.story)}${c.survivor ? ` Its ${esc(c.survivor)} survived into the next world.` : ''}</small></li>`).join('')}</ul>` : '<p><small>This world is not on the map: it has no star to remember.</small></p>'}
+    <h3>Ilen's diary <small>${(st.diary ?? []).length}/${PAGES.length} pages</small></h3>
+    ${(st.diary ?? []).length ? `<ol>${(st.diary ?? []).map((_, i) => `<li>${esc(PAGES[i])}</li>`).join('')}</ol>` : ''}<p><small>Ilen left a page on about one world in four, near where you land. Each page you find is the next one of the story.</small></p>
     <h3>Languages <small>${Object.keys(st.words ?? {}).length} known</small></h3>
     ${Object.keys(st.words ?? {}).length ? `<ul>${Object.entries(st.words).map(([l, n]) => { const lex = lexicon(l);
       return `<li><b>${esc(l)}</b> ${n}/${CONCEPTS.length} <small>${lex.order.slice(0, n).map((c) => `${esc(lex.words[c])} = ${c}`).join(' · ')}</small></li>`; }).join('')}</ul>`
