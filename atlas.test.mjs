@@ -174,6 +174,28 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   console.log('hunger ok');
 }
 {
+  // Fleet: ships from stables and workshops fly to visited stars and bring loot back home.
+  const { setHome, fleetSize, voyage, sendShip, shipLoot, fleetBack } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'v1-10_10_0', 0);
+  assert.equal(fleetSize(st), 0);
+  assert.equal(sendShip(st, 'v1-11_10_0', 0), false, 'no ship without a stable or workshop');
+  st.home.built = [{ kind: 'longhouse' }, { kind: 'factory' }, { kind: 'factory' }, { kind: 'longhouse' }];
+  assert.equal(fleetSize(st), 3, 'at most 3');
+  const v = voyage(st, 'v1-11_10_0');
+  assert.deepEqual(v, { fuel: 35, hours: 2 });
+  assert.ok(voyage(st, 'v1-15_10_0').hours > v.hours, 'farther is longer');
+  st.fuel = 100;
+  assert.ok(sendShip(st, 'v1-11_10_0', 0) && st.fuel === 65);
+  assert.equal(sendShip(st, st.home.seed, 0), false, 'not to home');
+  assert.deepEqual(fleetBack(st, 7.2e6 - 1), [], 'still away');
+  const loot = shipLoot(st.fleet[0]), plants = st.bag.plant;
+  const [back] = fleetBack(st, 7.2e6);
+  assert.ok(back.lost || (back.plant > 0 && st.bag.plant === plants + loot.plant), 'the same voyage gives the same');
+  assert.equal(st.fleet.length, 0);
+  console.log('fleet ok');
+}
+{
   // Population: shelter limited by food; civilization level from people, buildings, variety, creatures.
   const { population, civPoints, civLevel, civTitle } = await import('./atlas.js');
   const home = (k, animals = 0) => ({ built: k.map((kind) => ({ kind })), animals: Array(animals).fill('A#0') });
