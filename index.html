@@ -123,6 +123,8 @@
     Each creature has the element of its world's culture: 🔥 (desert, war, apocalyptic) burns 🌿 (jungle, temperate), which holds against 🌀 (japanese, western), which blows away ❄ (nordic, arctic), which puts out 🔥. A blow on the element it beats hits ×1.5, on the one that beats it ×0.75, so pick your home creatures well.
     🌿 Heal eats 3 plants instead of striking; worn down to a quarter of its life, a creature can be 🐾 captured (6 times in 10).
     Win and you take ore, and your battle level grows (more life, harder blows); lose and you escape leaving half your bag; or flee for ⚡5. Off by default.</p>
+  <h3>🛤 Paths</h3>
+  <p>About one world in six is walked into rather than across: a path runs towards the horizon, and ↑ ↓ (or ◀ ▶, or dragging) take you along it. What lies ahead grows as you approach; take it when it reaches your feet.</p>
   <h3>🔭 Discover</h3>
   <p>Every species, plant, relic and kind of world you see goes into the <b>Atlas</b>, with achievements and a daily mission.
     Point at (or tap) anything to see what it is. The 📜 Log in the ☰ menu keeps this session's last messages.</p>
@@ -255,6 +257,7 @@ function load() {
     let exp, words = 0;
     news.achievements.push(...withAchievements(st, () => { exp = checkExpedition(st, W); if (first) words = learn(st, W, 1); }));
     if (exp) msg.push(exp.done ? `🧭 Expedition complete! Season ${st.expeditions.at(-1)} badge earned · ⚡${EXPEDITION.fuel}` : `🧭 Expedition stage ${exp.stage}/${EXPEDITION.stages} reached · ⚡${EXPEDITION.fuel}`);
+    if (first && W.view === 'depth') msg.push('🛤 This world is walked into: ↑ ↓ (or ◀ ▶) follow the path towards the horizon.');
     if (words) msg.push(`🗣 You learned a word of the ${languageOf(W)} language (${st.words[languageOf(W)]}/${CONCEPTS.length})`);
     if (news.entries.length) msg.push('New discovery: ' + news.entries.map((e) => e.split(':')[1] === 'true' ? e.split(':')[0] : e.split(':')[1]).join(', '));
     addFuel(st, (news.entries.length + news.combos.length) * FUEL.entry);
@@ -430,6 +433,7 @@ function frame(t, maxDt = 100) {
     if (c.dna && fx > 0 && fx < w && !seenNow.has(c.dna.id)) { seenNow.add(c.dna.id); species(c.dna); }
   }
 
+  const deep = W.view === 'depth', horizon = W.layers[Math.max(0, W.layers.length - 3)].base * h;
   const light = W.style === 'mono' ? '#fff' : W.style === 'neon' ? W.accent : '#ffd27a';
   const next = new Map(), step = 4 * devicePixelRatio;
   let seen = 0; // how much is on screen: drives the music
@@ -444,23 +448,42 @@ function frame(t, maxDt = 100) {
       g.fillStyle = '#fff1'; // waves rolling in
       for (let k = 0; k < 6; k++) { const wy = top + ((k / 6 + t / 9000) % 1) * (h - top) * 0.6; g.fillRect(0, wy, w, devicePixelRatio); }
     }
-    const off = cam * L.parallax, X = (x) => (x - off) * w, Y = (x) => (L.base - height(L, x) * L.span) * h;
-    g.fillStyle = L.color; g.beginPath(); g.moveTo(0, h);
-    for (let sx = -step; sx < w + step; sx += step) g.lineTo(sx, Y(off + sx / w));
-    g.lineTo(w, h); g.fill();
+    // On a world walked into, the two walkable layers lie flat towards the horizon: a thing `d` screens
+    // ahead of the explorer shrinks by 1 / (1 + 4d) and stands off the path to one side; far ranges stay put.
+    const walk = deep && i >= W.layers.length - 2, off = deep && !walk ? 0 : cam * L.parallax, at = off + 0.5;
+    const K = (x) => 1 / (1 + Math.max(-0.06, x - at) * 4), side = (x) => { const u = (Math.sin(x * 12.9898) * 43758.5453) % 1; return (u < 0 ? -1 : 1) * (0.2 + Math.abs(u) * 0.8); };
+    const X = walk ? (x) => (x - at < -0.06 ? -9 * w : w / 2 + side(x) * w * 0.5 * K(x)) : (x) => (x - off) * w;
+    const Y = walk ? (x) => horizon + (h * 0.94 - horizon) * K(x) : (x) => (L.base - height(L, x) * L.span) * h;
+    const M = walk ? (x) => m * K(x) : () => m, R = walk ? (x) => x - at > -0.06 && x - at < 0.18 / grav() : (x) => near(X(x));
+    g.fillStyle = L.color; g.beginPath();
+    if (!walk) {
+      g.moveTo(0, h);
+      for (let sx = -step; sx < w + step; sx += step) g.lineTo(sx, Y(off + sx / w));
+      g.lineTo(w, h);
+    } else if (i === W.layers.length - 2) g.rect(0, horizon, w, h - horizon); // the plain
+    else { // the path, narrowing to the horizon, with bands passing underfoot as you walk
+      for (let d = -0.06; d < 3; d += 0.05) g.lineTo(w / 2 - w * 0.08 * K(at + d), Y(at + d));
+      for (let d = 3; d >= -0.06; d -= 0.05) g.lineTo(w / 2 + w * 0.08 * K(at + d), Y(at + d));
+    }
+    g.fill();
+    if (walk && i === W.layers.length - 1) {
+      g.save(); g.fillStyle = '#0002';
+      for (let x = Math.ceil(at * 10) / 10; x < at + 3; x += 0.1) g.fillRect(w / 2 - w * 0.08 * K(x), Y(x), w * 0.16 * K(x), Math.max(1, 3 * devicePixelRatio * K(x)));
+      g.restore(); g.beginPath();
+    }
     if (W.style === 'neon') { g.save(); g.strokeStyle = g.shadowColor = W.accent; g.shadowBlur = 10; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
     // At night a faint rim of sky light keeps ridges (and what stands on them) readable.
     else if (W.night) { g.save(); g.strokeStyle = W.sky.bottom; g.globalAlpha = 0.5; g.lineWidth = devicePixelRatio; g.stroke(); g.restore(); }
     // rivers come down from the horizon: each layer draws its stretch, clipped to its own ground
-    const depth = i / (W.layers.length - 1), rivers = riversNear(W, off - 0.5, off + 1.5);
+    const depth = i / (W.layers.length - 1), rivers = walk ? [] : riversNear(W, off - 0.5, off + 1.5);
     if (rivers.length) {
       g.save(); g.clip();
-      for (const rv of rivers) drawRiver(g, X(rv.x), Y(rv.x) - 2, h, rv.width * m * 0.12, depth, rv.phase, t, W.river);
+      for (const rv of rivers) drawRiver(g, X(rv.x), Y(rv.x) - 2, h, rv.width * M(rv.x) * 0.12, depth, rv.phase, t, W.river);
       g.restore();
     }
     // volcanoes and waterfalls on the range just behind the walkable ground
     if (i === Math.max(0, W.layers.length - 3)) for (const v of volcanoesNear(W, off - 0.6, off + 1.6)) {
-      const vx = X(v.x), vy = Y(v.x), s = v.size * m * 0.16;
+      const vx = X(v.x), vy = Y(v.x), s = v.size * M(v.x) * 0.16;
       drawVolcano(g, vx, vy, s, v, t, L.color, W.night);
       hits.push([[vx - s, vy - s * 1.1, vx + s, vy], { type: 'volcano', erupting: v.erupting }]);
     }
@@ -469,7 +492,7 @@ function frame(t, maxDt = 100) {
       if (falls.length) {
         g.save(); g.clip();
         for (const f of falls) {
-          const fx = X(f.x), fw = f.width * m * 0.08 * (0.6 + depth);
+          const fx = X(f.x), fw = f.width * M(f.x) * 0.08 * (0.6 + depth);
           drawWaterfall(g, fx, Y(f.x) + 2, Math.min(h, L.base * h + 0.04 * h), fw, t, f.phase, W.river);
           hits.push([[fx - fw, Y(f.x), fx + fw, L.base * h], { type: 'falls' }]);
         }
@@ -477,33 +500,34 @@ function frame(t, maxDt = 100) {
       }
     }
     // smoke rises from the second range, behind the nearer ones
-    if (i === 1) for (const sm of smokeNear(W, off - 0.3, off + 1.3)) drawSmoke(g, X(sm.x), Y(sm.x), sm.size * m * 0.05, t, sm.phase, W.night ? '#666' : '#444');
+    if (i === 1) for (const sm of smokeNear(W, off - 0.3, off + 1.3)) drawSmoke(g, X(sm.x), Y(sm.x), sm.size * M(sm.x) * 0.05, t, sm.phase, W.night ? '#666' : '#444');
     const o = { color: L.color, accent: W.accent, light, night: W.night, lights: W.lights, style: W.style, t };
     const beacon = fn && i === W.layers.length - 2 && fn.beacon(W);
     if (beacon) {
       const bx = X(beacon.x), by = Y(beacon.x);
-      drawThing(g, { kind: 'beacon', seed: 7, size: 0.1 }, bx, by, 0.1 * m, { ...o, accent: `hsl(${beacon.hue} 90% 60%)` });
-      hit({ type: 'beacon', label: beacon.label }, bx, by, 0.1 * m);
+      drawThing(g, { kind: 'beacon', seed: 7, size: 0.1 }, bx, by, 0.1 * M(beacon.x), { ...o, accent: `hsl(${beacon.hue} 90% 60%)` });
+      hit({ type: 'beacon', label: beacon.label }, bx, by, 0.1 * M(beacon.x));
       // the colonist's people wander (some hop) around the flag, in the colonist's colour
       const po = { ...co, color: `hsl(${beacon.hue} 45% ${W.night ? 30 : 35}%)`, accent: `hsl(${beacon.hue} 90% 65%)`, lights: true };
       for (const cr of beacon.people) {
-        const [x, dir] = walkerAt(cr, t), s = cr.size * m, hop = cr.hop ? Math.abs(Math.sin(t / 260 + cr.phase * 3)) * s * 0.35 : 0;
+        const [x, dir] = walkerAt(cr, t), s = cr.size * M(x), hop = cr.hop ? Math.abs(Math.sin(t / 260 + cr.phase * 3)) * s * 0.35 : 0;
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05 - hop, s, po);
         hit({ type: 'colonist', label: beacon.label, ...cr }, X(x), Y(x) + s * 0.05 - hop, s);
       }
       g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
-      g.fillText(`🚩 ${beacon.label}`, bx, by - 0.24 * m); g.restore();
+      g.fillText(`🚩 ${beacon.label}`, bx, by - 0.24 * M(beacon.x)); g.restore();
     }
     // Only chunks near the screen exist; the rest are rebuilt identically on return.
-    for (let c = Math.floor(off - 0.5); c <= Math.floor(off + 1.5); c++) {
+    const cs = []; for (let c = Math.floor(off - 0.5); c <= Math.floor(off + 1.5); c++) cs.push(c);
+    for (const c of walk ? cs.reverse() : cs) { // walked into: farthest first
       const key = i + ':' + c, ch = cache.get(key) ?? chunk(W, i, c);
       next.set(key, ch);
       // Sink things slightly into the ground so slopes don't leave them floating.
-      for (const th of ch.things) {
+      for (const th of walk ? [...ch.things].sort((a, b) => b.x - a.x) : ch.things) {
         const take = th.plant && { id: th.seed, kind: 'plant', name: th.plant.name, species: th.plant.id };
         if (take && picked(st, day, W.seed, take)) continue; // harvested today
-        drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
-        hit({ type: 'thing', ...th, ...(take && { take, reach: near(X(th.x)) }) }, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m);
+        drawThing(g, th, X(th.x), Y(th.x) + th.size * M(th.x) * 0.1, th.size * M(th.x), o);
+        hit({ type: 'thing', ...th, ...(take && { take, reach: R(th.x) }) }, X(th.x), Y(th.x) + th.size * M(th.x) * 0.1, th.size * M(th.x));
         if (th.plant && !seenNow.has(th.plant.id) && X(th.x) > 0 && X(th.x) < w) { seenNow.add(th.plant.id); plant(th.plant); }
         const vis = X(th.x) > 0 && X(th.x) < w;
         if (vis && th.relic) { relic(th.kind); seen += 6; } else if (vis && !th.kind.match(/forest|conifers|crystals|mushrooms/)) seen++;
@@ -513,9 +537,9 @@ function frame(t, maxDt = 100) {
         if (take && picked(st, day, W.seed, take)) continue; // captured today
         const [x, dir] = walkerAt(cr, t);
         if (X(x) > 0 && X(x) < w) { seen++; if (cr.dna && !seenNow.has(cr.dna.id)) { seenNow.add(cr.dna.id); species(cr.dna); } }
-        if (cr.titan) { drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + 0.015 * m, cr.size * m, { ...co, color: L.color, t: t / 4 }); continue; } // too big to click: slow strides, only its legs on screen
-        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m, { ...co, color: L.color });
-        hit({ type: 'walker', ...cr, ...(take && { take, reach: near(X(x)) }) }, X(x), Y(x) + cr.size * m * 0.05, cr.size * m);
+        if (cr.titan) { drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + 0.015 * M(x), cr.size * M(x), { ...co, color: L.color, t: t / 4 }); continue; } // too big to click: slow strides, only its legs on screen
+        drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + cr.size * M(x) * 0.05, cr.size * M(x), { ...co, color: L.color });
+        hit({ type: 'walker', ...cr, ...(take && { take, reach: R(x) }) }, X(x), Y(x) + cr.size * M(x) * 0.05, cr.size * M(x));
       }
     }
     // homes on this planet, ours and other explorers' (Freenet): buildings and the creatures they brought
@@ -525,11 +549,11 @@ function frame(t, maxDt = 100) {
       for (const th of H.garden) {
         const gx = X(th.x);
         if (gx < -w * 0.2 || gx > w * 1.2) continue;
-        drawThing(g, th, gx, Y(th.x) + th.size * m * 0.1, th.size * m, go);
-        hit({ type: 'thing', ...th, garden: true }, gx, Y(th.x) + th.size * m * 0.1, th.size * m);
+        drawThing(g, th, gx, Y(th.x) + th.size * M(th.x) * 0.1, th.size * M(th.x), go);
+        hit({ type: 'thing', ...th, garden: true }, gx, Y(th.x) + th.size * M(th.x) * 0.1, th.size * M(th.x));
       }
       for (const b of H.built) {
-        const bx = X(b.x), by = Y(b.x) + 0.012 * m, s = 0.12 * m;
+        const bx = X(b.x), by = Y(b.x) + 0.012 * M(b.x), s = 0.12 * M(b.x);
         if (bx < -s * 3 || bx > w + s * 3) continue;
         if (b.damaged) g.globalAlpha = 0.45; // raided by pirates: dark and dim until repaired
         drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12 }, bx, by, s, { ...o, lights: !b.damaged });
@@ -540,68 +564,68 @@ function frame(t, maxDt = 100) {
       if (H.nick) { // another explorer's home: who lives here
         const bx = X(H.built[0].x);
         g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
-        g.fillText(`🏠 ${H.nick} · ${civTitle(H)}`, bx, Y(H.built[0].x) - 0.3 * m); g.restore();
+        g.fillText(`🏠 ${H.nick} · ${civTitle(H)}`, bx, Y(H.built[0].x) - 0.3 * M(H.built[0].x)); g.restore();
       }
       // its people, all alike, in a cool colour so they read apart from the animals
       const peo = { ...co, color: `hsl(205 45% ${W.night ? 62 : 48}%)`, accent: '#cfe8ff', lights: true };
       for (const cr of H.people) {
-        const [x, dir] = walkerAt(cr, t), s = cr.size * m;
+        const [x, dir] = walkerAt(cr, t), s = cr.size * M(x);
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, peo);
         hit({ type: 'citizen', owner: H.nick }, X(x), Y(x) + s * 0.05, s);
       }
       // home animals in a warm colour of their own, so they stand out from the ground (and at night)
       const pc = { ...co, color: `hsl(32 45% ${W.night ? 45 : 40}%)`, accent: '#ffd27a', lights: true };
       for (const cr of H.pets) {
-        const [x, dir] = walkerAt(cr, t), s = cr.size * m, y = Y(x) + s * 0.05 - (cr.lift ?? 0) * m; // flyers circle above the home
+        const [x, dir] = walkerAt(cr, t), s = cr.size * M(x), y = Y(x) + s * 0.05 - (cr.lift ?? 0) * M(x); // flyers circle above the home
         drawCreature(g, { ...cr, speed: dir }, X(x), y, s, pc);
-        hit({ type: 'pet', ...cr, owner: H.nick }, X(x), y, cr.lift ? Math.max(s, 0.03 * m) : s);
+        hit({ type: 'pet', ...cr, owner: H.nick }, X(x), y, cr.lift ? Math.max(s, 0.03 * M(x)) : s);
       }
     }
     if (i === W.layers.length - 2 && her) {
       for (const th of ruinsNear(W, her, off - 0.5, off + 1.5)) {
-        drawThing(g, th, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m, o);
-        hit({ type: 'ruin', prev: her.name }, X(th.x), Y(th.x) + th.size * m * 0.1, th.size * m);
+        drawThing(g, th, X(th.x), Y(th.x) + th.size * M(th.x) * 0.1, th.size * M(th.x), o);
+        hit({ type: 'ruin', prev: her.name }, X(th.x), Y(th.x) + th.size * M(th.x) * 0.1, th.size * M(th.x));
       }
       // homes built on the world before: ours (remembered when it collapsed) and other explorers'
       const past = [...(st.ruins ?? []).filter((r) => r.seed === her.seed).map((r) => ({ nick: 'you', built: r.built })),
         ...(fn?.homesOn?.(her.seed) ?? []).map((h) => ({ nick: h.nick, built: h.built.map(([kind, x], k) => ({ kind, x: x / 100, seed: k + 1 })) }))];
       for (const P of past) {
         for (const b of P.built) {
-          const bx = X(b.x), by = Y(b.x) + 0.012 * m, s = 0.12 * m;
+          const bx = X(b.x), by = Y(b.x) + 0.012 * M(b.x), s = 0.12 * M(b.x);
           if (bx < -s * 3 || bx > w + s * 3) continue;
           drawThing(g, { kind: b.kind, seed: b.seed, size: 0.12, broken: true }, bx, by, s, o);
           hit({ type: 'ruin', prev: her.name, owner: P.nick === 'you' ? 'your home' : `${P.nick}'s ${civTitle(P).toLowerCase()}` }, bx, by, s);
         }
         const bx = X(P.built[0]?.x ?? -9);
         if (bx > 0 && bx < w) { g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#ddd'; g.shadowColor = '#000'; g.shadowBlur = 4;
-          g.fillText(`🏚 ${P.nick === 'you' ? 'Your old home' : `Ruins of ${P.nick}'s ${civTitle(P).toLowerCase()}`}`, bx, Y(P.built[0].x) - 0.25 * m); g.restore(); }
+          g.fillText(`🏚 ${P.nick === 'you' ? 'Your old home' : `Ruins of ${P.nick}'s ${civTitle(P).toLowerCase()}`}`, bx, Y(P.built[0].x) - 0.25 * M(P.built[0].x)); g.restore(); }
       }
       for (const cr of heirs) { // the surviving species, free to capture
         const take = { id: cr.seed, kind: 'creature', dna: cr.dna.id, name: cr.dna.name };
         if (picked(st, day, W.seed, take)) continue;
-        const [x, dir] = walkerAt(cr, t), s = cr.size * m;
+        const [x, dir] = walkerAt(cr, t), s = cr.size * M(x);
         drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, { ...co, color: L.color });
-        hit({ type: 'walker', ...cr, survivor: her.name, take, reach: near(X(x)) }, X(x), Y(x) + s * 0.05, s);
+        hit({ type: 'walker', ...cr, survivor: her.name, take, reach: R(x) }, X(x), Y(x) + s * 0.05, s);
       }
     }
     if (i === W.layers.length - 2) for (const cr of evHerd) { // a migrating herd, free to capture
       const take = { id: cr.seed, kind: 'creature', dna: cr.dna.id, name: cr.dna.name };
       if (picked(st, day, W.seed, take)) continue;
-      const [x, dir] = walkerAt(cr, t), s = cr.size * m;
+      const [x, dir] = walkerAt(cr, t), s = cr.size * M(x);
       if (X(x) < -s * 2 || X(x) > w + s * 2) continue;
       drawCreature(g, { ...cr, speed: dir }, X(x), Y(x) + s * 0.05, s, { ...co, color: L.color });
-      hit({ type: 'walker', ...cr, migrant: ev.fromName, take, reach: near(X(x)) }, X(x), Y(x) + s * 0.05, s);
+      hit({ type: 'walker', ...cr, migrant: ev.fromName, take, reach: R(x) }, X(x), Y(x) + s * 0.05, s);
     }
     // pickups lie on the nearest ground; only those near the middle (where you stand) can be taken
     if (i === W.layers.length - 1) {
       for (const d of [...depositsNear(W, off - 0.5, off + 1.5), ...(ev?.kind === 'meteors' ? meteoritesNear(W, ev, off - 0.5, off + 1.5) : [])]) {
         if (picked(st, day, W.seed, d)) continue;
-        const dx = X(d.x), dy = Y(d.x) + 0.01 * m, s = (d.meteor ? 0.065 : 0.05) * m, reach = near(dx), ore = { ...d, amount: d.amount + Math.round(inst * 3) };
+        const dx = X(d.x), dy = Y(d.x) + 0.01 * M(d.x), s = (d.meteor ? 0.065 : 0.05) * M(d.x), reach = R(d.x), ore = { ...d, amount: d.amount + Math.round(inst * 3) };
         drawDeposit(g, dx, dy, s, d.seed, d.meteor ? '#ffcf5a' : W.accent, !reach);
         hits.push([[dx - s * 0.7, dy - s * 0.9, dx + s * 0.7, dy], { type: 'ore', ...ore, take: ore, reach }]);
       }
       if (ev?.kind === 'trader') { // a stall and its keeper
-        const tx = X(ev.x), ty = Y(ev.x), s = 0.08 * m, reach = near(tx);
+        const tx = X(ev.x), ty = Y(ev.x), s = 0.08 * M(ev.x), reach = R(ev.x);
         drawThing(g, { kind: 'shack', seed: 3, size: 0.08 }, tx + s * 0.6, ty + s * 0.1, s, o);
         drawCreature(g, { kind: 'human', speed: -1, seed: 5 }, tx - s * 0.5, ty + s * 0.05, s * 0.45, { ...co, color: L.color });
         g.save(); g.font = `${12 * devicePixelRatio}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 4;
@@ -616,17 +640,17 @@ function frame(t, maxDt = 100) {
       const time = fn ? (fn.colonyOf(W.seed) ? 'boosted' : true) : false;
       for (const p of [...pickupsNear(W, day, off - 0.5, off + 1.5, time), ...pageNear(W, off - 0.5, off + 1.5)]) {
         if (p.kind === 'page' ? hasPage(st, W.seed) : picked(st, day, W.seed, p)) continue;
-        const px = X(p.x), py = Y(p.x), s = 0.045 * m, reach = near(px);
+        const px = X(p.x), py = Y(p.x), s = 0.045 * M(p.x), reach = R(p.x);
         drawPickup(g, px, py, s, p.kind, t, p.phase, W.culture, !reach);
         hits.push([[px - s, py - s * 1.4, px + s, py], { type: 'pickup', ...p, take: p, reach }]);
       }
       if (st.battle) for (const f of foesNear(W, day, off - 0.5, off + 1.5)) {
         if (picked(st, day, W.seed, f)) continue;
-        const fx = X(f.x), s = f.size * (f.dna.scale ?? 1) * m;
+        const fx = X(f.x), s = f.size * (f.dna.scale ?? 1) * M(f.x);
         drawCreature(g, { ...f, speed: fx < w / 2 ? 1 : -1 }, fx, Y(f.x) + s * 0.05, s, { ...co, color: '#b33', accent: '#f66' });
         const lv = f.level + (inst > 0 ? 1 : 0); // dying worlds breed fiercer beasts
         hit({ type: 'foe', name: f.dna.name, level: lv, stats: foeStats(f.dna, lv), element: ELEMENTS[cultureElement(W.culture)] }, fx, Y(f.x) + s * 0.05, s);
-        if (near(fx) && !battle) startFight(f, co, lv);
+        if (R(f.x) && !battle) startFight(f, co, lv);
       }
     }
   });
@@ -634,7 +658,7 @@ function frame(t, maxDt = 100) {
   const v = cam - lastCam; lastCam = cam; // keys and dragging both move the camera
   if (v) { facing = Math.sign(v); movingUntil = t + 120; }
   const LN = W.layers.at(-1), gx = cam * LN.parallax + 0.5, as = 0.09 * m;
-  drawAvatar(g, st.avatar, w / 2, (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m, as, facing, gx * w / (as * 0.15), t < movingUntil, t, st.look);
+  drawAvatar(g, st.avatar, w / 2, deep ? h * 0.94 : (LN.base - height(LN, gx) * LN.span) * h + 0.01 * m, as, facing, gx * w / (as * 0.15), t < movingUntil, t, st.look);
   if (W.weather) drawWeather(g, W.weather, w, h, t, cam);
   const fall = Math.max(inst, ev?.kind === 'meteors' ? 0.75 : 0);
   if (fall) { // red sky as the world nears collapse; falling meteors then and during showers
@@ -686,7 +710,7 @@ function relic(kind) {
 
 // Travel: arrow keys / A-D, drag on the landscape, or the walk toggle.
 const held = new Set();
-const keyDir = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 };
+const keyDir = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1, ArrowUp: 1, KeyW: 1, ArrowDown: -1, KeyS: -1 }; // ↑ ↓ walk into a world
 const hold = (code, on) => { on ? held.add(code) : held.delete(code); keys = [...held].reduce((a, k) => a + keyDir[k], 0); };
 addEventListener('keydown', (e) => {
   if (e.target.closest?.('dialog, input')) return;
