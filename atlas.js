@@ -203,8 +203,11 @@ export function population(home) {
   const k = kinds(home);
   if (!k.length) return 0;
   const sum = (f) => k.reduce((a, x) => a + (BUILDINGS[x][f] ?? 0), 0);
-  return Math.min(sum('house'), BASE_FOOD + sum('food'));
+  // `lost`: people who starved (see produce); the empty homes fill again while everyone eats
+  return Math.max(0, Math.min(sum('house'), BASE_FOOD + sum('food')) - Math.ceil(home.lost ?? 0));
 }
+// Each inhabitant eats this many plants an hour (from the bag); one starved person comes back every REGROW hours fed.
+export const EAT = 0.1, REGROW = 4;
 /** Civilization points: people, what was built (its cost), the variety of buildings (each kind of fusion too), creatures. */
 export function civPoints(home) {
   const k = kinds(home), c = (x) => (BUILDINGS[x].cost.plant ?? 0) + (BUILDINGS[x].cost.ore ?? 0);
@@ -230,7 +233,13 @@ export function produce(st, now) {
   got.plant *= work; got.ore *= work;
   for (const r in got) got[r] = Math.floor(got[r]);
   st.bag.plant += got.plant; st.bag.ore += got.ore; addFuel(st, got.fuel);
-  return got;
+  // people eat what the home made and the bag holds; whoever goes hungry dies
+  const pop = population(H), need = Math.round(pop * EAT * hours), eaten = Math.min(need, Math.floor(st.bag.plant));
+  st.bag.plant -= eaten;
+  const starved = need > eaten ? Math.min(pop, Math.ceil((need - eaten) / (EAT * hours))) : 0;
+  H.lost = starved ? (H.lost ?? 0) + starved : Math.max(0, (H.lost ?? 0) - hours / REGROW);
+  if (!H.lost) delete H.lost;
+  return { ...got, eaten, starved };
 }
 const TITLES = [[1, 'Landing site'], [2, 'Camp'], [3, 'Village'], [5, 'Town'], [6, 'City'], [9, 'Capital']];
 export const civTitle = (home) => TITLES.findLast(([n]) => civLevel(home) >= n)[1];

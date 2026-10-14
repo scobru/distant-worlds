@@ -449,6 +449,13 @@ export function chunk(w, i, c) {
     const sp = pick(w.species);
     walker('species', c + r() * 0.4, 0.5, (1 + r()) * 1e-6 * sp.pace, Math.min(0.3, (0.1 + r() * 0.08) * Math.max(1, sp.scale ?? 1)), sp);
   }
+  // Titans: on worlds of giants, now and then a beast so huge only its legs fit on screen.
+  // Own rng, so the rest of the chunk (and worlds already seen) stay the same.
+  if (w.fauna === 'giants' && i === n - 2) {
+    const q = rngFrom(`${w.seed}:titan:${c}`);
+    if (q() < 0.2) creatures.push({ kind: 'species', dna: w.species[Math.floor(q() * w.species.length)], x: c + q() * 0.3, range: 0.6,
+      speed: (2 + q()) * 1e-6, size: 2 + q(), phase: q() * 2, seed: Math.floor(q() * 2 ** 32), titan: true });
+  }
   if ((w.civ === 'humans' || w.civ === 'aliens') && i === n - 2) for (let k = count(1.5); k--;)
     walker(w.civ === 'humans' ? 'human' : 'alien', c + r() * 0.7, 0.3, (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
   return { things, creatures };
