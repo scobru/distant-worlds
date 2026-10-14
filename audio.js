@@ -33,7 +33,7 @@ export function startAudio(M, getInterest) {
   echo.connect(echoR); echoR.connect(hp); hp.connect(lp); lp.connect(fb); fb.connect(echo);
   for (const [d, p] of [[echo, -0.7], [echoR, 0.7]]) { const pan = ac.createStereoPanner(); pan.pan.value = p; d.connect(pan); pan.connect(bus); }
   // each voice sits in its own place across the stereo field; bass stays in the middle
-  const PAN = { lead: -0.2, comp: 0.35, bass: 0, pad: -0.45 }, place = {};
+  const PAN = { lead: -0.2, comp: 0.35, bass: 0, pad: -0.45, counter: 0.5 }, place = {};
   for (const v in PAN) { place[v] = ac.createStereoPanner(); place[v].pan.value = PAN[v]; place[v].connect(bus); }
   let out = bus; // where amp() sends a note: the panner of the voice being played
 
@@ -47,6 +47,8 @@ export function startAudio(M, getInterest) {
     g.connect(dest); return g;
   };
 
+  // the second voice for a world's lead, taking over in the B section
+  const LEAD2 = { bell: 'glass', glass: 'bell', pluck: 'marimba', marimba: 'kalimba', flute: 'strings', kalimba: 'bell', strings: 'flute' };
   const INSTR = {
     bell(f, t) { // FM bell
       const e = amp(t, 0.12, 0.005, 2.5), m = ac.createGain(), car = osc('sine', f, t, t + 3, e);
@@ -80,6 +82,20 @@ export function startAudio(M, getInterest) {
       const ring = Math.min(3, 0.6 + 120 / f);
       [1, 2, 3, 4].forEach((h, k) => osc('sine', f * h, t, t + ring + 0.1, amp(t, (0.06 * vel) / (1 + k * 1.6), 0.004, ring / (1 + k * 0.7))));
     },
+    kalimba(f, t) { // a thumb piano: a short bright tine and a metallic overtone
+      osc('sine', f, t, t + 1.2, amp(t, 0.14, 0.002, 0.9)); const e = amp(t, 0.05, 0.002, 0.14); osc('sine', f * 5.4, t, t + 0.3, e); e.connect(echo);
+    },
+    harp(f, t) { // soft: a triangle with a quick octave, the string dying away
+      osc('triangle', f, t, t + 1.4, amp(t, 0.1, 0.003, 1.1)); osc('sine', f * 2, t, t + 0.6, amp(t, 0.04, 0.003, 0.4));
+    },
+    sawbass(f, t, dur) { // a rounder, buzzier bass than the triangle
+      const lp = ac.createBiquadFilter(); lp.frequency.value = 520; lp.connect(amp(t, 0.12, 0.012, dur)); osc('sawtooth', f, t, t + dur + 0.1, lp);
+    },
+    strings(f, t, dur) { // a slow bowed line: three detuned saws through a soft filter
+      const lp = ac.createBiquadFilter(), e = amp(t, 0.035, 0.3, dur + 0.5); lp.frequency.value = 1500; lp.connect(e);
+      for (const d of [-9, 0, 9]) osc('sawtooth', f, t, t + dur + 1, lp).detune.value = d;
+      e.connect(echo);
+    },
     pad(f, t, dur) {
       const e = amp(t, 0.05, 0.8, dur + 1.5), lp = ac.createBiquadFilter(); lp.frequency.value = 900; lp.connect(e);
       for (const d of [-8, 8]) osc('sawtooth', f, t, t + dur + 2.5, lp).detune.value = d;
@@ -106,6 +122,16 @@ export function startAudio(M, getInterest) {
     }
   }
 
+  // The place itself: waves, a brook, crickets at night, a volcano's rumble (birds are scheduled with the bars).
+  const loopNoise = (type, f, gain, q = 1) => { const n = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain(); n.buffer = noise; n.loop = true; fl.type = type; fl.frequency.value = f; fl.Q.value = q; g.gain.value = gain; n.connect(fl); fl.connect(g); g.connect(master); n.start(t0); drone.push(n); return g; };
+  const swell = (g, hzRate, depth) => { const l = ac.createGain(); l.gain.value = depth; drone.push(osc('sine', hzRate, t0, 0, l)); l.connect(g.gain); };
+  for (const a of M.ambience ?? []) {
+    if (a === 'waves') swell(loopNoise('lowpass', 500, 0.05), 0.09, 0.04);
+    if (a === 'brook') swell(loopNoise('bandpass', 2600, 0.014, 0.7), 0.6, 0.006);
+    if (a === 'rumble') swell(loopNoise('lowpass', 90, 0.1), 0.07, 0.05);
+    if (a === 'crickets') for (const [fq, rate] of [[4300, 11], [5100, 9]]) { const g = ac.createGain(); g.gain.value = 0.003; g.connect(master); drone.push(osc('sine', fq, t0, 0, g)); swell(g, rate, 0.003); }
+  }
+
   // Bars from the composer, scheduled a little ahead.
   const r = rng(M.noteSeed), beat = 60 / song.bpm;
   let next = t0 + 1, n = 0;
@@ -114,13 +140,20 @@ export function startAudio(M, getInterest) {
     const interest = getInterest();
     bus.frequency.setTargetAtTime(M.cutoff * (0.7 + interest * 0.08), ac.currentTime, 2);
     while (next < ac.currentTime + 1) {
-      for (const x of song.bar(n, interest).notes) {
+      const B = song.bar(n, interest), A = B.arr, lead = B.section === 'B' && A.lead2 ? LEAD2[M.lead] : M.lead;
+      for (const x of B.notes) {
         out = place[x.voice] ?? bus;
         const t = next + x.beat * beat, f = hz(x.midi) * (M.microtonal && x.voice === 'lead' ? 2 ** ((r() - 0.5) * 0.05) : 1), dur = x.dur * beat;
-        if (x.voice === 'lead') INSTR[M.lead](f, t, dur);
-        if (x.voice === 'comp') groove ? INSTR.pluck(f, t) : INSTR.piano(f, t, dur, x.vel * (0.6 + interest * 0.04));
-        if (x.voice === 'bass' && (M.bass || groove)) osc('triangle', f, t, t + dur + 0.1, amp(t, 0.16 * x.vel, 0.01, dur));
+        if (x.voice === 'lead') INSTR[lead](f, t, dur);
+        if (x.voice === 'comp') INSTR[(groove ? ['pluck', 'marimba', 'kalimba'] : ['piano', 'harp', 'kalimba'])[A.comp]](f, t, dur, x.vel * (0.6 + interest * 0.04));
+        if (x.voice === 'bass' && (M.bass || groove)) A.bass ? INSTR.sawbass(f, t, dur) : osc('triangle', f, t, t + dur + 0.1, amp(t, 0.16 * x.vel, 0.01, dur));
         if (x.voice === 'pad') INSTR.pad(f, t, dur);
+        if (x.voice === 'counter') INSTR.strings(f, t, dur);
+      }
+      if (M.ambience?.includes('birds') && r() < 0.6) { // a few chirps somewhere in the bar
+        for (let k = 1 + Math.floor(r() * 3), at = next + r() * 3 * beat; k--; at += 0.14) {
+          const o = ac.createOscillator(), e = amp(at, 0.03, 0.01, 0.12, master), f0 = 2200 + r() * 1800; o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f0 * 1.5, at + 0.1); o.connect(e); o.start(at); o.stop(at + 0.2);
+        }
       }
       if (M.perc || groove) for (let s = 0; s < 8; s++) { // 8ths: kick on 1 and 3 (and the "and" of 3 in a groove), hats, a soft snare on 2 and 4
         const t = next + (s * beat) / 2;
@@ -160,5 +193,10 @@ export function sfx(kind) {
     [523, 659, 784, 1046].forEach((f, k) => tone('triangle', f, t + 0.55 + k * 0.07, 0.6, 0.18));
   }
   if (kind === 'move') noise(t, 0.4, 0.35, 900); // a whoosh
+  if (kind === 'hit') { noise(t, 0.12, 0.6, 350, 'lowpass'); tone('sine', 150, t, 0.15, 0.4, 55); } // a blow in battle
+  if (kind === 'heal') [660, 880, 1320].forEach((f, k) => tone('sine', f, t + k * 0.09, 0.4, 0.14));
+  if (kind === 'win') [523, 659, 784, 1046].forEach((f, k) => tone('triangle', f, t + k * 0.11, k === 3 ? 0.7 : 0.25, 0.2)); // a short fanfare
+  if (kind === 'lose') [392, 330, 262].forEach((f, k) => tone('triangle', f, t + k * 0.18, 0.4, 0.18)); // falling away
+  if (kind === 'page') { noise(t, 0.15, 0.3, 5000, 'highpass'); tone('sine', 1245, t + 0.1, 0.6, 0.12); tone('sine', 1865, t + 0.16, 0.5, 0.08); } // paper, then a faint bell
   if (kind === 'pickup') [1046, 1568, 2093].forEach((f, k) => tone('sine', f, t + k * 0.06, 0.3, 0.18)); // sparkle
 }

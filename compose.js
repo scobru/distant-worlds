@@ -65,6 +65,7 @@ function walk(K, r, start) {
 }
 const PHRASE = 4; // bars per phrase; a section is two phrases (question, answer)
 const FORM = ['A', 'A', 'B', 'A'];
+const ORDER = [[0, 1], [0, 2], [1, 2], [0, 1]]; // which two of a section's three rhythm cells fill each bar of a phrase
 
 /** `M`: a world's music (root, scale, bpm, perc, noteSeed). */
 export function makeSong(M) {
@@ -88,11 +89,13 @@ export function makeSong(M) {
     if (!passes.has(p)) {
       const pr = rng(M.noteSeed + p * 7919);
       const pk = (a) => a[Math.floor(pr() * a.length)];
-      const motif = () => Array.from({ length: 2 }, () => choose(pr, S.cells));
+      const motif = () => Array.from({ length: 3 }, () => choose(pr, S.cells));
       // melodic moves sampled from the learned intervals (semitones), turned into steps of this scale
       const steps = Array.from({ length: 16 }, () => Math.round(choose(pr, S.intervals) / (12 / len)));
       const A = pr() < 0.3 ? pk(S.progs) : walk(S, pr, name === 'tense' ? 5 : 0);
-      passes.set(p, { A, B: pr() < 0.3 ? pk(S.bridges) : walk(S, pr, choose(pr, S.T[A[3]].map((w, to) => [to, to ? w : 0]))), motifA: motif(), motifB: motif(), steps });
+      passes.set(p, { A, B: pr() < 0.3 ? pk(S.bridges) : walk(S, pr, choose(pr, S.T[A[3]].map((w, to) => [to, to ? w : 0]))), motifA: motif(), motifB: motif(), steps,
+        // how this pass is dressed: the accompaniment's timbre, a second lead voice in the B section, a pad, the bass voice, a counter-line
+        arr: { comp: Math.floor(pr() * 3), lead2: pr() < 0.6, pad: M.pad ? pr() < 0.8 : pr() < 0.25, bass: pr() < 0.5 ? 1 : 0, counter: pr() < 0.7 } });
       if (passes.size > 8) passes.delete(passes.keys().next().value);
     }
     return passes.get(p);
@@ -136,21 +139,23 @@ export function makeSong(M) {
       }
       if (S.comp === 'pulse') for (let s = 0; s < span * 2; s++) out.push({ beat: b0 + s / 2, dur: 0.4, midi: v[s % 2 ? 1 : 0] - 12, voice: 'comp', vel: s % 4 ? 0.4 : 0.6 });
       if (S.comp === 'stabs') for (const o of [0.5, 1.5, 2.75, 3.5]) for (const x of v.slice(0, 4)) out.push({ beat: b0 + o, dur: 0.25, midi: x, voice: 'comp', vel: 0.5 });
-      if (M.pad) for (const x of v.slice(0, 3)) out.push({ beat: b0, dur: span, midi: x - 12, voice: 'pad', vel: 0.5 });
+      if (P.arr.pad) for (const x of v.slice(0, 3)) out.push({ beat: b0, dur: span, midi: x - 12, voice: 'pad', vel: 0.5 });
     }
 
-    // melody: a motif per section, replayed with its contour and fitted to each chord; strong beats
-    // land on chord tones, weak ones move by step, the last bar of a phrase rests on a long note
+    // melody: three rhythm cells per section, two of them in each bar (so the rhythm turns over every
+    // four bars, not every bar); the answer phrase moves against the question's contour; the first two
+    // bars of a pass leave the lead out. Strong beats land on chord tones, weak ones move by step, the
+    // last bar of a phrase rests on a long note
     const motif = section === 'A' ? P.motifA : P.motifB, lo = len * 2 + 2, hi = len * 4;
-    const cadence = inPhrase === PHRASE - 1;
+    const cadence = inPhrase === PHRASE - 1, phraseNo = Math.floor(inSec / PHRASE), way = phraseNo ? -1 : 1;
     const calm = Math.max(0, 0.35 - interest * 0.03); // a busier screen leaves fewer rests
-    let si = inPhrase * 4;
-    motif.forEach((cell, ci) => cell.forEach(([o, d], ni) => {
+    let si = inPhrase * 4 + phraseNo * 7;
+    if (inPass >= 2) ORDER[inPhrase].map((k) => motif[k]).forEach((cell, ci) => cell.forEach(([o, d], ni) => {
       const beat = ci * 2 + o;
       if (cadence && beat >= 2) return;
       if (br() < calm && !(ci === 0 && ni === 0)) return;
       const c = chordAt(beat), strong = beat % S.chordBeats === 0 || d >= 1;
-      let target = prevNote + P.steps[si++ % 16];
+      let target = prevNote + way * P.steps[si++ % 16];
       if (strong) { // nearest chord tone, in any octave
         const cands = [];
         for (let oct = -2; oct <= 4; oct++) for (const t of c.tones) cands.push(t + oct * len);
@@ -161,13 +166,15 @@ export function makeSong(M) {
       prevNote = target;
       out.push({ beat, dur: d * 0.95, midi: at(target), voice: 'lead', vel: strong ? 0.9 : 0.7 });
     }));
+    if (section === 'B' && P.arr.counter) for (const [k, c] of chords.entries()) // a slow line above, on the chord's third
+      out.push({ beat: k * S.chordBeats, dur: S.chordBeats * 0.95, midi: at(c.tones[1] + len * 2), voice: 'counter', vel: 0.55 });
     if (cadence) { // phrase end: chord root (tonic at the end of a section), held
       const c = chordAt(2), root = [c.tones[0], c.tones[0] + len, c.tones[0] + 2 * len, c.tones[0] + 3 * len].filter((x) => x >= lo && x <= hi)
         .sort((a, b) => Math.abs(a - prevNote) - Math.abs(b - prevNote))[0] ?? prevNote;
       prevNote = root;
       out.push({ beat: 2, dur: 2, midi: at(root), voice: 'lead', vel: 0.85 });
     }
-    return { notes: out.sort((a, b) => a.beat - b.beat), chords: chords.map((c) => c.deg), section };
+    return { notes: out.sort((a, b) => a.beat - b.beat), chords: chords.map((c) => c.deg), section, arr: P.arr };
   }
   return { style: name, bpm, bar };
 }

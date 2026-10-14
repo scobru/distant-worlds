@@ -23,6 +23,26 @@ for (let i = 0; i < 60; i++) {
   assert.equal(song.bar(15).chords.at(-1), song.style === 'tense' ? 5 : 0);
 }
 assert.deepEqual([...styles].sort(), [...STYLE_NAMES].sort(), 'every style shows up');
+{
+  // Variety: the rhythm turns over within a phrase, passes dress themselves differently, the lead waits
+  // two bars at the start of a pass, and the counter-line only comes in the B section.
+  const rhythm = (b) => b.notes.filter((x) => x.voice === 'lead').map((x) => x.beat).join();
+  let turned = 0, dressed = 0, counters = 0;
+  for (let i = 0; i < 40; i++) {
+    const M = makeWorld('v1-' + i + '_8_1').music, song = makeSong(M);
+    const bars = Array.from({ length: 96 }, (_, n) => song.bar(n, 6));
+    assert.ok(bars.slice(0, 2).every((b) => !b.notes.some((x) => x.voice === 'lead')), 'the lead enters on the third bar');
+    assert.ok(bars.slice(32, 34).every((b) => !b.notes.some((x) => x.voice === 'lead')), 'and again on every pass');
+    assert.ok(bars.every((b) => !b.notes.some((x) => x.voice === 'counter') || b.section === 'B'), 'counter-line only in B');
+    counters += bars.some((b) => b.notes.some((x) => x.voice === 'counter'));
+    turned += new Set(bars.slice(2, 6).map(rhythm)).size > 1;
+    dressed += new Set(bars.filter((_, n) => n % 32 === 0).map((b) => JSON.stringify(b.arr))).size > 1;
+  }
+  assert.ok(turned > 30, `rhythm turns over within a phrase (${turned}/40)`);
+  assert.ok(dressed > 25, `passes are dressed differently (${dressed}/40)`);
+  assert.ok(counters > 25, `most songs have a counter-line (${counters}/40)`);
+  console.log('compose variety ok');
+}
 console.log('compose ok:', [...styles].join(', '));
 {
   // The learner, on a tiny MIDI made here: C major, I-IV-V-I in half notes, a melody on top.
