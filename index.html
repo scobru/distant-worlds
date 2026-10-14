@@ -14,6 +14,11 @@
   button { background: #fff1; color: inherit; border: 1px solid #fff4; border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer; backdrop-filter: blur(6px); }
   button:hover, button:focus-visible { background: #fff3; }
   button.alert { background: #c334; border-color: #f66; }
+  /* blows and raids (fx): a shake, a red flash; no shaking for those who asked for less motion */
+  @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+  @keyframes hurt { from { filter: sepia(1) saturate(6) hue-rotate(-40deg); } }
+  .shake { animation: shake .4s; } .hurt { animation: hurt .4s ease-out; } .shake.hurt { animation: shake .4s, hurt .4s ease-out; }
+  @media (prefers-reduced-motion: reduce) { .shake { animation: none; } .shake.hurt { animation: hurt .4s ease-out; } }
   .badge { font-size: 11px; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; vertical-align: middle; margin-left: 8px; }
   .common { color: #bbb; } .rare { color: #6cf; } .epic { color: #d9f; } .legendary { color: #fc5; text-shadow: 0 0 8px #fc58; }
   #tip { position: fixed; z-index: 5; pointer-events: none; max-width: 260px; background: #000d; border: 1px solid #fff3; border-radius: 10px;
@@ -238,6 +243,10 @@ const tutSkip = () => { st.tut = 'done'; save(); tutShow(); };
 const LABEL = { culture: 'culture', relief: 'relief', era: 'era', civ: 'civilization', flora: 'flora', fauna: 'fauna', style: 'style', night: 'night', rings: 'rings', sea: 'sea', volcanoes: 'volcanoes', falls: 'waterfalls', rarity: 'rarity', relic: 'relics' };
 const days = () => { const d = new Date(); const y = new Date(d); y.setDate(d.getDate() - 1); return [isoDay(d), isoDay(y)]; };
 
+/** Plays the CSS animations `cls` (`shake`, `hurt`) once on `el`; they go when done, so a dialog opened again does not replay them. */
+function fx(el, ...cls) { el.classList.remove('shake', 'hurt'); void el.offsetWidth; el.classList.add(...cls); el.onanimationend = () => el.classList.remove(...cls); }
+/** A raid on your home was fought (pirates or a siege): the screen shakes red if it was lost. */
+const raided = (lost) => { if (lost) fx(cv, 'shake', 'hurt'); sfx(lost ? 'hit' : 'win'); };
 let toastTimer, shown = [];
 function toast(lines) {
   if (!lines.length) return;
@@ -321,6 +330,7 @@ function load() {
     const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
     save(); if (n || sown) fn?.homeChanged();
     const when = (r) => new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (raids.length) raided(raids.some((r) => !r.won));
     toast([...raids.map((r) => r.won ? `☠ Pirates attacked at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}. Driven off! ⛏${r.loot} from their wreck.`
       : `☠ Pirates raided your home at ${when(r)}: ${r.crew} raiders against your defence ${r.defence}.${r.damaged ? ` Your ${BUILDINGS[r.damaged].name} was damaged: repair it from 🏗 Build.` : ''} They will leave you alone for a day.`),
       n && `🐾 ${n} creature${n > 1 ? 's' : ''} released on your home planet`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in your garden`, made.length && `🏠 While you were away your home produced ${made.join(' ')}`,
@@ -990,7 +1000,11 @@ function endFight(msg) {
 function strike(act) {
   const b = battle, name = esc(b.foe.name), lv = battleLevel(st);
   if (act === 'heal') st.bag.plant -= BATTLE.heal.plant;
-  b.log.push(...battleRound(b, act)); sfx(act === 'heal' ? 'heal' : act === 'capture' ? 'creature' : act === 'guard' ? 'move' : 'hit');
+  const foeHp = b.hp, ours = b.team.map((f) => f.hp);
+  b.log.push(...battleRound(b, act));
+  if (b.hp < foeHp) fx(document.getElementById('battleCv'), 'shake'); // the foe reels
+  if (b.team.some((f, i) => f.hp < ours[i])) fx(battleDlg, 'hurt'); // one of you was hit
+  sfx(act === 'heal' ? 'heal' : act === 'capture' ? 'creature' : act === 'guard' ? 'move' : 'hit');
   if (b.caught) {
     collect(st, days()[0], world.seed, { id: b.take.id, kind: 'creature', dna: b.foe.id, name: b.foe.name }, Date.now());
     endFight(`🐾 You captured the ${name}: it will live on your home planet`);
@@ -1203,7 +1217,7 @@ function showClaim() {
 }
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
-    world: () => world, walking: () => walking, toast, esc, save, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
+    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
     setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
