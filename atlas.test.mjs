@@ -517,6 +517,26 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
     assert.deepEqual([s.stats.plant, s.stats.ore, s.stats.creature], [1, 3, 1]);
     assert.equal(PICKUP.fuel, 10);
   }
+  { // what the home needs: the bars, and the advice that follows the weakest one
+    const { homeNeeds, homeAdvice, setHome, BASE_FOOD } = await import('./atlas.js');
+    const h = es(); setHome(h, 'v1-1_1_1', 0); h.bag.plant = 100; h.bag.ore = 100;
+    const by = (s) => Object.fromEntries(homeNeeds(s).map((n) => [n.key, n]));
+    h.home.built = [{ kind: 'house', x: 0, seed: 1 }];
+    let n = by(h);
+    assert.ok(n.homes.v === 4 / (BASE_FOOD + 2) && n.food.v === 1, 'a hut: 4 places for 8 fed'); // places 4, the land feeds 6 + 2
+    assert.equal(homeAdvice(h).need.key, 'homes', 'more homes first');
+    assert.equal(homeAdvice(h).kind, 'house', 'the cheapest that houses');
+    h.home.built = [{ kind: 'castle', x: 0, seed: 1 }, { kind: 'dome', x: 1, seed: 2 }, { kind: 'house', x: 2, seed: 3 }];
+    n = by(h); assert.ok(n.homes.v === 1 && n.food.v > 0.8 && n.food.v < 1 && n.defence.v < 1, 'plenty of places, food a little short');
+    h.home.animals = Array.from({ length: 20 }, (_, i) => `v1-1_1_1#${i}`);
+    n = by(h); assert.equal(n.stables.v, 0, 'twenty creatures, no stable');
+    h.bag.plant = 0; assert.equal(homeAdvice(h).need.key, 'stock', 'empty bag: the people eat first');
+    h.bag.plant = 500; h.home.built.push({ kind: 'longhouse', x: 3, seed: 4 }, { kind: 'longhouse', x: 4, seed: 5 }, { kind: 'longhouse', x: 5, seed: 6 });
+    n = by(h); assert.equal(n.stables.v, 1, 'three stables for twenty creatures');
+    assert.ok(homeNeeds(h).every((x) => x.v >= 0 && x.v <= 1 && x.text));
+    const none = { ...h, home: { ...h.home, built: [{ kind: 'castle', x: 0, seed: 1 }, { kind: 'castle', x: 1, seed: 2 }, { kind: 'castle', x: 2, seed: 3 }, { kind: 'castle', x: 3, seed: 4 }, { kind: 'castle', x: 4, seed: 5 }, { kind: 'castle', x: 5, seed: 6 }, { kind: 'tower', x: 6, seed: 7 }, { kind: 'windmill', x: 7, seed: 8 }, { kind: 'windmill', x: 8, seed: 9 }, { kind: 'windmill', x: 9, seed: 10 }, { kind: 'windmill', x: 10, seed: 11 }, { kind: 'dome', x: 11, seed: 12 }, { kind: 'longhouse', x: 12, seed: 13 }, { kind: 'longhouse', x: 13, seed: 14 }, { kind: 'longhouse', x: 14, seed: 15 }] } };
+    assert.equal(homeAdvice(none), null, 'everything covered: no advice');
+  }
   const st2 = es(); st2.bag.ore = 0;
   assert.ok(winBattle(st2, a.b) > 0 && st2.bag.ore > 0 && st2.wins === 1 && battleLevel(st2) === 2);
   const fw = [...Array(50)].map((_, i) => mkw(`v1-${i}_4_1`)).find((x) => x.species.length), foes = foesNear(fw, '2026-10-14', -6, 6);
