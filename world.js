@@ -656,7 +656,7 @@ export function pickupsNear(w, day, x0, x1, time) {
   const out = [];
   for (let k = Math.floor(x0) - 1; k <= Math.floor(x1) + 1; k++) {
     const r = rngFrom(`${w.seed}:pickups:${day}:${k}`);
-    if (r() > Math.min(0.65, 0.12 + 0.07 * Math.abs(k))) continue;
+    if (r() > Math.min(0.4, 0.1 + 0.05 * Math.abs(k))) continue;
     const roll = r();
     const kind = roll < 0.04 ? 'map' : time && roll < (time === 'boosted' ? 0.45 : 0.25) ? 'time' : 'fuel';
     out.push({ id: `${k}`, kind, x: k + 0.1 + r() * 0.8, phase: r() * 7 });
