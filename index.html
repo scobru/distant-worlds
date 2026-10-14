@@ -102,14 +102,15 @@
 <dialog id="signDlg"><div class="row"><h2>Sign in</h2><button id="signClose">Close</button></div>
   <p>Your explorer signs colonies and chat messages. Colonizing needs level 20, chatting level 16.</p>
   <p><button id="signViso">Sign in with Viso</button><br><small>Your Viso persona: its name, avatar and level come with it.</small></p>
-  <p><button id="signNew">Create a new key</button><br><small>A key made on this node. Its level is built here (a few seconds of work). Back it up from the Atlas.</small></p>
+  <p><button id="signNew">Create a new key</button><br><small>A key made in the game. Its level is built here (a few seconds of work). Back it up from the Atlas.</small></p>
   <p><button id="signImport">Import a key</button><br><small>A key you backed up before (64 hex characters).</small></p></dialog>
 <dialog id="lbDlg"><div class="row"><h2>Leaderboard</h2><button id="lbClose">Close</button></div><div id="lbBody"></div></dialog>
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <dialog id="guide"><div class="row"><h2>How to play</h2><button id="guideClose">Close</button></div>
   <h3>🚶 Walk</h3>
-  <p>Your explorer walks with ← → (or A / D), by holding ◀ ▶, or by dragging the landscape. <b>🚶 Auto</b> makes it walk on its own the way it faces and gather whatever comes within reach, even in a background tab, but it burns fuel (⚡1 a screen) and stops when the tank is empty; walking by hand burns nothing and earns fuel on new ground. In ☰ Atlas → Your explorer you choose your suit colour, skin, headgear and backpack.
-    Walking new ground slowly fills your hyperdrive fuel ⚡.</p>
+  <p>Your explorer walks with ← → (or A / D), by holding ◀ ▶, or by dragging the landscape. Walking new ground by hand slowly fills your hyperdrive fuel ⚡.
+    <b>🚶 Auto</b> makes it walk on its own the way it faces and gather whatever comes within reach, even in a background tab, but it burns fuel (⚡1 a screen) and stops when the tank is empty.
+    In the <b>Atlas</b> (Your explorer) you choose your suit colour, skin, headgear and backpack.</p>
   <h3>✋ Gather</h3>
   <p>When something is close to your explorer (the middle of the screen), click it or press <b>E</b>:
     plants 🌿 are harvested, creatures 🐾 captured, ore deposits ⛏ mined, fuel cells, map fragments and time shards picked up.
@@ -128,8 +129,7 @@
     Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and house and feed your people (huts and castles house them, mills and domes feed them; the more people, the more your home produces).
     Your people walk among your buildings, and they eat: each one 🌿0.1 an hour from your bag while you are away. With no plants to eat, some starve; once fed again, the empty homes slowly fill.</p>
-  <p>
-    Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
+  <p>Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
     and does nothing until you repair it (half its cost), and they leave you alone for a day. You find out when you come home.</p>
@@ -140,7 +140,7 @@
   <p>🌸 <b>Crossing</b>: each Mill lets two wild plant species of your garden give a hybrid a day (🌿8 ⛏4): it grows in your garden and goes into your herbarium.
     🔗 <b>Fusing</b> two buildings of different kinds (🌿10 ⛏10) makes one that does what both did; each new pair adds to your civilization's variety, but a raid damages both halves.</p>
   <p>✎ <b>Names</b> (online): the first explorer to name a species or a plant from the Atlas gives it its common name, which everyone then sees.</p>
-  <p>⚔ <b>Sieges</b> (Freenet): land on another explorer's home and press <b>⚔ Besiege</b> (⚡20 ⛏10). Stay there: every 2 minutes another raider joins.
+  <p>⚔ <b>Sieges</b> (online): land on another explorer's home and press <b>⚔ Besiege</b> (⚡20 ⛏10). Stay there: every 2 minutes another raider joins.
     When you attack, your raiders against their defence decide it: win and you bring back ore. Once a day per home. A besieged home fights it like a pirate raid.
     Homes marked 🕊 Peaceful neither besiege nor get besieged.</p>
   <h3>⏳ Living worlds</h3>
@@ -156,8 +156,10 @@
   <p>Worlds have events on a clock everyone shares, lasting an hour or two: a <b>☄ meteor shower</b> leaves meteorites full of ore,
     a <b>🐾 migration</b> brings a herd from a nearby star to capture, a <b>🧳 trader</b> swaps plants and ore for ore, fuel or a creature from another world.
     Dying worlds have more meteor showers. The map marks the worlds that have an event right now.</p>
-  <h3>🌐 Together (Freenet)</h3>
-  <p>On the Freenet version you sign in with your Viso persona: stay on a planet to plant your flag 🚩, your home is seen by everyone who visits it, and there is a leaderboard 🏆 and a galaxy chat 💬.</p>
+  <h3>🌐 Together (online)</h3>
+  <p>On the Freenet and web versions you sign in (on Freenet with your Viso persona or a key made in the game, on the web with a key made in the game) and share the galaxy with everyone:
+    stay on a planet to plant your flag 🚩 (its time keeps counting in a background tab only while you auto-walk), your home is seen by everyone who visits it, and there is a leaderboard 🏆 and a galaxy chat 💬.
+    The chat is live: only the last 15 minutes are shown.</p>
 </dialog>
 <dialog id="tradeDlg"><div class="row"><h2>🧳 Trader</h2><button id="tradeClose">Close</button></div><div id="tradeBody"></div></dialog>
 <dialog id="atlas"><div class="row"><h2>Atlas</h2><button id="close">Close</button></div><div id="atlasBody"></div></dialog>
