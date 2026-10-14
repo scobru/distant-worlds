@@ -14,6 +14,7 @@ RUN npm ci --omit=dev && mkdir /data && chown node /data
 COPY --from=build /app/dist dist
 COPY web web
 COPY freenet/*.js freenet/
+COPY world.js ./
 USER node
 VOLUME /data
 EXPOSE 8080
