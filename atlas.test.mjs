@@ -408,7 +408,7 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   const { saga, SAGA } = await import('./atlas.js');
   assert.ok(SAGA.every((c) => c.lines.length === EXPEDITION.stages + 1));
   assert.equal(saga(EPOCH).chapter, 1);
-  assert.equal(saga(t).title, SAGA[3].title);
+  assert.equal(saga(t).title, SAGA[3 % SAGA.length].title);
   assert.deepEqual(saga(EPOCH + SAGA.length * SEASON), saga(EPOCH), 'chapters loop');
   // Languages: words per language, capped; uninhabited worlds teach nothing.
   const l = es();

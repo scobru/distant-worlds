@@ -111,41 +111,27 @@ export function expedition(now = Date.now()) {
 // The saga: one chapter a season, in order and looping; its first line is free, each expedition
 // stage reached reveals the next one. The same text for everyone, like the expedition.
 export const SAGA = [
-  ['The Heir', [
-    'When a star dies, something leaves it: the old explorers called it the Seed. Tonight a star in your sector went dark.',
-    'On this world they speak of a light that fell from the sky into a stranger. They point at you.',
-    'Each collapse passes the Seed to someone nearby. No one chooses it. Those who held it before you are on no map.',
-    'You find a cairn with a name carved on it and the day of a collapse. Beneath it lies an empty bag, just like yours.',
-    'A trader warns you: Heirs are hunted. Whoever takes the Seed by force is said to live as long as a star.',
-    'You walk on. The Seed is warm in your chest, and every world you touch lives a little longer.']],
-  ['The Bond', [
-    'The creatures you carry are not cargo. Some keep following you even with the cage open.',
-    'An old herder shows you how to bind a creature: it lends you its strength, its legs, its eyes.',
-    'Every bond costs something. The herder cannot remember the name of her home world.',
-    'A word you learned last week is gone. The creature at your side seems to know it.',
-    'Bound explorers forget where they came from. The Heirs before you all bound many beasts.',
-    'You keep your bonds. Whatever you forget, someone in the galaxy still remembers.']],
-  ['The Academies', [
-    'Far out, whole homes have lifted off their dying worlds and kept flying. People call them the Academies.',
-    'One Academy trains explorers to guard the Heirs, for a price. Another trains them to hunt Heirs, for a higher one.',
-    'Their founders were explorers once. Each founded an Academy on the day it lost its home.',
-    'The Academies share one law: never land on the oldest star. None will say which one it is.',
-    'Two Academies meet above the world you walk. Their ships turn away from each other, and from you.',
-    'The hunters send word: "Your Seed is not yours. It belongs to the star you were born under."']],
-  ['The Rain of Beasts', [
-    'On unstable worlds the sky has started to drop creatures, not stones, alive and afraid.',
-    'They fall from a moon that circles no planet anyone has mapped.',
-    'A hunter tells you the moon is a cage: the first Heir filled it, long ago, so the beasts would not die with their stars.',
-    'The cage is breaking because the Seed is fading. Every Heir has been a little weaker than the last.',
-    'Without the Seed, stars die sooner. The worlds you walk feel older than they should.',
-    'The falling beasts all turn their heads the same way: towards the centre of the galaxy.']],
-  ['Star Zero', [
-    'At the centre of the map burns a star with no number. The Academies forbid it. Your Seed pulls towards it.',
-    'Explorers who bound many beasts have all forgotten the same thing: where they were born.',
-    'The herder, the trader, the hunter: you find their names in one old register, on the same day.',
-    'Star Zero was a home world. Every explorer was born there, and forgot it one bond at a time.',
-    'The first Heir did not seed the stars to rule them, but so that no one would ever be without a home.',
-    'You land. The ground knows your step. The Seed goes back where it came from, and the story begins again.']],
+  ['The Dying Stars', [
+    'Stars are dying faster than before. Nobody knows why.',
+    'Old explorers say every star grows from a seed.',
+    'When a star dies, its seed passes into the next world.',
+    'But each new seed is smaller than the last.',
+    'Someone has to find where the first seed came from.',
+    'You decide to go.']],
+  ['The Trail', [
+    'Every world keeps a trace of its seed.',
+    'The ruins all point the same way: towards the centre of the galaxy.',
+    'The creatures that survive a collapse carry the seed with them.',
+    'Every culture tells the same old tale, in its own words.',
+    'The tale speaks of a first star, older than all the others.',
+    'You are getting close.']],
+  ['The First Star', [
+    'At the centre of the map, one star has no name.',
+    'Its world is quiet and old, but still alive.',
+    'Here the first seed was planted, long before any explorer.',
+    'You leave something of yours here: a plant, a stone, a footprint.',
+    'The seed grows strong again. The stars will live a while longer.',
+    'And the story begins again.']],
 ].map(([title, lines]) => ({ title, lines }));
 export const saga = (now = Date.now()) => { const id = expedition(now).id; return { chapter: id % SAGA.length + 1, ...SAGA[id % SAGA.length] }; };
 /** Advances the expedition if `w` fits its next stage; returns { stage, done } or null. */
