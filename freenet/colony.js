@@ -24,6 +24,8 @@ export const raidHash = (target, attacker, day, lane, nonce) => sha256(enc.encod
 export const raidScore = (r) => r.nonces.reduce((s, n, i) => s + top64(raidHash(r.target, r.attacker, r.day, i, n)), 0n);
 export const raidMsg = (r) => `dwr1|${r.attacker}|${r.nick}|${r.target}|${r.day}|${r.nonces.join(',')}`;
 export const raidKey = (r) => `${r.attacker}|${r.target}|${r.day}`;
+/** Names (contract name_msg): the first explorer to name a species or a plant gives it its common name. */
+export const nameMsg = (n) => `dwn1|${n.persona}|${n.nick}|${n.id}|${n.name}|${n.ts}`;
 /** Days since 1970 (UTC): a raid's day. */
 export const today = (now = Date.now()) => Math.floor(now / 864e5);
 const textOk = (s, max) => s.length > 0 && [...s].length <= max && s.trim() === s && !/[\u0000-\u001f\u007f|]/.test(s);

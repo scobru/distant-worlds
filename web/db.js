@@ -5,7 +5,8 @@ import { DatabaseSync } from 'node:sqlite';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { blake3 } from '@noble/hashes/blake3.js';
-import { score, raidScore, raidKey, msg as colonyMsg, homeMsg, raidMsg, LANES, MAX_SCORE, COLONY_BITS } from '../freenet/colony.js';
+import { score, raidScore, raidKey, msg as colonyMsg, homeMsg, raidMsg, nameMsg, LANES, MAX_SCORE, COLONY_BITS } from '../freenet/colony.js';
+import { generation } from '../world.js';
 import { chatMsg, MAX_TEXT, CHAT_BITS } from '../freenet/chat.js';
 import { connectMessage } from '../freenet/connect.js';
 import { cborDecode, anteBits } from '../freenet/viso.js';
@@ -13,7 +14,7 @@ import { cborDecode, anteBits } from '../freenet/viso.js';
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 const enc = new TextEncoder();
 const BUILDINGS = ['house', 'windmill', 'longhouse', 'factory', 'temple', 'castle', 'tower', 'dome'];
-const MAX = { colony: 20_000, home: 20_000, raid: 20_000 }, MAX_MESSAGES = 500, MAX_PER_PERSONA = 20;
+const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000 }, MAX_MESSAGES = 500, MAX_PER_PERSONA = 20;
 const EMPTY_BLOCK = { ts: 0, list: [], sig: '' };
 
 // ---------------------------------------------------------------- field checks (as in the contracts)
@@ -29,7 +30,10 @@ export function isStar(seed) {
   const p = m[1].split('_');
   return p.length === 3 && num(p[0], 10_000) && num(p[1], 10_000) && num(p[2], 10) && (m[2] === undefined || (m[2] !== '0' && num(m[2], 1_000_000)));
 }
-const isAnimal = (a) => typeof a === 'string' && /^(.+)#[0-9]{1,2}$/.test(a) && isStar(a.slice(0, a.lastIndexOf('#')));
+const isKind = (a, sep) => typeof a === 'string' && new RegExp(`^(.+)${sep}[0-9]{1,2}$`).test(a) && isStar(a.slice(0, a.lastIndexOf(sep)));
+// wild '<seed>#<k>' or bred (world.js bredId), as the contract's is_animal; plants '<seed>~<k>'
+export const isAnimal = (a) => generation(a, (x) => isKind(x, '#')) >= 0;
+const isPlant = (p) => isKind(p, '~');
 const verify = (sig, m, pk) => { try { return ed.verify(sig, typeof m === 'string' ? enc.encode(m) : m, pk); } catch { return false; } };
 const cat = (...p) => ed.etc.concatBytes(...p);
 const u32le = (n) => new Uint8Array(new Uint32Array([n]).buffer), u64le = (n) => new Uint8Array(new BigUint64Array([BigInt(n)]).buffer);
@@ -80,6 +84,11 @@ export function checkRaid(app, r) {
   signed(app, r.attacker, r.ante, COLONY_BITS, raidMsg(r), r.sig, r.cert);
   return { attacker: r.attacker, nick: r.nick, target: r.target, day: r.day, nonces: r.nonces, ante: r.ante, sig: r.sig, cert: cert(r.cert) };
 }
+export function checkName(app, n) {
+  if (!isPersona(n?.persona) || !text(n.nick, 24) || !text(n.name, 24) || !uint(n.ts) || !(isAnimal(n.id) || isPlant(n.id))) fail('bad name');
+  signed(app, n.persona, n.ante, COLONY_BITS, nameMsg(n), n.sig, n.cert);
+  return { persona: n.persona, nick: n.nick, id: n.id, name: n.name, ts: n.ts, ante: n.ante, sig: n.sig, cert: cert(n.cert) };
+}
 const worldOk = (w) => w === '' || (typeof w === 'string' && w.length <= 40 && /^v1-[0-9]{1,4}_[0-9]{1,4}_[0-9](@[-+0-9.]{1,12})?$/.test(w) && Number.isFinite(Number(w.split('@')[1] ?? 0)));
 export function checkMessage(app, m) {
   const n = [...(m?.nick ?? '')].length, t = typeof m?.text === 'string' ? [...m.text].length : 0;
@@ -126,7 +135,7 @@ export function open(file, { admin, app = '/' }) {
 
   return {
     galaxy: () => (cache.galaxy ??= JSON.stringify({
-      colonies: Object.fromEntries(all('colony')), blocked: blocklist('galaxy'), homes: Object.fromEntries(all('home')), raids: Object.fromEntries(all('raid')),
+      colonies: Object.fromEntries(all('colony')), blocked: blocklist('galaxy'), homes: Object.fromEntries(all('home')), raids: Object.fromEntries(all('raid')), names: Object.fromEntries(all('name')),
     })),
     chat: () => (cache.chat ??= JSON.stringify({ messages: Object.fromEntries(all('msg')), blocked: blocklist('chat') })),
 
@@ -150,11 +159,19 @@ export function open(file, { admin, app = '/' }) {
           const old = get('raid', k), v = checkRaid(app, r);
           if (!old || lexi([raidScore(v), v.sig], [raidScore(old), old.sig]) < 0) put('raid', k, v);
         }
+        // names: the earliest (ts, then sig) wins
+        for (const [k, n] of Object.entries(d.names ?? {})) {
+          if (!n || k !== n.id || bl.has(n.persona)) continue;
+          const old = get('name', k), v = checkName(app, n);
+          if (!old || lexi([v.ts, v.sig], [old.ts, old.sig]) < 0) put('name', k, v);
+        }
+        for (const [k, n] of all('name')) if (bl.has(n.persona)) delQ.run('name', k);
         for (const [k, c] of all('colony')) if (bl.has(k) || bl.has(c.persona)) delQ.run('colony', k);
         for (const [k, h] of all('home')) if (bl.has(k) || bl.has(h.seed)) delQ.run('home', k);
         for (const [k, r] of all('raid')) if (bl.has(r.attacker) || bl.has(r.target)) delQ.run('raid', k);
         cap('colony', ([a, x], [b, y]) => lexi(colonyRank(a, x), colonyRank(b, y)));
         cap('home', ([, x], [, y]) => lexi([y.ts, y.sig], [x.ts, x.sig]));
+        cap('name', ([, x], [, y]) => lexi([x.ts, x.sig], [y.ts, y.sig]));
         cap('raid', ([, x], [, y]) => lexi([-x.day, raidScore(x), x.sig], [-y.day, raidScore(y), y.sig]));
       });
     },

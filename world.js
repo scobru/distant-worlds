@@ -468,9 +468,34 @@ export function makeSpecies(worldSeed, k, giant) {
   };
 }
 
-// Breeding (at home, with a stable): the child of two wild species takes each part from one parent,
-// sometimes a new one (a mutation), and proportions in between. The same parents always give the same
-// child, whichever order: its id is the parents' ids, sorted, joined by '+'. Only wild species breed.
+// Breeding (at home, with a stable): the young of two species takes each part from one parent, sometimes
+// a new one (a mutation), and proportions in between. The same parents always give the same young,
+// whichever order. Its id joins the parents' ids with '+', sorted, a bred parent in parentheses:
+// "a+b", "(a+b)+c"; up to MAX_GEN generations (the galaxy contract checks the same grammar, is_animal).
+export const MAX_GEN = 3, MAX_ID = 256;
+const wrap = (id) => (id.includes('+') ? `(${id})` : id);
+/** The id of the young of species ids `a` and `b`. */
+export const bredId = (a, b) => (a < b ? [a, b] : [b, a]).map(wrap).join('+');
+/** [a, b] for a bred id (null for a wild one or a malformed id). */
+export function parentsOf(id) {
+  let depth = 0, at = -1;
+  for (let i = 0; i < id.length; i++) {
+    if (id[i] === '(') depth++;
+    else if (id[i] === ')' && --depth < 0) return null;
+    else if (id[i] === '+' && depth === 0) { if (at >= 0) return null; at = i; }
+  }
+  if (at < 0 || depth) return null;
+  const side = (x) => (!x.includes('+') ? x : x.startsWith('(') && x.endsWith(')') ? x.slice(1, -1) : null);
+  const a = side(id.slice(0, at)), b = side(id.slice(at + 1));
+  return a && b && bredId(a, b) === id ? [a, b] : null; // only the canonical spelling
+}
+/** Generations behind a species id: 0 wild, 1 bred from wild ones, …; -1 if it is not a valid id. */
+export function generation(id, wild = (x) => /^v1-[0-9_.]+#[0-9]{1,2}$/.test(x), depth = 0) {
+  if (typeof id !== 'string' || id.length > MAX_ID || depth > MAX_GEN) return -1;
+  if (!id.includes('+')) return wild(id) ? 0 : -1;
+  const p = parentsOf(id), g = p && p.map((x) => generation(x, wild, depth + 1));
+  return g && Math.min(...g) >= 0 && Math.max(...g) < MAX_GEN ? Math.max(...g) + 1 : -1;
+}
 export function breed(a, b) {
   if (a.id > b.id) [a, b] = [b, a];
   const r = rngFrom(`breed:${a.id}+${b.id}`), mix = (x, y) => x + (y - x) * r();
@@ -482,7 +507,7 @@ export function breed(a, b) {
   dna.legs = +dna.legs;
   const bits = Math.max(a.bits, b.bits) + mutated * 1.5;
   return {
-    id: `${a.id}+${b.id}`,
+    id: bredId(a.id, b.id),
     name: a.name.slice(0, Math.ceil(a.name.length / 2)) + b.name.slice(Math.floor(b.name.length / 2)),
     ...dna,
     bodyLen: mix(a.bodyLen, b.bodyLen), bodyH: mix(a.bodyH, b.bodyH), legLen: mix(a.legLen, b.legLen),
@@ -492,13 +517,13 @@ export function breed(a, b) {
 }
 // shortcut: cached forever per id, fine for the few hundred species a session meets.
 const speciesMemo = new Map();
-/** The species with this id: "<world seed>#<k>", or two wild ones bred ("<id>+<id>"); null if unknown. */
+/** The species with this id (wild "<world seed>#<k>" or bred, see bredId); null if unknown. */
 export function speciesOf(id) {
   if (!speciesMemo.has(id)) {
-    const parents = id.split('+');
-    const wild = (x) => { const [seed, k] = x.split('#'); return makeWorld(seed).species[k] ?? null; };
-    const sp = parents.length === 1 ? wild(id) : parents.length === 2 ? (([a, b]) => a && b && breed(a, b))(parents.map(wild)) : null;
-    speciesMemo.set(id, sp ?? null);
+    let sp = null;
+    if (generation(id) === 0) { const [seed, k] = id.split('#'); sp = makeWorld(seed).species[k] ?? null; }
+    else if (generation(id) > 0) { const [a, b] = parentsOf(id).map(speciesOf); sp = a && b && breed(a, b); }
+    speciesMemo.set(id, sp || null);
   }
   return speciesMemo.get(id);
 }

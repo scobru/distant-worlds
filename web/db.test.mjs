@@ -1,11 +1,11 @@
 // The web server's rules (web/db.js) against records signed the way the client signs them.
 import assert from 'node:assert/strict';
 import * as ed from '@noble/ed25519';
-import { open, isStar, anteLevel } from './db.js';
+import { open, isStar, anteLevel, isAnimal } from './db.js';
 import { grindAnte } from '../freenet/viso.js';
 import { connectMessage } from '../freenet/connect.js';
 import { chatMsg } from '../freenet/chat.js';
-import { homeMsg, raidMsg, raidKey, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE } from '../freenet/colony.js';
+import { homeMsg, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE } from '../freenet/colony.js';
 
 const { bytesToHex: hex } = ed.etc, enc = new TextEncoder();
 const admin = new Uint8Array(32).fill(9), app = new Uint8Array(32).fill(7);
@@ -56,6 +56,19 @@ assert.throws(() => db.applyGalaxy({ colonies: { [seed]: weak } }), /not enough 
 const r = { attacker: a.persona, nick: 'Ann', target: b.persona, day: 20000, nonces: [...miner.nonces], ante: a.ante, sig: '', cert: a.cert };
 assert.throws(() => db.applyGalaxy({ raids: { [raidKey(r)]: { ...r, sig: sign(raidMsg(r)) } } }), /siege too short/); // a colony's nonces are not a siege
 
+// bred creatures live in homes (canonical ids only, as the contract), and the first name wins
+assert.ok(isAnimal('(v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3') && !isAnimal('v1-4_5_6#1+v1-1_2_3#0') && !isAnimal('v1-01_2_3#0+v1-4_5_6#1'));
+const bred = { ...home(50), animals: ['v1-1_2_3#0+v1-4_5_6#1'] };
+bred.sig = sign(homeMsg(bred));
+db.applyGalaxy({ homes: { [a.persona]: bred } });
+assert.deepEqual(JSON.parse(db.galaxy()).homes[a.persona].animals, bred.animals);
+const nm = (id, name, ts) => { const n = { persona: a.persona, nick: 'Ann', id, name, ts, ante: a.ante, sig: '', cert: a.cert }; n.sig = sign(nameMsg(n)); return n; };
+db.applyGalaxy({ names: { 'v1-1_2_3~0': nm('v1-1_2_3~0', 'Moonleaf', 20) } });
+db.applyGalaxy({ names: { 'v1-1_2_3~0': nm('v1-1_2_3~0', 'Later', 30) } });
+db.applyGalaxy({ names: { 'v1-1_2_3~0': nm('v1-1_2_3~0', 'Earlier', 10) } });
+assert.equal(JSON.parse(db.galaxy()).names['v1-1_2_3~0'].name, 'Earlier');
+assert.throws(() => db.applyGalaxy({ names: { x: nm('x', 'Bad', 1) } }), /bad name/);
+
 // the admin blocklist removes a persona everywhere
 const bl = { ts: 3, list: [a.persona], sig: '' };
 bl.sig = sign(`dwb1|3|${a.persona}`, admin);
@@ -63,5 +76,5 @@ assert.throws(() => db.applyGalaxy({ blocked: { ...bl, sig: sign(`dwb1|3|${a.per
 db.applyGalaxy({ blocked: bl });
 db.applyChat({ blocked: bl });
 const g = JSON.parse(db.galaxy());
-assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(JSON.parse(db.chat()).messages).length], [0, 0, 0]);
+assert.deepEqual([Object.keys(g.colonies).length, Object.keys(g.homes).length, Object.keys(g.names).length, Object.keys(JSON.parse(db.chat()).messages).length], [0, 0, 0, 0]);
 console.log('web db ok');

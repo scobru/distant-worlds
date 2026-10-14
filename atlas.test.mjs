@@ -231,7 +231,7 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
 {
   // Breeding: a stable, two wild species at home, plants and ore; one young per stable a day.
   const { setHome, breedAt, breedsLeft, BREED } = await import('./atlas.js');
-  const { speciesOf, makeWorld, randomSeed, rng } = await import('./world.js');
+  const { speciesOf, makeWorld, randomSeed, rng, generation, parentsOf, bredId, MAX_GEN } = await import('./world.js');
   const st = emptyState(), wilds = [];
   for (let k = 0; wilds.length < 3; k++) { const w = makeWorld(randomSeed(rng(k))); if (w.species.length) wilds.push(w.species[0].id); }
   const [a, b, c] = wilds;
@@ -245,12 +245,21 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual([st.bag.plant, st.bag.ore], [100 - BREED.plant, 100 - BREED.ore]);
   assert.equal(breedsLeft(st, 'd1'), 0);
   assert.equal(breedAt(st, a, c, 'd1'), null, 'one a day per stable');
-  assert.equal(breedAt(st, young, c, 'd2'), null, 'only wild species breed');
-  assert.ok(breedAt(st, a, c, 'd2'));
-  const sp = speciesOf(young), again = speciesOf([b, a].join('+'));
+  const second = breedAt(st, young, c, 'd2');
+  assert.equal(second, bredId(young, c), 'the young breed too');
+  assert.equal(generation(second), 2);
+  st.home.built.push({ kind: 'longhouse', x: 1 });
+  const third = breedAt(st, second, young, 'd3');
+  assert.equal(generation(third), 3);
+  assert.equal(breedAt(st, third, a, 'd3'), null, `at most ${MAX_GEN} generations`);
+  assert.ok(speciesOf(third)?.bred, 'a third-generation young resolves');
+  const sp = speciesOf(young), again = speciesOf(bredId(b, a));
   assert.ok(sp.bred && sp.name && sp.legs && sp.id === young);
   assert.deepEqual({ ...again, id: sp.id }, sp, 'the same parents, the same young');
-  assert.equal(speciesOf(`${young}+${c}`), null);
+  assert.equal(speciesOf(`${young}+${c}`), null, 'a bred parent goes in parentheses');
+  assert.equal(parentsOf(`${b}+${a}`), a < b ? null : [b, a], 'only the sorted spelling');
+  assert.deepEqual(parentsOf(bredId(young, c)), [young, c].sort());
+  for (const bad of ['', 'x', 'v1-1_1_1', '(v1-1_1_1#0)', `${a}+`, `(${a}+${b}`, `${a}+${b}+${c}`]) assert.equal(generation(bad), -1, bad);
   console.log('breeding ok');
 }
 {

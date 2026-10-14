@@ -80,5 +80,7 @@ console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
   assert.equal(today(864e5 * 20000 + 5), 20000);
   const m = mineWith(newMiner(), (i, n) => raidHash(r.target, r.attacker, r.day, i, n), 800);
   assert.equal(raidScore({ ...r, nonces: m.nonces }), minerScore(m), 'the siege miner keeps the raid score');
+  const { nameMsg } = await import('./colony.js');
+  assert.equal(nameMsg({ persona: r.attacker, nick: 'Zed', id: 'v1-1_2_3#0+v1-4_5_6#1', name: 'Fluffy', ts: 7 }), `dwn1|${r.attacker}|Zed|v1-1_2_3#0+v1-4_5_6#1|Fluffy|7`); // as contract name_msg
   console.log('raid msg ok');
 }

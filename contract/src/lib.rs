@@ -20,6 +20,10 @@
 //! but bound to the defender and the day (`dwr1|<target>|<attacker>|<day>|<lane>|<nonce>`), so a
 //! siege cannot be reused on another home or another day. One raid per attacker, target and day; more
 //! work replaces it. Who wins is decided by the clients (the defence is the self-declared home).
+//!
+//! Names: the first explorer to name a species (wild or bred) or a plant gives it its common name.
+//! "First" is the lowest self-declared ts (then the signature), so every merge order converges; a
+//! modified client can backdate, as with chat times.
 use freenet_stdlib::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -38,6 +42,10 @@ pub const MAX_HOMES: usize = 20_000;
 pub const MAX_BUILT: usize = 64;
 pub const MAX_ANIMALS: usize = 64;
 pub const MAX_RAIDS: usize = 20_000;
+pub const MAX_NAMES: usize = 50_000;
+/// Bred species: up to MAX_GEN generations, ids up to MAX_ID bytes (world.js MAX_GEN, MAX_ID).
+pub const MAX_GEN: u32 = 3;
+pub const MAX_ID: usize = 256;
 pub const BUILDINGS: [&str; 8] = ["house", "windmill", "longhouse", "factory", "temple", "castle", "tower", "dome"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -59,7 +67,7 @@ pub struct Home {
     pub nick: String,
     pub seed: String,              // the home planet
     pub built: Vec<(String, i64)>, // (building kind, position in hundredths of a screen)
-    pub animals: Vec<String>,      // species ids "<star seed>#<k>"
+    pub animals: Vec<String>,      // species ids: wild "<star seed>#<k>" or bred (see is_animal)
     pub ts: u64,                   // self-declared (ms); the newest home of a persona wins
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub peace: bool, // opted out of sieges, both ways
@@ -80,6 +88,18 @@ pub struct Raid {
     pub cert: Cert,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Name {
+    pub persona: String,
+    pub nick: String,
+    pub id: String,   // a species id (see is_animal) or a plant id "<star seed>~<k>"
+    pub name: String, // the common name
+    pub ts: u64,      // self-declared (ms): the earliest name wins
+    pub ante: String,
+    pub sig: String, // by the delegated app key over `name_msg()`
+    pub cert: Cert,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Blocklist {
     pub ts: u64,
@@ -95,6 +115,8 @@ pub struct GalaxyState {
     pub homes: BTreeMap<String, Home>, // persona -> home
     #[serde(default)]
     pub raids: BTreeMap<String, Raid>, // "<attacker>|<target>|<day>" -> raid
+    #[serde(default)]
+    pub names: BTreeMap<String, Name>, // species or plant id -> its first name
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -105,6 +127,8 @@ pub struct Summary {
     pub homes: BTreeMap<String, u64>, // persona -> ts
     #[serde(default)]
     pub raids: BTreeMap<String, String>, // key -> score as decimal string
+    #[serde(default)]
+    pub names: BTreeMap<String, (u64, String)>, // id -> (ts, sig)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -117,6 +141,8 @@ pub struct Delta {
     pub homes: BTreeMap<String, Home>,
     #[serde(default)]
     pub raids: BTreeMap<String, Raid>,
+    #[serde(default)]
+    pub names: BTreeMap<String, Name>,
 }
 
 type R<T> = Result<T, String>;
@@ -218,8 +244,83 @@ pub fn home_msg(h: &Home) -> String {
     format!("dwh1|{}|{}|{}|{}|{}|{}{peace}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
 }
 
-fn is_animal(a: &str) -> bool {
-    a.split_once('#').is_some_and(|(seed, k)| is_star(seed) && !k.is_empty() && k.len() <= 2 && k.bytes().all(|b| b.is_ascii_digit()))
+/// `<star seed><sep><k>` with k one or two digits: a wild species ('#') or a plant ('~').
+fn is_kind(a: &str, sep: char) -> bool {
+    a.split_once(sep).is_some_and(|(seed, k)| is_star(seed) && !k.is_empty() && k.len() <= 2 && k.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The parents of a bred id ("a+b", sorted, a bred parent in parentheses), only in its canonical spelling.
+fn parents(id: &str) -> Option<(&str, &str)> {
+    let (mut depth, mut at) = (0i32, None);
+    for (i, c) in id.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            '+' if depth == 0 && at.replace(i).is_some() => return None,
+            _ => {}
+        }
+        if depth < 0 {
+            return None;
+        }
+    }
+    let at = at.filter(|_| depth == 0)?;
+    fn side(s: &str) -> Option<&str> {
+        if s.contains('+') { s.strip_prefix('(')?.strip_suffix(')') } else { Some(s) }
+    }
+    let (a, b) = (side(&id[..at])?, side(&id[at + 1..])?);
+    let wrap = |s: &str| if s.contains('+') { format!("({s})") } else { s.to_string() };
+    (a < b && format!("{}+{}", wrap(a), wrap(b)) == id).then_some((a, b))
+}
+
+/// Generations behind a species id: 0 wild, n bred (at most MAX_GEN); None if it is not a valid id.
+fn generation(id: &str) -> Option<u32> {
+    if id.len() > MAX_ID {
+        return None;
+    }
+    if !id.contains('+') {
+        return is_kind(id, '#').then_some(0);
+    }
+    let (a, b) = parents(id)?;
+    let g = generation(a)?.max(generation(b)?) + 1;
+    (g <= MAX_GEN).then_some(g)
+}
+
+/// A species id: wild "<star seed>#<k>", or bred (world.js bredId) up to MAX_GEN generations.
+pub fn is_animal(a: &str) -> bool {
+    generation(a).is_some()
+}
+
+pub fn name_msg(n: &Name) -> String {
+    format!("dwn1|{}|{}|{}|{}|{}", n.persona, n.nick, n.id, n.name, n.ts)
+}
+
+pub fn check_name(app: &str, n: &Name) -> R<()> {
+    if !is_persona(&n.persona) || !text_ok(&n.nick, 24) || !text_ok(&n.name, 24) || !(is_animal(&n.id) || is_kind(&n.id, '~')) {
+        return Err("bad name".into());
+    }
+    let ante = hex::decode(&n.ante).map_err(|e| e.to_string())?;
+    if viso_ante::verify_slot(&key(&n.persona)?, &ante)? < MIN_ANTE_BITS {
+        return Err("persona level too low".into());
+    }
+    let app_key = check(&n.persona, app, &n.cert)?;
+    verify(&app_key, name_msg(n).as_bytes(), &n.sig)
+}
+
+/// Earliest first; equal ts falls back to the signature, so every merge order converges.
+fn name_rank(n: &Name) -> (u64, &str) {
+    (n.ts, &n.sig)
+}
+
+/// Keep the MAX_NAMES earliest names.
+fn prune_names(names: &mut BTreeMap<String, Name>) {
+    if names.len() <= MAX_NAMES {
+        return;
+    }
+    let mut order: Vec<_> = names.iter().map(|(k, n)| ((n.ts, n.sig.clone()), k.clone())).collect();
+    order.sort();
+    for (_, k) in order.into_iter().skip(MAX_NAMES) {
+        names.remove(&k);
+    }
 }
 
 pub fn check_home(app: &str, h: &Home) -> R<()> {
@@ -325,9 +426,13 @@ pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
     if s.raids.len() > MAX_RAIDS || s.raids.iter().any(|(k, r)| *k != raid_key(r) || raid_blocked(&s.blocked, r)) {
         return Err("raids out of bounds".into());
     }
+    if s.names.len() > MAX_NAMES || s.names.iter().any(|(k, n)| *k != n.id || s.blocked.list.contains(&n.persona)) {
+        return Err("names out of bounds".into());
+    }
     s.colonies.iter().try_for_each(|(k, c)| check_colony(app, k, c))?;
     s.homes.values().try_for_each(|h| check_home(app, h))?;
-    s.raids.values().try_for_each(|r| check_raid(app, r))
+    s.raids.values().try_for_each(|r| check_raid(app, r))?;
+    s.names.values().try_for_each(|n| check_name(app, n))
 }
 
 pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
@@ -358,6 +463,13 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         check_raid(app, &r)?;
         s.raids.insert(k, r);
     }
+    for (k, n) in d.names {
+        if k != n.id || s.blocked.list.contains(&n.persona) || s.names.get(&k).is_some_and(|old| name_rank(old) <= name_rank(&n)) {
+            continue;
+        }
+        check_name(app, &n)?;
+        s.names.insert(k, n);
+    }
     let b = s.blocked.clone();
     s.colonies.retain(|k, c| !blocked(&b, k, c));
     s.homes.retain(|_, h| !home_blocked(&b, h));
@@ -365,6 +477,8 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
     prune(&mut s.colonies);
     prune_homes(&mut s.homes);
     prune_raids(&mut s.raids);
+    s.names.retain(|_, n| !b.list.contains(&n.persona));
+    prune_names(&mut s.names);
     Ok(())
 }
 
@@ -374,6 +488,7 @@ pub fn summarize(s: &GalaxyState) -> Summary {
         blocked_ts: s.blocked.ts,
         homes: s.homes.iter().map(|(p, h)| (p.clone(), h.ts)).collect(),
         raids: s.raids.iter().map(|(k, r)| (k.clone(), raid_score(r).to_string())).collect(),
+        names: s.names.iter().map(|(k, n)| (k.clone(), (n.ts, n.sig.clone()))).collect(),
     }
 }
 
@@ -387,6 +502,7 @@ pub fn delta(s: &GalaxyState, sum: &Summary) -> Delta {
         blocked: (s.blocked.ts > sum.blocked_ts).then(|| s.blocked.clone()),
         homes: s.homes.iter().filter(|(p, h)| sum.homes.get(*p).is_none_or(|ts| h.ts > *ts)).map(|(p, h)| (p.clone(), h.clone())).collect(),
         raids: s.raids.iter().filter(|(k, r)| sum.raids.get(*k).is_none_or(|sc| raid_score(r) < sc.parse().unwrap_or(u128::MAX))).map(|(k, r)| (k.clone(), r.clone())).collect(),
+        names: s.names.iter().filter(|(k, n)| sum.names.get(*k).is_none_or(|(ts, sig)| name_rank(n) < (*ts, sig.as_str()))).map(|(k, n)| (k.clone(), n.clone())).collect(),
     }
 }
 
@@ -443,7 +559,7 @@ impl ContractInterface for Contract {
             let d: Delta = match u {
                 UpdateData::State(st) => {
                     let o: GalaxyState = de(st.as_ref())?;
-                    Delta { colonies: o.colonies, blocked: Some(o.blocked), homes: o.homes, raids: o.raids }
+                    Delta { colonies: o.colonies, blocked: Some(o.blocked), homes: o.homes, raids: o.raids, names: o.names }
                 }
                 UpdateData::Delta(d) => de(d.as_ref())?,
                 UpdateData::StateAndDelta { delta, .. } => de(delta.as_ref())?,
@@ -505,7 +621,7 @@ mod tests {
         hex::encode(viso_ante::make_slot(k, n, 1))
     }
     fn one(seed: &str, c: Colony) -> Delta {
-        Delta { colonies: [(seed.into(), c)].into(), blocked: None, homes: Default::default(), raids: Default::default() }
+        Delta { colonies: [(seed.into(), c)].into(), blocked: None, homes: Default::default(), raids: Default::default(), names: Default::default() }
     }
 
     #[test]
@@ -578,8 +694,8 @@ mod tests {
             let sig = hex::encode(k.sign(format!("dwb1|1|{}", list.join(",")).as_bytes()).to_bytes());
             Blocklist { ts: 1, list, sig }
         };
-        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
-        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
+        assert!(apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), names: Default::default(), blocked: Some(block(&sk(9), vec![seed.into()])) }).is_err());
+        apply(&admin, APP, &mut s, Delta { colonies: Default::default(), homes: Default::default(), raids: Default::default(), names: Default::default(), blocked: Some(block(&sk(1), vec![pk(&sk(2))])) }).unwrap();
         assert!(s.colonies.is_empty());
         apply(&admin, APP, &mut s, one(seed, good)).unwrap(); // a blocked persona cannot come back
         assert!(s.colonies.is_empty());
@@ -596,7 +712,7 @@ mod tests {
         h
     }
     fn homes(h: Home) -> Delta {
-        Delta { colonies: Default::default(), blocked: None, homes: [(h.persona.clone(), h)].into(), raids: Default::default() }
+        Delta { colonies: Default::default(), blocked: None, homes: [(h.persona.clone(), h)].into(), raids: Default::default(), names: Default::default() }
     }
 
     #[test]
@@ -648,7 +764,7 @@ mod tests {
         r
     }
     fn raids(r: Raid) -> Delta {
-        Delta { colonies: Default::default(), blocked: None, homes: Default::default(), raids: [(raid_key(&r), r)].into() }
+        Delta { colonies: Default::default(), blocked: None, homes: Default::default(), raids: [(raid_key(&r), r)].into(), names: Default::default() }
     }
 
     #[test]
@@ -698,6 +814,71 @@ mod tests {
         let d = Delta { raids: [("x".into(), long.clone())].into(), ..Default::default() };
         apply(&admin, APP, &mut wrong_key, d).unwrap();
         assert!(wrong_key.raids.is_empty(), "keyed by attacker, target and day");
+    }
+
+    #[test]
+    fn animal_ids() {
+        // same vectors as atlas.test.mjs (world.js generation)
+        let (a, b, c) = ("v1-1_2_3#0", "v1-4_5_6#1", "v1-7_8_9.2#3");
+        for ok in [a, "v1-1_2_3#0+v1-4_5_6#1", "(v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3", "((v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3)+(v1-1_2_3#0+v1-7_8_9.2#3)"] {
+            assert!(is_animal(ok), "{ok}");
+        }
+        let gen4 = format!("(((v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3)+(v1-1_2_3#0+v1-7_8_9.2#3))+{a}");
+        for bad in ["", "x", "v1-1_1_1", "(v1-1_1_1#0)", &format!("{b}+{a}"), &format!("{a}+{a}"), &format!("{a}+"), &format!("({a}+{b}"), &format!("{a}+{b}+{c}"), &format!("{a}+{b})"), &format!("v1-1_2_3#0+v1-4_5_6#1+v1-7_8_9.2#3"), &gen4, "v1-1_2_3~0"] {
+            assert!(!is_animal(bad), "{bad}");
+        }
+    }
+
+    fn name(persona: &SigningKey, id: &str, text: &str, ts: u64) -> Name {
+        let c = colony("v1-1_1_1", persona, "x", 1, 1);
+        let mut n = Name { persona: c.persona, nick: "nick".into(), id: id.into(), name: text.into(), ts, ante: c.ante, sig: String::new(), cert: c.cert };
+        n.sig = hex::encode(sk(100).sign(name_msg(&n).as_bytes()).to_bytes());
+        n
+    }
+    fn names(n: Name) -> Delta {
+        Delta { names: [(n.id.clone(), n)].into(), ..Default::default() }
+    }
+
+    #[test]
+    fn first_name_wins_and_cheats_fail() {
+        let admin = pk(&sk(1));
+        let id = "v1-1_2_3#0+v1-4_5_6#1";
+        let first = name(&sk(2), id, "Fluffy", 10);
+        let vector = Name { persona: "ab".repeat(32), nick: "Zed".into(), ts: 7, ..first.clone() }; // same vector as freenet/net.test.mjs
+        assert_eq!(name_msg(&vector), format!("dwn1|{}|Zed|{id}|Fluffy|7", "ab".repeat(32)));
+        let later = name(&sk(3), id, "Spike", 20);
+        let mut s1 = GalaxyState::default();
+        apply(&admin, APP, &mut s1, names(later.clone())).unwrap();
+        apply(&admin, APP, &mut s1, names(first.clone())).unwrap();
+        let mut s2 = GalaxyState::default();
+        apply(&admin, APP, &mut s2, names(first.clone())).unwrap();
+        apply(&admin, APP, &mut s2, names(later.clone())).unwrap();
+        assert_eq!(s1, s2);
+        assert_eq!(s1.names[id].name, "Fluffy");
+        apply(&admin, APP, &mut s1, names(name(&sk(2), "v1-1_2_3~1", "Moonleaf", 30))).unwrap();
+        validate(&admin, APP, &s1).unwrap();
+        assert!(delta(&s1, &summarize(&s1)).names.is_empty());
+        assert_eq!(delta(&s1, &Summary::default()).names.len(), 2);
+
+        assert!(check_name(APP, &name(&sk(2), "v1-1_2_3#0+v1-1_2_3#0", "Same", 1)).is_err(), "not a species");
+        assert!(check_name(APP, &name(&sk(2), id, "a|b", 1)).is_err(), "bad text");
+        let mut forged = first.clone();
+        forged.name = "Mine".into();
+        assert!(check_name(APP, &forged).is_err(), "changed after signing");
+        let mut moved = GalaxyState::default();
+        apply(&admin, APP, &mut moved, Delta { names: [("v1-9_9_9#0".into(), first)].into(), ..Default::default() }).unwrap();
+        assert!(moved.names.is_empty(), "keyed by its id");
+    }
+
+    #[test]
+    fn bred_creatures_live_in_homes() {
+        let mut h = home(&sk(2), "v1-5_5_5", &[("longhouse", 0)], 1);
+        h.animals.push("(v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3".into());
+        h.sig = hex::encode(sk(100).sign(home_msg(&h).as_bytes()).to_bytes());
+        check_home(APP, &h).unwrap();
+        h.animals.push("v1-4_5_6#1+v1-1_2_3#0".into());
+        h.sig = hex::encode(sk(100).sign(home_msg(&h).as_bytes()).to_bytes());
+        assert!(check_home(APP, &h).is_err(), "only canonical ids");
     }
 
     #[test]
