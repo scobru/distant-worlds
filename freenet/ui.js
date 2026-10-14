@@ -5,7 +5,7 @@ import * as net from './net.js';
 import { checkColony, checkHome, checkRaid, checkName, checkMessage } from './check.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
-import { partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
+import { colonyCost, canColonize, payColony, partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS, CHAT_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, validText, raidHash, raidScore, raidKey, today } from './colony.js';
@@ -205,17 +205,21 @@ export async function start(app) {
     if (!me || !nick || mine === null || level() < COLONY_BITS || (col && col.persona === me) || timeHere() < target(w, col)) return false;
     return mine <= MAX_SCORE && (!col || mine < colScore(w.seed, col));
   }
+  const costHere = () => colonyCost(Object.values(galaxy.colonies ?? {}).filter((c) => c.persona === me).length, !!colonyOf(app.world().seed));
   setInterval(() => {
     const ready = canPlant();
     plantBtn.hidden = !ready;
-    if (ready) plantBtn.textContent = colonyOf(app.world().seed) ? '🚩 Take this planet' : '🚩 Plant flag';
+    if (ready) { const c = costHere(); plantBtn.textContent = `${colonyOf(app.world().seed) ? '🚩 Take this planet' : '🚩 Plant flag'} (⛏${c.ore} 🌿${c.plant})`; }
   }, 1000);
   plantBtn.onclick = async () => {
     if (!canPlant()) return;
     const w = app.world(), col = colonyOf(w.seed);
+    const cost = costHere();
+    if (!canColonize(app.st(), cost)) return app.toast([`A flag costs ⛏${cost.ore} ore and 🌿${cost.plant} plants (it grows with every colony you hold).`]);
     plantBtn.disabled = true;
     try {
       await publish();
+      payColony(app.st(), cost); app.save();
       app.toast([col ? `🚩 You spent more time here than ${app.esc(col.nick)}: ${app.esc(w.name)} is now your colony!` : `🚩 Your flag flies on ${app.esc(w.name)}!`]);
     } catch (e) { app.toast([app.esc(e.message)]); }
     finally { plantBtn.disabled = false; }
