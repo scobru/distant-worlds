@@ -180,6 +180,28 @@ export function smokeNear(w, x0, x1) {
   return out;
 }
 
+/** Volcanoes on the far ranges, a few screens apart, smoking and glowing with lava. */
+export function volcanoesNear(w, x0, x1) {
+  if (!w.volcanoes) return [];
+  const out = [];
+  for (let k = Math.floor(x0 / 2.5) - 1; k <= Math.floor(x1 / 2.5) + 1; k++) {
+    const r = rngFrom(`${w.seed}:volcano:${k}`);
+    if (r() < 0.6) out.push({ x: (k + 0.2 + r() * 0.6) * 2.5, size: 0.7 + r() * 0.8, phase: r() * 7, erupting: r() < 0.35 });
+  }
+  return out;
+}
+
+/** Waterfalls pouring down the face of a range, about one every couple of screens. */
+export function fallsNear(w, x0, x1) {
+  if (!w.falls) return [];
+  const out = [];
+  for (let k = Math.floor(x0 / 1.8) - 1; k <= Math.floor(x1 / 1.8) + 1; k++) {
+    const r = rngFrom(`${w.seed}:falls:${k}`);
+    if (r() < 0.65) out.push({ x: (k + 0.15 + r() * 0.7) * 1.8, width: 0.5 + r() * 0.9, phase: r() * 7 });
+  }
+  return out;
+}
+
 /** Floating islands drift in the sky (parallax ISLAND_PARALLAX), some pouring a waterfall. */
 export const ISLAND_PARALLAX = 0.08;
 export function islandsNear(w, x0, x1) {
@@ -352,7 +374,14 @@ export function makeWorld(seedStr) {
     ? Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => makeSpecies(seedStr, k, fauna === 'giants')) : [];
 
   const rings = chance(P.rings), sea = chance(P.sea);
-  const traits = { culture, era, civ, flora, fauna, style, relief, night, rings, sea };
+  // Volcanoes and waterfalls come from their own stream, so every v1 world keeps all it had before.
+  const rs = rngFrom(`${seedStr}:scenery`);
+  const volcanoes = rs() < (culture === 'apocalyptic' || culture === 'war' ? 0.5 : relief === 'peaks' ? 0.3 : 0.12);
+  const falls = relief !== 'dunes' && culture !== 'desert' && rs() < (relief === 'peaks' || relief === 'spires' || relief === 'mesas' ? 0.7 : 0.3);
+  const traits = { culture, era, civ, flora, fauna, style, relief, night, rings, sea, volcanoes, falls };
+  // the flyers' species, capturable like walkers (own stream too)
+  const flyerSpecies = flyers.length ? [makeFlyer(seedStr, flyers[0].kind)] : [];
+  for (const f of flyers) f.dna = flyerSpecies[0];
   // Vertical features: rivers towards the viewer, floating islands, auroras, smoke columns.
   const rivers = relief !== 'dunes' && (sea || r() < 0.35), islands = relief === 'islands' || r() < 0.08;
   const aurora = night && r() < (culture === 'arctic' || culture === 'nordic' ? 0.8 : 0.25);
@@ -361,7 +390,7 @@ export function makeWorld(seedStr) {
 
   const scaleName = civ === 'aliens' ? pick(['hirajoshi', 'lydian']) : cult.scale && r() < 0.75 ? cult.scale : pick(Object.keys(SCALES));
   return {
-    seed: seedStr, sector, region: region?.[0] ?? null, species, plants, relief, rivers, islands, aurora, smoke, culture, weather: cult.weather ?? null,
+    seed: seedStr, sector, region: region?.[0] ?? null, species, flyerSpecies, plants, relief, rivers, islands, aurora, smoke, volcanoes, falls, culture, weather: cult.weather ?? null,
     name, era, civ, flora, fauna, style, flyers, pop, traits, bits, rarity, night, sky, accent, layers,
     lights: civ !== 'ruins' && civ !== 'uninhabited' && (eraIdx >= 2 || civ === 'aliens'),
     ships: eraIdx >= 4 || civ === 'aliens' ? Math.floor(r() * 5) : 0,
@@ -404,7 +433,7 @@ export function chunk(w, i, c) {
   if (w.pop.structs && (i === n - 2 || i === n - 3)) for (let k = count(w.pop.structDensity / 2); k--;)
     things.push({ kind: pick(w.pop.structs), x: c + r(), size: 0.05 + r() * 0.09, seed: id(), broken: w.civ === 'ruins' });
   if (i >= n - 2) for (let k = count(w.pop.floraDensity / 2); k--;)
-    things.push({ kind: w.flora, x: c + r(), size: 0.015 + r() * 0.04, seed: id(), plant: w.plants[Math.floor(r() * w.plants.length)] });
+    { const th = { kind: w.flora, x: c + r(), size: 0.015 + r() * 0.04, seed: id(), plant: w.plants[Math.floor(r() * w.plants.length)] }; th.size *= th.plant?.scale ?? 1; things.push(th); }
   if (i === n - 2 && r() < 0.06) things.push({ kind: pick(RELICS), x: c + 0.2 + r() * 0.6, size: 0.1, seed: id(), relic: true });
   things.sort((a, b) => b.size - a.size);
 
@@ -413,11 +442,11 @@ export function chunk(w, i, c) {
   if (w.fauna === 'herds' && i === w.pop.herdLayer && r() < 0.5) {
     const x = c + 0.1 + r() * 0.5, v = (2 + r() * 3) * 1e-6;
     const sp = pick(w.species);
-    for (let k = 3 + Math.floor(r() * 5); k--;) walker('species', x + r() * 0.12, 0.25, v * sp.pace, 0.03 + r() * 0.02, sp);
+    for (let k = 3 + Math.floor(r() * 5); k--;) walker('species', x + r() * 0.12, 0.25 * Math.max(1, sp.scale ?? 1), v * sp.pace, (0.03 + r() * 0.02) * (sp.scale ?? 1), sp);
   }
   if (w.fauna === 'giants' && i === Math.min(1, n - 2) && r() < 0.5) {
     const sp = pick(w.species);
-    walker('species', c + r() * 0.4, 0.5, (1 + r()) * 1e-6 * sp.pace, 0.1 + r() * 0.08, sp);
+    walker('species', c + r() * 0.4, 0.5, (1 + r()) * 1e-6 * sp.pace, Math.min(0.3, (0.1 + r() * 0.08) * Math.max(1, sp.scale ?? 1)), sp);
   }
   if ((w.civ === 'humans' || w.civ === 'aliens') && i === n - 2) for (let k = count(1.5); k--;)
     walker(w.civ === 'humans' ? 'human' : 'alien', c + r() * 0.7, 0.3, (3 + r() * 5) * 1e-6, 0.028 + r() * 0.012);
@@ -465,8 +494,15 @@ export function makeSpecies(worldSeed, k, giant) {
     pace: 0.6 + r() * 0.8,
     rarity: SPECIES_RARITY.findLast(([, min]) => bits >= min)[0],
     bits,
+    scale: sizeOf(r(), SPECIES_SIZES),
   };
 }
+// How big a species or plant grows next to the usual (×1): drawn last, so older traits stay the same.
+const SPECIES_SIZES = [[0.12, 0.55], [0.32, 0.8], [0.72, 1], [0.9, 1.6], [1, 2.6]];
+const PLANT_SIZES = [[0.15, 0.6], [0.7, 1], [0.9, 1.8], [1, 3.5]];
+const sizeOf = (u, table) => table.find(([p]) => u < p)[1];
+/** A word for a scale (species or plant), or '' for the usual size. */
+export const sizeWord = (scale) => (scale >= 3 ? 'giant' : scale >= 1.5 ? 'large' : scale <= 0.6 ? 'tiny' : scale < 1 ? 'small' : '');
 
 // Breeding (at home, with a stable): the young of two species takes each part from one parent, sometimes
 // a new one (a mutation), and proportions in between. The same parents always give the same young,
@@ -512,7 +548,7 @@ export function breed(a, b) {
     ...dna,
     bodyLen: mix(a.bodyLen, b.bodyLen), bodyH: mix(a.bodyH, b.bodyH), legLen: mix(a.legLen, b.legLen),
     neckLen: dna.neck === 'none' ? 0 : Math.max(0.2, mix(a.neckLen, b.neckLen)), pace: mix(a.pace, b.pace),
-    rarity: SPECIES_RARITY.findLast(([, min]) => bits >= min)[0], bits, bred: true,
+    rarity: SPECIES_RARITY.findLast(([, min]) => bits >= min)[0], bits, bred: true, scale: mix(a.scale ?? 1, b.scale ?? 1),
   };
 }
 // shortcut: cached forever per id, fine for the few hundred species a session meets.
@@ -521,11 +557,23 @@ const speciesMemo = new Map();
 export function speciesOf(id) {
   if (!speciesMemo.has(id)) {
     let sp = null;
-    if (generation(id) === 0) { const [seed, k] = id.split('#'); sp = makeWorld(seed).species[k] ?? null; }
+    if (generation(id) === 0) { const [seed, k] = id.split('#'), w = makeWorld(seed); sp = (k >= FLYER_K ? w.flyerSpecies[k - FLYER_K] : w.species[k]) ?? null; }
     else if (generation(id) > 0) { const [a, b] = parentsOf(id).map(speciesOf); sp = a && b && breed(a, b); }
     speciesMemo.set(id, sp || null);
   }
   return speciesMemo.get(id);
+}
+
+// Flyers (birds, sky jellyfish, flying whales) are a species too, so they can be captured and live at
+// home. Their ids use k = 50 + n ("<seed>#50"): homes and the galaxy contract take them as any wild species.
+export const FLYER_K = 50;
+export const isFlyerId = (id) => /#5[0-9]$/.test(id);
+const FLYER_RARITY = { flock: ['common', 8], jellyfish: ['rare', 10], whale: ['epic', 11.5] };
+export function makeFlyer(worldSeed, kind) {
+  const r = rngFrom(`${worldSeed}:flyer`), syl = () => SYL[Math.floor(r() * SYL.length)];
+  const name = syl() + syl() + { flock: 'wing', jellyfish: 'drifter', whale: 'leviathan' }[kind];
+  const [rarity, bits] = FLYER_RARITY[kind];
+  return { id: `${worldSeed}#${FLYER_K}`, name: name[0].toUpperCase() + name.slice(1), flyer: kind, rarity, bits };
 }
 
 // A colonist's people: one species per explorer (random from their key, the same on every colony),
@@ -551,6 +599,7 @@ export function makePlant(worldSeed, k, family) {
     id: `${worldSeed}~${k}`, family, name: `${genus[0].toUpperCase()}${genus.slice(1)} ${epithet}`,
     tall, wide, hue: Math.floor(r() * 360), bloom,
     rarity: bloom && (tall > 1.35 || wide > 1.2) ? 'rare' : 'common',
+    scale: sizeOf(r(), PLANT_SIZES),
   };
 }
 
@@ -563,7 +612,7 @@ export function crossPlant(a, b) {
   return {
     id: `${a.id}+${b.id}`, family: r() < 0.5 ? a.family : b.family, name: `${a.name.split(' ')[0]} ${b.name.split(' ')[1]}`,
     tall: mix(a.tall, b.tall), wide: mix(a.wide, b.wide), hue: mutated ? Math.floor(r() * 360) : r() < 0.5 ? a.hue : b.hue,
-    bloom: mutated || a.bloom || b.bloom, rarity: mutated ? 'epic' : 'rare', crossed: true,
+    bloom: mutated || a.bloom || b.bloom, rarity: mutated ? 'epic' : 'rare', crossed: true, scale: mix(a.scale ?? 1, b.scale ?? 1),
   };
 }
 // shortcut: cached forever per id, like speciesMemo.
@@ -651,7 +700,7 @@ export function migrants(ev) {
   // they travel together: same stretch of land and pace, a little spread out
   const speed = (3 + r() * 3) * 1e-6 * sp.pace, phase = r() * 2;
   return Array.from({ length: 8 + Math.floor(r() * 8) }, () => ({
-    kind: 'species', dna: sp, x: -0.6 + r() * 0.4, range: 1.6, speed, size: 0.03 + r() * 0.02, phase: phase + r() * 0.05, seed: Math.floor(r() * 2 ** 32),
+    kind: 'species', dna: sp, x: -0.6 + r() * 0.4, range: 1.6, speed, size: (0.03 + r() * 0.02) * (sp.scale ?? 1), phase: phase + r() * 0.05, seed: Math.floor(r() * 2 ** 32),
   }));
 }
 
@@ -694,6 +743,6 @@ export function survivors(w, her) {
   if (!her?.survivor) return [];
   const r = rngFrom(`${w.seed}:survivors`), sp = her.survivor, speed = (2 + r() * 3) * 1e-6 * sp.pace;
   return Array.from({ length: 3 + Math.floor(r() * 4) }, () => ({
-    kind: 'species', dna: sp, x: -0.8 + r() * 1.2, range: 0.4 + r() * 0.4, speed, size: 0.03 + r() * 0.02, phase: r() * 2, seed: Math.floor(r() * 2 ** 32),
+    kind: 'species', dna: sp, x: -0.8 + r() * 1.2, range: 0.4 + r() * 0.4, speed, size: (0.03 + r() * 0.02) * (sp.scale ?? 1), phase: r() * 2, seed: Math.floor(r() * 2 ** 32),
   }));
 }

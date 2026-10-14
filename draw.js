@@ -354,6 +354,58 @@ export function drawRiver(g, x, top, bottom, width, depth, phase, t, color) {
   g.restore();
 }
 
+/** A volcano rising from ground y: a cone of the range's colour, a glowing crater, lava streaks and a
+ *  plume of smoke (thicker, with sparks, while it erupts). */
+export function drawVolcano(g, x, y, s, v, t, color, night) {
+  const top = y - s, rim = s * 0.16;
+  g.save();
+  g.fillStyle = color;
+  g.beginPath(); g.moveTo(x - s * 1.3, y + s * 0.05); g.lineTo(x - rim, top); g.lineTo(x + rim, top); g.lineTo(x + s * 1.3, y + s * 0.05); g.fill();
+  // lava: a glow in the crater and streaks running down the flanks
+  const glow = 0.6 + 0.4 * Math.sin(t / 700 + v.phase);
+  g.fillStyle = `rgba(255, ${90 + 60 * glow}, 30, ${night ? 0.95 : 0.8})`;
+  g.beginPath(); g.ellipse(x, top + s * 0.01, rim * 0.9, s * 0.035, 0, 0, 7); g.fill();
+  g.strokeStyle = g.fillStyle; g.lineWidth = Math.max(1, s * 0.025);
+  for (const [dx, len] of [[-0.55, 0.55], [0.35, 0.7], [0.05, 0.35]]) {
+    g.beginPath(); g.moveTo(x + dx * rim, top);
+    for (let u = 0.1; u <= len; u += 0.1) g.lineTo(x + dx * rim + dx * s * u * 1.1 + Math.sin(u * 9 + v.phase) * s * 0.03, top + u * s);
+    g.stroke();
+  }
+  if (night || v.erupting) { g.globalAlpha = 0.18 * glow; g.fillStyle = '#ff7a30'; g.beginPath(); g.arc(x, top, s * 0.28, 0, 7); g.fill(); }
+  g.restore();
+  drawSmoke(g, x - s * 0.1, top, s * (v.erupting ? 0.35 : 0.2), t, v.phase, night ? '#555' : '#333');
+  if (v.erupting) { // sparks thrown up and falling back
+    g.save(); g.fillStyle = '#ffb347';
+    for (let j = 0; j < 10; j++) {
+      const u = (t / 1400 + j * 0.37 + v.phase) % 1, dx = (((j * 53) % 11) / 11 - 0.5) * s * 0.9;
+      g.globalAlpha = 1 - u; g.fillRect(x + dx * u, top - s * 0.6 * Math.sin(u * Math.PI), Math.max(1, s * 0.02), Math.max(1, s * 0.02));
+    }
+    g.restore();
+  }
+}
+
+/** A waterfall pouring from a ridge at (x, top) down to `bottom`, with mist where it lands. */
+export function drawWaterfall(g, x, top, bottom, width, t, phase, color) {
+  const span = bottom - top;
+  if (span <= 0) return;
+  g.save();
+  g.fillStyle = color; g.globalAlpha = 0.85;
+  g.beginPath(); g.moveTo(x - width * 0.35, top); g.lineTo(x + width * 0.35, top); g.lineTo(x + width * 0.5, bottom); g.lineTo(x - width * 0.5, bottom); g.fill();
+  // streaks falling fast
+  g.strokeStyle = '#fff'; g.lineWidth = Math.max(1, width * 0.06);
+  for (let j = 0; j < 9; j++) {
+    const u = (j / 9 + t * 0.0004 + phase) % 1, sx = x + (((j * 5) % 9) / 9 - 0.5) * width * 0.7;
+    g.globalAlpha = 0.35 * (1 - u * 0.5); g.beginPath(); g.moveTo(sx, top + u * span); g.lineTo(sx, top + Math.min(1, u + 0.12) * span); g.stroke();
+  }
+  // mist at the foot
+  g.fillStyle = '#fff';
+  for (let j = 0; j < 5; j++) {
+    const u = (t / 1800 + j / 5 + phase) % 1;
+    g.globalAlpha = 0.18 * (1 - u); g.beginPath(); g.arc(x + (j - 2) * width * 0.35, bottom - u * width * 1.2, width * (0.4 + u * 0.6), 0, 7); g.fill();
+  }
+  g.restore();
+}
+
 /** A floating island: grassy top, jagged rock hanging below, roots, maybe a tree and a waterfall. */
 export function drawIsland(g, x, y, s, isl, o) {
   const r = rng(isl.seed);
