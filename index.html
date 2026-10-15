@@ -128,6 +128,9 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · Unload at your cities</h3>
+  <ul><li>When you come back to a city of yours from an expedition, the creatures and seeds in your bag are now released there, as at your home planet: you no longer have to carry them all the way home.</li>
+    <li>Creatures living in a city count for its defence and for the buildings that ask for creatures.</li></ul>
   <h3>2026-10-15 · Mute the effects</h3>
   <ul><li>The ☰ menu has a new 🔊 Effects button: switch off the little sounds (gathering, building, battles) and keep the music, or the other way round. Your choice is remembered.</li></ul>
   <h3>2026-10-15 · Upgrades count for what your home needs</h3>
@@ -136,7 +139,7 @@
   <h3>2026-10-15 · Cities on your colonies</h3>
   <ul><li>On a planet you colonized (your flag is there) you can now found a city with 🏙 Found a city: it costs plants and ore, and a little more for each one (up to 8).</li>
     <li>You build, upgrade and repair a city like your home. It produces while you are away, and its people eat from your bag.</li>
-    <li>Other explorers who land there see your city, can besiege it, and pirates raid it too. Your creatures, garden and ships stay with your home planet.</li>
+    <li>Other explorers who land there see your city, can besiege it, and pirates raid it too. Creatures and seeds you carry are unloaded there when you arrive; ships and breeding stay with your home planet.</li>
     <li>Your cities count in the 🏆 leaderboard together with your home, and a city exists only while the planet is still your colony.</li></ul>
   <h3>2026-10-15 · Upgrade your buildings</h3>
   <ul><li>In 🏗 Build, under Your buildings, each building has an Upgrade button: up to 3 levels, each one adding half of what it gave at first (more people housed and fed, more made an hour, more defence).</li>
@@ -204,7 +207,7 @@
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and house and feed your people (huts and castles house them, mills and domes feed them; the more people, the more your home produces).
     Your people walk among your buildings, and they eat: each one 🌿0.1 an hour from your bag while you are away. With no plants to eat, some starve; once fed again, the empty homes slowly fill.</p>
   <p>⬆ <b>Upgrades</b>: in 🏗 Build, under Your buildings, each building has an <b>Upgrade</b> button, up to 3 times. Every level adds half of what it gave at first (people housed and fed, things made an hour, defence, stable room) and costs its price once more for each level, so you can grow without building more. Fusing keeps the higher level; a damaged building must be repaired first.</p>
-  <p>🏙 <b>Cities</b>: on a planet you colonized (your flag is there) press <b>🏙 Found a city</b> (🌿30 ⛏30, a little more for each one; up to 8). A city is built, upgraded, repaired and fed like your home, and produces while you are away (collected when you arrive there). Your creatures, garden, ships and breeding stay with the home planet. Pirates and sieges can come for a city too, it counts in the 🏆 leaderboard with your home, other explorers see it on that planet, and it exists only while the planet is still your colony.</p>
+  <p>🏙 <b>Cities</b>: on a planet you colonized (your flag is there) press <b>🏙 Found a city</b> (🌿30 ⛏30, a little more for each one; up to 8). A city is built, upgraded, repaired and fed like your home, and produces while you are away (collected when you arrive there). When you arrive in a city the creatures and seeds in your bag are unloaded there (creatures roam it, seeds grow in its garden); ships and breeding stay with the home planet. Pirates and sieges can come for a city too, it counts in the 🏆 leaderboard with your home, other explorers see it on that planet, and it exists only while the planet is still your colony.</p>
   <p>Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
@@ -383,12 +386,12 @@ function load() {
       ...fleetLines(fleet), ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   else if (cityOf(st, seed)) {
-    let got, raids;
-    const ach = withAchievements(st, () => { withHome(st, cityOf(st, seed), () => { raids = pirates(st, Date.now()); got = produce(st, Date.now()); }); });
+    let got, raids, n, sown;
+    const ach = withAchievements(st, () => { withHome(st, cityOf(st, seed), () => { n = arriveHome(st); sown = sow(st); raids = pirates(st, Date.now()); got = produce(st, Date.now()); }); });
     const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
-    save();
+    save(); if (n || sown) fn?.homeChanged();
     if (raids.length) raided(raids.some((r) => !r.won));
-    toast([...raidLines(raids, 'your city'), made.length && `🏙 While you were away your city produced ${made.join(' ')}`, got.eaten && `👥 Its people ate 🌿${got.eaten}`,
+    toast([...raidLines(raids, 'your city'), n && `🐾 ${n} creature${n > 1 ? 's' : ''} released in your city`, sown && `🌱 ${sown} new plant${sown > 1 ? 's' : ''} sown in its garden`, made.length && `🏙 While you were away your city produced ${made.join(' ')}`, got.eaten && `👥 Its people ate 🌿${got.eaten}`,
       got.starved && `💀 ${got.starved} people of your city starved: bring plants (🌿 in your bag) to feed them.`, ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
   checkHome(); ev = null; evHerd = []; checkEvent();
@@ -1103,7 +1106,7 @@ let curCity = null; // the seed of the city the Build dialog is about (none: the
 cityBtn.onclick = () => {
   if (!cityOf(st, world.seed)) {
     const c = cityCost(st);
-    if (!confirm(`Found a city on ${world.name}, one of your colonies? It costs 🌿${c.plant} ⛏${c.ore}. You build it like your home, and it produces while you are away (creatures, garden and fleet stay with your home planet; pirates and sieges can come for the city too).`)) return;
+    if (!confirm(`Found a city on ${world.name}, one of your colonies? It costs 🌿${c.plant} ⛏${c.ore}. You build it like your home, and it produces while you are away (the creatures and seeds in your bag are unloaded there when you arrive; fleet and breeding stay with your home planet; pirates and sieges can come for the city too).`)) return;
     if (!foundCity(st, world.seed, Date.now())) return toast([`You need 🌿${c.plant} ⛏${c.ore} to found a city.`]);
     save(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); toast([`🏙 You founded a city on ${world.name}.`]);
   }
@@ -1197,7 +1200,7 @@ function renderBuildBody() {
         <p>${adv ? `👉 <b>${esc(adv.need.label)}</b> is the weakest: ${adv.up !== undefined ? `upgrade your <b>${esc(buildingName(H.built[adv.up]))}</b> (${costText(upgradeCost(H.built[adv.up], grav()))}) in Your buildings, or build` : 'build'} a <b>${BUILDINGS[adv.kind].name}</b> (${costText(costOf(adv.kind, grav()))}).` : '✓ Everything is covered: more of anything makes your home grow.'}</p>`; })()}
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     ${fn && !isCity ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
-    ${isCity ? '<h3>🏙 City</h3><p><small>Its creatures, garden, ships and breeding stay with your home planet. Pirates and sieges can come for it too, and it counts for your civilization level.</small></p>' : `${fleetHtml(H)}\n    <h3>🧬 Breeding</h3>${breedHtml(H)}\n    <h3>🌸 Crossing</h3>${crossHtml(H)}`}
+    ${isCity ? '<h3>🏙 City</h3><p><small>Creatures and seeds in your bag are unloaded here when you arrive. Ships and breeding stay with your home planet. Pirates and sieges can come for it too, and it counts for your civilization level.</small></p>' : `${fleetHtml(H)}\n    <h3>🧬 Breeding</h3>${breedHtml(H)}\n    <h3>🌸 Crossing</h3>${crossHtml(H)}`}
     <h3>Build</h3>
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b>${k === homeAdvice(st)?.kind ? ' ⭐' : ''} <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
