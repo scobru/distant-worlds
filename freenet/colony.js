@@ -17,8 +17,10 @@ export const score = (seed, persona, nonces) => nonces.reduce((s, n, i) => s + t
 export const work = (sc) => (sc > 0n ? Number((BigInt(LANES * LANES) << 64n) / sc) : Infinity);
 export const seconds = (sc) => work(sc) / HASHES_PER_SECOND;
 export const msg = (seed, c) => `dwc1|${seed}|${c.persona}|${c.name}|${c.nick}|${c.x}|${c.ts}|${c.nonces.join(',')}`;
+/** Where a home is kept (contract home_key): the persona for the home planet, `persona/seed` for a city. */
+export const homeKey = (h) => (h.city ? `${h.persona}/${h.seed}` : h.persona);
 /** Home message, as contract/src/lib.rs home_msg(): buildings are [kind, x in hundredths]. */
-export const homeMsg = (h) => `dwh1|${h.persona}|${h.nick}|${h.seed}|${h.ts}|${h.built.map(([k, x]) => `${k}:${x}`).join(',')}|${h.animals.join(',')}${h.peace ? '|peace' : ''}${h.size ? `|size:${h.size.join(',')}` : ''}`;
+export const homeMsg = (h) => `dwh1|${h.persona}|${h.nick}|${h.seed}|${h.ts}|${h.built.map(([k, x]) => `${k}:${x}`).join(',')}|${h.animals.join(',')}${h.peace ? '|peace' : ''}${h.city ? '|city' : ''}${h.size ? `|size:${h.size.join(',')}` : ''}`;
 /** Sieges (contract raid_hash / raid_msg): time spent on another explorer's home, bound to that home and the day. */
 export const raidHash = (target, attacker, day, lane, nonce) => sha256(enc.encode(`dwr1|${target}|${attacker}|${day}|${lane}|${nonce}`));
 export const raidScore = (r) => r.nonces.reduce((s, n, i) => s + top64(raidHash(r.target, r.attacker, r.day, i, n)), 0n);

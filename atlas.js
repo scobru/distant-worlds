@@ -433,6 +433,43 @@ const TITLES = [[1, 'Landing site'], [2, 'Camp'], [3, 'Village'], [5, 'Town'], [
 export const titleFor = (lv) => TITLES.findLast(([n]) => lv >= n)[1];
 export const civTitle = (home) => titleFor(civLevel(home));
 
+// Cities: besides the home planet, a city can be founded on each planet you colonized (up to CITY.max). A city has
+// its own buildings and people (and produces, eats and is upgraded like the home) but no creatures, garden or fleet; its
+// buildings that ask for creatures count the ones at the main home. Pirates raid the main home only. Cities live in
+// `st.cities` as home-shaped objects; `withHome` runs home logic (build, upgrade, produce...) on one of them.
+export const CITY = { plant: 30, ore: 30, max: 8, grow: 1.5 };
+export const cityOf = (st, seed) => (st.cities ?? []).find((c) => c.seed === seed);
+export const cityCost = (st) => { const k = CITY.grow ** (st.cities?.length ?? 0); return { plant: Math.ceil(CITY.plant * k), ore: Math.ceil(CITY.ore * k) }; };
+/** Founds a city on `seed` (the caller checks that it is your colony): not on the home planet, once per planet. */
+export function foundCity(st, seed, now = 0) {
+  const c = cityCost(st);
+  if (!st.home || st.home.seed === seed || cityOf(st, seed) || (st.cities?.length ?? 0) >= CITY.max || st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
+  st.bag.plant -= c.plant; st.bag.ore -= c.ore;
+  (st.cities ??= []).push({ seed, built: [], animals: [], prod: now, since: now });
+  stat(st, 'cities');
+  return true;
+}
+let mainHome = null; // the real home while `withHome` has a city in st.home
+/** Runs `f` with `city` as st.home (nested calls keep the first real home). */
+export function withHome(st, city, f) {
+  if (!city) return f();
+  const first = mainHome === null; if (first) mainHome = st.home;
+  const was = st.home; st.home = city;
+  try { return f(); } finally { st.home = first ? mainHome : was; if (first) mainHome = null; }
+}
+/** Runs `f` with the real home back in st.home (to save the state while a city is swapped in). */
+export function withMain(st, f) {
+  if (mainHome === null) return f();
+  const city = st.home; st.home = mainHome;
+  try { return f(); } finally { st.home = city; }
+}
+/** A city whose world collapsed is lost with its buildings; returns the lost ones. */
+export function loseCities(st, dead) {
+  const lost = (st.cities ?? []).filter((c) => dead(c.seed));
+  if (lost.length) st.cities = st.cities.filter((c) => !lost.includes(c));
+  return lost;
+}
+
 export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now, since: now });
 
 /** Releases the creatures in the bag on the home planet; returns how many. */
@@ -453,7 +490,7 @@ export function arriveHome(st) {
 export const costOf = (kind, g = 1) => { const c = BUILDINGS[kind].cost; return { ...c, plant: Math.ceil((c.plant ?? 0) * g), ore: Math.ceil((c.ore ?? 0) * g) }; };
 export const canBuild = (st, kind, g = 1) => {
   const c = costOf(kind, g);
-  return st.bag.plant >= c.plant && st.bag.ore >= c.ore && st.home.animals.length >= (c.animals ?? 0);
+  return st.bag.plant >= c.plant && st.bag.ore >= c.ore && (mainHome ?? st.home).animals.length >= (c.animals ?? 0);
 };
 
 /** Builds `kind` at x (on the structures' layer) if the bag pays for it. */
@@ -479,27 +516,34 @@ export const pirateThreat = (home) => 2 + 2 * civLevel(home);
 /** What the home lacks, as meters from 0 to 1 (1: covered), each with the buildings that mend it, best first:
  *  homes (places for the people the land can feed), food (the land against the places), defence (against the
  *  biggest raid), stables (one per 8 creatures) and the plants in the bag (a day of food for everyone). */
+// Creatures a stable holds (before upgrades): the Stables need.
+const STABLE_ROOM = 8;
 export function homeNeeds(st) {
   const H = st.home, sum = (f) => total(H, f);
   const shelter = sum('house'), feed = BASE_FOOD + sum('food'), pop = population(H), top = Math.round(1.5 * pirateThreat(H)), def = defence(H);
-  const animals = H.animals.length, stables = builtOf(st, 'longhouse'), wanted = animals >= 2 ? Math.ceil(animals / 8) : 0;
+  const animals = H.animals.length, stables = builtOf(st, 'longhouse'), room = Math.floor(working(H).reduce((a, [k, m]) => a + (k === 'longhouse' ? STABLE_ROOM * m : 0), 0));
   const hours = pop ? st.bag.plant / (pop * EAT) : Infinity;
   return [
     { key: 'stock', icon: '🌿', label: 'Food stock', v: Math.min(1, hours / 24), text: pop ? `the bag feeds them for ${Math.floor(hours)} h` : 'nobody lives here yet', build: ['windmill', 'house'] },
     { key: 'food', icon: '🍞', label: 'Food', v: feed >= shelter ? 1 : feed / shelter, text: `the land feeds ${feed}, there are places for ${shelter}`, build: ['windmill', 'dome'] },
     { key: 'homes', icon: '🏠', label: 'Homes', v: shelter >= feed ? 1 : shelter / feed, text: `places for ${shelter}, the land feeds ${feed}`, build: ['house', 'castle'] },
     { key: 'defence', icon: '🛡', label: 'Defence', v: Math.min(1, def / top), text: `${def} against raids of up to ${top}`, build: ['castle', 'tower'] },
-    { key: 'stables', icon: '🐾', label: 'Stables', v: wanted ? Math.min(1, stables / wanted) : 1, text: animals < 2 ? 'a stable breeds your creatures, once you have two' : `${stables} for ${animals} creatures (one per 8)`, build: ['longhouse'] },
+    { key: 'stables', icon: '🐾', label: 'Stables', v: animals >= 2 ? Math.min(1, room / animals) : 1, text: animals < 2 ? 'a stable breeds your creatures, once you have two' : `${stables} stables hold ${room} of ${animals} creatures (${STABLE_ROOM} each, more when upgraded)`, build: ['longhouse'] },
   ];
 }
-/** The most pressing need and the cheapest of its buildings, or null when all is covered. The first need in the
+/** The most pressing need and the cheapest of its buildings, or null when all is covered. When one of its buildings
+ *  that you already have can be upgraded for less than a new one costs, `up` is its index in `home.built` (an upgrade counts like a new building).  The first need in the
  *  order above that is below 60% comes first (a growing home needs people fed and housed before it needs walls);
  *  if none is, the lowest meter below 90%. */
 export function homeAdvice(st, needs = homeNeeds(st)) {
   const n = needs.find((x) => x.v < 0.6) ?? needs.reduce((a, x) => (x.v < a.v ? x : a));
   if (n.v >= 0.9) return null;
   const cost = (b) => (BUILDINGS[b].cost.plant ?? 0) + (BUILDINGS[b].cost.ore ?? 0) + 10 * (BUILDINGS[b].cost.animals ?? 0), ok = n.build.filter((b) => canBuild(st, b));
-  return { need: n, kind: [...(ok.length ? ok : n.build)].sort((a, b) => cost(a) - cost(b))[0] };
+  const kind = [...(ok.length ? ok : n.build)].sort((a, b) => cost(a) - cost(b))[0];
+  const ups = st.home.built.map((b, i) => [b, i]).filter(([b]) => !b.damaged && (b.lv ?? 0) < MAX_LV && partsOf(b).some((k) => n.build.includes(k)))
+    .map(([b, i]) => [i, upgradeCost(b)]).filter(([, c]) => st.bag.plant >= c.plant && st.bag.ore >= c.ore).sort(([, a], [, b]) => a.plant + a.ore - (b.plant + b.ore));
+  const up = ups.length && ups[0][1].plant + ups[0][1].ore <= cost(kind) ? ups[0][0] : undefined;
+  return { need: n, kind, ...(up !== undefined && { up }) };
 }
 /** The raid on `home` in clock slot `slot`, or null: { at, crew } (the same for everyone, from the seed). */
 export function raidAt(home, slot) {

@@ -72,14 +72,20 @@ export function checkColony(app, seed, c) {
 const sizeOk = (h) => h.size === undefined || (Array.isArray(h.size) && h.size.length === 4 && h.size.every(uint) && (([b, c, p, pts]) =>
   b >= h.built.length && c >= h.animals.length && b <= 10_000 && c <= 100_000 && p <= 25 * b && pts <= 5 * p + 125 * b + 360 + 3 * c)(h.size));
 export function checkHome(app, h) {
-  if (!isPersona(h?.persona) || !isStar(h.seed) || !text(h.nick, 24) || !uint(h.ts) || (h.peace !== undefined && typeof h.peace !== 'boolean')) fail('bad home');
+  if (!isPersona(h?.persona) || !isStar(h.seed) || !text(h.nick, 24) || !uint(h.ts) || (h.peace !== undefined && typeof h.peace !== 'boolean') || (h.city !== undefined && typeof h.city !== 'boolean')) fail('bad home');
   if (!Array.isArray(h.built) || !Array.isArray(h.animals) || h.built.length > 64 || h.animals.length > 64 || !sizeOk(h)) fail('home too big');
   if (!h.built.every((b) => Array.isArray(b) && b.length === 2 && BUILDINGS.includes(b[0]) && Number.isSafeInteger(b[1]) && Math.abs(b[1]) <= 1e9) || !h.animals.every(isAnimal)) fail('bad home fields');
   signed(app, h.persona, h.ante, COLONY_BITS, homeMsg(h), h.sig, h.cert);
-  return { persona: h.persona, nick: h.nick, seed: h.seed, built: h.built, animals: h.animals, ts: h.ts, ...(h.peace && { peace: true }), ...(h.size && { size: h.size }), ante: h.ante, sig: h.sig, cert: cert(h.cert) };
+  return { persona: h.persona, nick: h.nick, seed: h.seed, built: h.built, animals: h.animals, ts: h.ts, ...(h.peace && { peace: true }), ...(h.city && { city: true }), ...(h.size && { size: h.size }), ante: h.ante, sig: h.sig, cert: cert(h.cert) };
+}
+/** The persona a siege target belongs to (contract target_persona): a persona, or `persona/seed` for one of its cities. */
+export function targetPersona(t) {
+  if (typeof t !== 'string') return null;
+  const [p, seed, ...rest] = t.split('/');
+  return isPersona(p) && rest.length === 0 && (seed === undefined || isStar(seed)) ? p : null;
 }
 export function checkRaid(app, r) {
-  if (!isPersona(r?.attacker) || !isPersona(r.target) || r.attacker === r.target || !text(r.nick, 24) || !uint(r.day) || !nonces(r.nonces)) fail('bad raid');
+  if (!isPersona(r?.attacker) || targetPersona(r.target) === null || targetPersona(r.target) === r.attacker || !text(r.nick, 24) || !uint(r.day) || !nonces(r.nonces)) fail('bad raid');
   if (raidScore(r) > MAX_SCORE) fail('siege too short');
   signed(app, r.attacker, r.ante, COLONY_BITS, raidMsg(r), r.sig, r.cert);
   return { attacker: r.attacker, nick: r.nick, target: r.target, day: r.day, nonces: r.nonces, ante: r.ante, sig: r.sig, cert: cert(r.cert) };

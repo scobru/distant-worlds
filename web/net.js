@@ -4,7 +4,7 @@
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { chatMsg, hereMsg } from '../freenet/chat.js';
-import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg, blockMsg } from '../freenet/colony.js';
+import { msg as colonyMsg, homeMsg, homeKey, raidMsg, raidKey, nameMsg, blockMsg } from '../freenet/colony.js';
 import { connectMessage } from '../freenet/connect.js';
 export { personaName } from '../freenet/connect.js';
 
@@ -71,10 +71,10 @@ export async function publishColony(seed, { name, nick, x, nonces, ante }) {
   await call('galaxy', { colonies: { [seed]: c } });
   return c;
 }
-export async function publishHome({ nick, seed, built, animals, peace, size, ante }) {
-  const s = await signedIn(), h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), size, ante, sig: '', cert: s.cert };
+export async function publishHome({ nick, seed, built, animals, peace, city, size, ante }) {
+  const s = await signedIn(), h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), ...(city && { city: true }), size, ante, sig: '', cert: s.cert };
   h.sig = await s.sign(homeMsg(h));
-  await call('galaxy', { homes: { [s.persona]: h } });
+  await call('galaxy', { homes: { [homeKey(h)]: h } });
   return h;
 }
 export async function publishRaid({ nick, target, day, nonces, ante }) {

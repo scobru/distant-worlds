@@ -19,7 +19,7 @@ import chatWasm from './chat.wasm?url';
 import { chatMsg, hereMsg } from './chat.js';
 import { identityInstance, IDENTITY_CODE_HASH, readPersona } from './viso.js';
 import identityWasm from './identity.wasm?url';
-import { msg as colonyMsg, homeMsg, raidMsg, raidKey, nameMsg, blockMsg } from './colony.js';
+import { msg as colonyMsg, homeMsg, homeKey, raidMsg, raidKey, nameMsg, blockMsg } from './colony.js';
 import { connectMessage } from './connect.js';
 export { personaName } from './connect.js';
 
@@ -145,12 +145,12 @@ export async function publishColony(seed, { name, nick, x, nonces, ante }) {
 }
 
 /** Publish our home planet (buildings as [kind, x in hundredths], creature ids), so others see it. */
-export async function publishHome({ nick, seed, built, animals, peace, size, ante }) {
+export async function publishHome({ nick, seed, built, animals, peace, city, size, ante }) {
   const s = await session();
   if (!s) throw new Error('Sign in first.');
-  const h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), size, ante, sig: '', cert: s.cert };
+  const h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), ...(city && { city: true }), size, ante, sig: '', cert: s.cert };
   h.sig = await s.sign(homeMsg(h));
-  await send({ homes: { [s.persona]: h } });
+  await send({ homes: { [homeKey(h)]: h } });
   return h;
 }
 

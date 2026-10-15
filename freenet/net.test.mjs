@@ -71,6 +71,7 @@ console.log('colony ok, estimate', Math.round(work(s2)), 'for 88000 hashes');
     `dwh1|${p}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2`); // same vector as contract/src/lib.rs
   assert.ok(homeMsg({ persona: p, nick: 'Zed', seed: 'v1-1_2_3.4', ts: 7, built: [], animals: [], peace: true }).endsWith('||peace'), 'peaceful homes sign it');
   assert.ok(homeMsg({ persona: p, nick: 'Zed', seed: 'v1-1_2_3.4', ts: 7, built: [], animals: [], peace: true, size: [70, 1060, 563, 5000] }).endsWith('||peace|size:70,1060,563,5000'), 'as contract home_msg');
+  assert.ok(homeMsg({ persona: p, nick: 'Zed', seed: 'v1-1_2_3.4', ts: 7, built: [], animals: [], peace: true, city: true }).endsWith('||peace|city'), 'a city signs it');
   console.log('home msg ok');
 }
 {

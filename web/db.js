@@ -3,13 +3,14 @@
 // (whoiam delegation, Viso level, proof of work), same merge rules; state JSON keeps the contracts' shape.
 // The checks themselves live in freenet/check.js, shared with the client.
 import { DatabaseSync } from 'node:sqlite';
-import { score, raidScore, raidKey, blockMsg, unfitSeeds } from '../freenet/colony.js';
-import { checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
+import { score, raidScore, raidKey, blockMsg, unfitSeeds, homeKey } from '../freenet/colony.js';
+import { targetPersona, checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere, isStar, isAnimal, anteLevel, isPersona, uint, fail, verify } from '../freenet/check.js';
 export { isStar, isAnimal, anteLevel, checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere };
 // Web only (the contracts take whatever the network lets through): a delta carries a few records, not thousands,
 // since each costs three signature checks and a pass over its table.
 const MAX_DELTA = 50;
 const tooBig = (d, keys) => { for (const k of keys) if (d[k] && Object.keys(d[k]).length > MAX_DELTA) fail('delta too big'); };
+const MAX_CITIES = 8; // as the contract
 const MAX = { colony: 20_000, home: 20_000, raid: 20_000, name: 50_000, here: 100 }, MAX_MESSAGES = 50, MAX_PER_PERSONA = 3;
 const EMPTY_BLOCK = { ts: 0, list: [], sig: '' };
 
@@ -66,12 +67,13 @@ export function open(file, { admin, app = '/' }) {
           if (!old || lexi(colonyRank(seed, v), colonyRank(seed, old)) < 0) put('colony', seed, v);
         }
         for (const [p, h] of Object.entries(d.homes ?? {})) {
-          if (p !== h?.persona || bl.has(p) || bl.has(h.seed)) continue;
+          if (p !== homeKey(h ?? {}) || bl.has(h?.persona) || bl.has(h.seed)) continue;
+          if (h.city && get('colony', h.seed)?.persona !== h.persona) continue; // a city needs its persona's colony
           const old = get('home', p), v = checkHome(app, h);
           if (!old || lexi([v.ts, v.sig], [old.ts, old.sig]) > 0) put('home', p, v);
         }
         for (const [k, r] of Object.entries(d.raids ?? {})) {
-          if (!r || k !== raidKey(r) || bl.has(r.attacker) || bl.has(r.target)) continue;
+          if (!r || k !== raidKey(r) || bl.has(r.attacker) || bl.has(r.target) || bl.has(targetPersona(r.target))) continue;
           const old = get('raid', k), v = checkRaid(app, r);
           if (!old || lexi([raidScore(v), v.sig], [raidScore(old), old.sig]) < 0) put('raid', k, v);
         }
@@ -83,13 +85,18 @@ export function open(file, { admin, app = '/' }) {
         }
         for (const [k, n] of all('name')) if (bl.has(n.persona)) delQ.run('name', k);
         for (const [k, c] of all('colony')) if (bl.has(k) || bl.has(c.persona)) delQ.run('colony', k);
-        for (const [k, h] of all('home')) if (bl.has(k) || bl.has(h.seed)) delQ.run('home', k);
-        for (const [k, r] of all('raid')) if (bl.has(r.attacker) || bl.has(r.target)) delQ.run('raid', k);
+        for (const [k, h] of all('home')) if (bl.has(h.persona) || bl.has(h.seed)) delQ.run('home', k);
         // a persona holds only the colonies its work pays for (see colonyLimit)
         const held = {};
         for (const [k, c] of all('colony')) (held[c.persona] ??= []).push([k, score(k, c.persona, c.nonces)]);
         for (const list of Object.values(held)) for (const k of unfitSeeds(list)) delQ.run('colony', k);
         cap('colony', ([a, x], [b, y]) => lexi(colonyRank(a, x), colonyRank(b, y)));
+        // a city goes with the colony it stood on, and a persona keeps its newest MAX_CITIES
+        for (const [k, h] of all('home')) if (h.city && get('colony', h.seed)?.persona !== h.persona) delQ.run('home', k);
+        const cities = {};
+        for (const [k, h] of all('home')) if (h.city) (cities[h.persona] ??= []).push([k, h]);
+        for (const list of Object.values(cities)) list.sort(([, x], [, y]) => lexi([y.ts, y.sig], [x.ts, x.sig])).slice(MAX_CITIES).forEach(([k]) => delQ.run('home', k));
+        for (const [k, r] of all('raid')) if (bl.has(r.attacker) || bl.has(r.target) || bl.has(targetPersona(r.target))) delQ.run('raid', k);
         cap('home', ([, x], [, y]) => lexi([y.ts, y.sig], [x.ts, x.sig]));
         cap('name', ([, x], [, y]) => lexi([x.ts, x.sig], [y.ts, y.sig]));
         cap('raid', ([, x], [, y]) => lexi([-x.day, raidScore(x), x.sig], [-y.day, raidScore(y), y.sig]));

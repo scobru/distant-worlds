@@ -597,3 +597,51 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   st.home.built[0].damaged = true;
   assert.ok(!upgrade(st, 0), 'not while damaged');
 }
+
+{
+  const { setHome, foundCity, cityOf, cityCost, CITY, withHome, withMain, build, population } = await import('./atlas.js');
+  const st = emptyState();
+  st.bag.plant = 5000; st.bag.ore = 5000;
+  assert.ok(!foundCity(st, 'v1-2_2_2.1'), 'a home first');
+  setHome(st, 'v1-1_1_1.1', 0);
+  st.home.animals.push('v1-1_1_1#0', 'v1-1_1_1#1', 'v1-1_1_1#2', 'v1-1_1_1#3', 'v1-1_1_1#4');
+  assert.ok(!foundCity(st, 'v1-1_1_1.1'), 'not on the home planet');
+  assert.deepEqual(cityCost(st), { plant: 30, ore: 30 });
+  assert.ok(foundCity(st, 'v1-2_2_2.1') && !foundCity(st, 'v1-2_2_2.1'), 'once a planet');
+  assert.deepEqual(cityCost(st), { plant: 45, ore: 45 }, 'each city costs more');
+  const home = st.home, city = cityOf(st, 'v1-2_2_2.1');
+  // the city is built like a home; creature costs count the main home's creatures
+  withHome(st, city, () => { assert.ok(build(st, 'tower', 0.5) && build(st, 'house', 0.7)); assert.ok(population(st.home) > 0); });
+  assert.equal(st.home, home, 'the home comes back');
+  assert.equal(city.built.length, 2); assert.equal(home.built.length, 0);
+  withHome(st, city, () => withMain(st, () => assert.equal(st.home, home, 'saving sees the home')));
+  for (let i = 3; foundCity(st, `v1-${i}_${i}_${i}.1`); i++);
+  assert.equal(st.cities.length, CITY.max, 'at most eight');
+}
+
+{
+  const { setHome, build, upgrade, homeNeeds, homeAdvice } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'v1-1_1_1.1', 0);
+  st.bag.plant = 500; st.bag.ore = 500;
+  st.home.animals.push(...Array.from({ length: 12 }, (_, i) => `v1-1_1_1#${i}`));
+  build(st, 'longhouse', 0.5);
+  const stables = () => homeNeeds(st).find((n) => n.key === 'stables');
+  assert.ok(Math.abs(stables().v - 8 / 12) < 1e-9, 'one stable holds 8');
+  assert.equal(homeAdvice(st, [stables()]).up, 0, 'upgrading the stable is advised');
+  upgrade(st, 0);
+  assert.ok(Math.abs(stables().v - 12 / 12) < 1e-9, 'an upgraded stable holds 12');
+}
+
+{
+  const { setHome, foundCity, cityOf, withHome, pirates, besieged } = await import('./atlas.js');
+  const st = emptyState();
+  st.bag.plant = 500; st.bag.ore = 500;
+  setHome(st, 'v1-1_1_1.1', 0);
+  foundCity(st, 'v1-2_2_2.1', 0);
+  const city = cityOf(st, 'v1-2_2_2.1'), week = 7 * 864e5;
+  withHome(st, city, () => { pirates(st, week); assert.equal(st.home.raided, week); });
+  assert.equal(st.home.raided, undefined, 'pirates stamped the city, not the home');
+  assert.equal(city.raided, week);
+  assert.equal(withHome(st, city, () => besieged(st, 5, 1000, 'k')), null, 'a new city has its days of grace');
+}

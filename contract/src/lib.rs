@@ -39,6 +39,8 @@ pub const MAX_SCORE: u128 = 1 << 50;
 pub const MAX_COLONIES: usize = 20_000;
 const GALAXY: u32 = 10_000;
 pub const MAX_HOMES: usize = 20_000;
+/// Cities one persona keeps (the newest), besides its home.
+pub const MAX_CITIES: usize = 8;
 pub const MAX_BUILT: usize = 64;
 pub const MAX_ANIMALS: usize = 64;
 pub const MAX_RAIDS: usize = 20_000;
@@ -71,6 +73,9 @@ pub struct Home {
     pub ts: u64,                   // self-declared (ms); the newest home of a persona wins
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub peace: bool, // opted out of sieges, both ways
+    /// A city on a planet the persona colonized, besides its home planet: stored under `home_key`, not under the persona.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub city: bool,
     /// The whole home when it holds more than it can list: [building parts, creatures, people, civilization points].
     /// Self-declared like the rest; `size_ok` bounds it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,7 +89,7 @@ pub struct Home {
 pub struct Raid {
     pub attacker: String, // hex ed25519 pubkey
     pub nick: String,
-    pub target: String, // the besieged persona
+    pub target: String, // the besieged home: a persona, or `<persona>/<seed>` for one of its cities (`home_key`)
     pub day: u64,       // days since 1970 (UTC), self-declared; clients ignore old and future ones
     pub nonces: Vec<u64>,
     pub ante: String,
@@ -173,6 +178,14 @@ pub fn raid_score(r: &Raid) -> u128 {
     r.nonces.iter().enumerate().map(|(i, n)| u64::from_be_bytes(raid_hash(r, i, *n)[..8].try_into().unwrap()) as u128).sum()
 }
 
+/// The persona a siege target belongs to, when the target is a well-formed `home_key`.
+pub fn target_persona(t: &str) -> Option<&str> {
+    match t.split_once('/') {
+        None => is_persona(t).then_some(t),
+        Some((p, seed)) => (is_persona(p) && is_star(seed)).then_some(p),
+    }
+}
+
 pub fn raid_key(r: &Raid) -> String {
     format!("{}|{}|{}", r.attacker, r.target, r.day)
 }
@@ -187,7 +200,7 @@ fn raid_rank(r: &Raid) -> (u128, &str) {
 }
 
 pub fn check_raid(app: &str, r: &Raid) -> R<()> {
-    if !is_persona(&r.attacker) || !is_persona(&r.target) || r.attacker == r.target || !text_ok(&r.nick, 24) || r.nonces.len() != LANES {
+    if !is_persona(&r.attacker) || target_persona(&r.target).is_none_or(|p| p == r.attacker) || !text_ok(&r.nick, 24) || r.nonces.len() != LANES {
         return Err("bad raid".into());
     }
     if raid_score(r) > MAX_SCORE {
@@ -202,7 +215,7 @@ pub fn check_raid(app: &str, r: &Raid) -> R<()> {
 }
 
 fn raid_blocked(b: &Blocklist, r: &Raid) -> bool {
-    b.list.iter().any(|x| *x == r.attacker || *x == r.target)
+    b.list.iter().any(|x| *x == r.attacker || Some(x.as_str()) == target_persona(&r.target) || *x == r.target)
 }
 
 /// Keep the MAX_RAIDS most recent raids (then the longest sieges).
@@ -245,8 +258,9 @@ pub fn is_star(seed: &str) -> bool {
 pub fn home_msg(h: &Home) -> String {
     let b: Vec<String> = h.built.iter().map(|(k, x)| format!("{k}:{x}")).collect();
     let peace = if h.peace { "|peace" } else { "" }; // absent for homes signed before sieges
+    let city = if h.city { "|city" } else { "" }; // absent for homes signed before cities
     let size = h.size.map(|s| format!("|size:{},{},{},{}", s[0], s[1], s[2], s[3])).unwrap_or_default();
-    format!("dwh1|{}|{}|{}|{}|{}|{}{peace}{size}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
+    format!("dwh1|{}|{}|{}|{}|{}|{}{peace}{city}{size}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
 }
 
 /// A declared size holds at least what is listed, and its people and points are no more than that many parts
@@ -448,8 +462,28 @@ fn unfit_colonies(colonies: &BTreeMap<String, Colony>) -> Vec<String> {
     by.into_values().flat_map(unfit).collect()
 }
 
-/// Keep the MAX_HOMES newest homes.
+/// Where a home is kept: the persona for its home planet, `<persona>/<seed>` for a city.
+pub fn home_key(h: &Home) -> String {
+    if h.city { format!("{}/{}", h.persona, h.seed) } else { h.persona.clone() }
+}
+
+/// A city stands on a planet its persona holds the colony of.
+fn city_ok(colonies: &BTreeMap<String, Colony>, h: &Home) -> bool {
+    !h.city || colonies.get(&h.seed).is_some_and(|c| c.persona == h.persona)
+}
+
+/// Keep the MAX_HOMES newest homes, and of each persona the MAX_CITIES newest cities.
 fn prune_homes(homes: &mut BTreeMap<String, Home>) {
+    let mut cities: BTreeMap<String, Vec<(std::cmp::Reverse<(u64, String)>, String)>> = BTreeMap::new();
+    for (k, h) in homes.iter().filter(|(_, h)| h.city) {
+        cities.entry(h.persona.clone()).or_default().push((std::cmp::Reverse((h.ts, h.sig.clone())), k.clone()));
+    }
+    for mut list in cities.into_values() {
+        list.sort();
+        for (_, k) in list.into_iter().skip(MAX_CITIES) {
+            homes.remove(&k);
+        }
+    }
     if homes.len() <= MAX_HOMES {
         return;
     }
@@ -469,7 +503,7 @@ pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
     if s.colonies.len() > MAX_COLONIES || s.colonies.iter().any(|(k, c)| blocked(&s.blocked, k, c)) {
         return Err("state out of bounds".into());
     }
-    if s.homes.len() > MAX_HOMES || s.homes.iter().any(|(p, h)| *p != h.persona || home_blocked(&s.blocked, h)) {
+    if s.homes.len() > MAX_HOMES || s.homes.iter().any(|(k, h)| *k != home_key(h) || home_blocked(&s.blocked, h) || !city_ok(&s.colonies, h)) {
         return Err("homes out of bounds".into());
     }
     if s.raids.len() > MAX_RAIDS || s.raids.iter().any(|(k, r)| *k != raid_key(r) || raid_blocked(&s.blocked, r)) {
@@ -501,12 +535,12 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         check_colony(app, &seed, &c)?;
         s.colonies.insert(seed, c);
     }
-    for (persona, h) in d.homes {
-        if persona != h.persona || home_blocked(&s.blocked, &h) || s.homes.get(&persona).is_some_and(|old| home_rank(old) >= home_rank(&h)) {
+    for (k, h) in d.homes {
+        if k != home_key(&h) || home_blocked(&s.blocked, &h) || !city_ok(&s.colonies, &h) || s.homes.get(&k).is_some_and(|old| home_rank(old) >= home_rank(&h)) {
             continue;
         }
         check_home(app, &h)?;
-        s.homes.insert(persona, h);
+        s.homes.insert(k, h);
     }
     for (k, r) in d.raids {
         if k != raid_key(&r) || raid_blocked(&s.blocked, &r) || s.raids.get(&k).is_some_and(|old| raid_rank(old) <= raid_rank(&r)) {
@@ -530,6 +564,8 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         s.colonies.remove(&seed);
     }
     prune(&mut s.colonies);
+    let colonies = &s.colonies;
+    s.homes.retain(|_, h| city_ok(colonies, h)); // a city goes with the colony it stood on
     prune_homes(&mut s.homes);
     prune_raids(&mut s.raids);
     s.names.retain(|_, n| !b.list.contains(&n.persona));
@@ -780,13 +816,82 @@ mod tests {
         let c = colony("v1-1_1_1", persona, "x", 1, 1); // borrow its delegation and level
         let mut h = Home {
             persona: c.persona, nick: "nick".into(), seed: seed.into(), built: built.iter().map(|(k, x)| (k.to_string(), *x)).collect(),
-            animals: vec![format!("{seed}#0")], ts, peace: false, size: None, ante: c.ante, sig: String::new(), cert: c.cert,
+            animals: vec![format!("{seed}#0")], ts, peace: false, city: false, size: None, ante: c.ante, sig: String::new(), cert: c.cert,
         };
         h.sig = hex::encode(sk(100).sign(home_msg(&h).as_bytes()).to_bytes());
         h
     }
     fn homes(h: Home) -> Delta {
-        Delta { colonies: Default::default(), blocked: None, homes: [(h.persona.clone(), h)].into(), raids: Default::default(), names: Default::default() }
+        Delta { colonies: Default::default(), blocked: None, homes: [(home_key(&h), h)].into(), raids: Default::default(), names: Default::default() }
+    }
+
+    fn city(persona: &SigningKey, seed: &str, ts: u64) -> Home {
+        let mut c = home(persona, seed, &[("house", 10)], ts);
+        c.city = true;
+        c.sig = hex::encode(sk(100).sign(home_msg(&c).as_bytes()).to_bytes());
+        c
+    }
+
+    #[test]
+    fn a_persona_keeps_its_newest_cities() {
+        let mut m = BTreeMap::new();
+        for i in 0..(MAX_CITIES as u64 + 2) {
+            let c = city(&sk(2), &format!("v1-6_6_{i}"), 10 + i);
+            m.insert(home_key(&c), c);
+        }
+        let mine = home(&sk(2), "v1-5_5_5", &[("house", 50)], 1);
+        m.insert(home_key(&mine), mine.clone());
+        prune_homes(&mut m);
+        assert!(m.contains_key(&mine.persona), "the home stays under the persona");
+        assert_eq!(m.values().filter(|h| h.city).count(), MAX_CITIES, "the newest cities stay");
+        assert!(!m.contains_key(&format!("{}/v1-6_6_0", mine.persona)), "the oldest went");
+    }
+
+    #[test]
+    fn a_city_needs_the_colony_it_stands_on() {
+        let admin = pk(&sk(1));
+        let seed = "v1-6_6_6";
+        let mine = home(&sk(2), "v1-5_5_5", &[("house", 50)], 1);
+        let c = city(&sk(2), seed, 5);
+        let mut s = GalaxyState::default();
+        apply(&admin, APP, &mut s, homes(mine.clone())).unwrap();
+        apply(&admin, APP, &mut s, homes(c.clone())).unwrap();
+        assert!(!s.homes.contains_key(&home_key(&c)), "no colony, no city");
+        apply(&admin, APP, &mut s, one(seed, colony(seed, &sk(2), "Mine", 1 << 18, 10))).unwrap();
+        apply(&admin, APP, &mut s, homes(c.clone())).unwrap();
+        assert!(s.homes.contains_key(&home_key(&c)));
+        validate(&admin, APP, &s).unwrap();
+        // a city may not take the home's key: it would replace the home
+        let under_home = Delta { homes: [(c.persona.clone(), c.clone())].into(), ..Default::default() };
+        let before = s.clone();
+        apply(&admin, APP, &mut s, under_home).unwrap();
+        assert_eq!(s, before);
+        // someone who spends much more time takes the planet, and the city goes with it
+        apply(&admin, APP, &mut s, one(seed, colony(seed, &sk(3), "Theirs", 1 << 21, 11))).unwrap();
+        assert!(!s.homes.contains_key(&home_key(&c)), "the city goes with the colony");
+        assert!(s.homes.contains_key(&mine.persona), "the home stays");
+        validate(&admin, APP, &s).unwrap();
+        apply(&admin, APP, &mut s, homes(c.clone())).unwrap();
+        assert!(!s.homes.contains_key(&home_key(&c)), "and it does not come back");
+    }
+
+    #[test]
+    fn a_siege_may_target_a_city() {
+        let (p, q) = (pk(&sk(3)), pk(&sk(2)));
+        assert_eq!(target_persona(&p), Some(p.as_str()));
+        assert_eq!(target_persona(&format!("{p}/v1-6_6_6.1")), Some(p.as_str()));
+        assert!(target_persona(&format!("{p}/nope")).is_none() && target_persona(&format!("{p}/v1-6_6_6/x")).is_none() && target_persona("x").is_none());
+        let mut r = raid(&sk(2), &sk(3), 20000, 1);
+        r.target = format!("{p}/v1-6_6_6");
+        r.nonces = (0..LANES).map(|i| (0..(1u64 << 18)).min_by_key(|n| u64::from_be_bytes(raid_hash(&r, i, *n)[..8].try_into().unwrap())).unwrap()).collect();
+        r.sig = hex::encode(sk(100).sign(raid_msg(&r).as_bytes()).to_bytes());
+        assert!(check_raid(APP, &r).is_ok(), "a siege of a city");
+        let mut own = r.clone();
+        own.target = format!("{q}/v1-6_6_6");
+        own.sig = hex::encode(sk(100).sign(raid_msg(&own).as_bytes()).to_bytes());
+        assert!(check_raid(APP, &own).is_err(), "not your own city");
+        let b = Blocklist { ts: 1, list: vec![p.clone()], sig: String::new() };
+        assert!(raid_blocked(&b, &r), "blocking a persona blocks sieges of its cities");
     }
 
     #[test]
@@ -822,11 +927,13 @@ mod tests {
         // same vector as freenet/net.test.mjs
         let c = colony("v1-1_1_1", &sk(2), "x", 1, 1);
         let h = Home { persona: "ab".repeat(32), nick: "Zed".into(), seed: "v1-1_2_3.4".into(), built: vec![("house".into(), 50), ("dome".into(), -20)],
-            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, peace: false, size: None, ante: String::new(), sig: String::new(), cert: c.cert };
+            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, peace: false, city: false, size: None, ante: String::new(), sig: String::new(), cert: c.cert };
         assert_eq!(home_msg(&h), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2", "ab".repeat(32)));
         let p = Home { peace: true, ..h };
         assert_eq!(home_msg(&p), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2|peace", "ab".repeat(32)));
         assert!(!serde_json::to_string(&Home { peace: false, ..p.clone() }).unwrap().contains("peace"), "old homes keep their JSON");
+        assert!(home_msg(&Home { city: true, ..p.clone() }).ends_with("|peace|city"), "a city is signed as one");
+        assert!(!serde_json::to_string(&p).unwrap().contains("city"), "old homes keep their JSON");
         let s = Home { size: Some([70, 1060, 563, 5000]), ..p };
         assert!(home_msg(&s).ends_with("|peace|size:70,1060,563,5000") && size_ok(&s));
         assert!(!size_ok(&Home { size: Some([1, 0, 0, 0]), ..s.clone() }), "fewer than listed");

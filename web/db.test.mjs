@@ -5,7 +5,7 @@ import { open, isStar, anteLevel, isAnimal } from './db.js';
 import { grindAnte } from '../freenet/viso.js';
 import { connectMessage } from '../freenet/connect.js';
 import { chatMsg, hereMsg } from '../freenet/chat.js';
-import { homeMsg, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE, colonyLimit } from '../freenet/colony.js';
+import { homeMsg, homeKey, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE, colonyLimit } from '../freenet/colony.js';
 
 const { bytesToHex: hex } = ed.etc, enc = new TextEncoder();
 const admin = new Uint8Array(32).fill(9), app = new Uint8Array(32).fill(7);
@@ -82,10 +82,28 @@ while (minerScore(m2) > colonyLimit(1)) mineSome(m2, seed2, a.persona, 200_000);
 db.applyGalaxy({ colonies: { [seed2]: c2(m2, 4) } });
 assert.equal(JSON.parse(db.galaxy()).colonies[seed2].name, 'Second');
 assert.ok(JSON.parse(db.galaxy()).colonies[seed], 'the first colony stays');
+// cities: homes on planets you hold the colony of, kept under `persona/seed` beside the home
+const city = (cseed, ts) => { const h = { ...home(ts), seed: cseed, city: true, sig: '' }; h.sig = sign(homeMsg(h)); return h; };
+{
+  const c = city(seed, 300), other = city('v1-7_7_7', 301);
+  db.applyGalaxy({ homes: { [homeKey(other)]: other } }); // no colony there: ignored
+  db.applyGalaxy({ homes: { [a.persona]: c } }); // a city may not take the home's key: ignored
+  assert.ok(!JSON.parse(db.galaxy()).homes[a.persona].city && !JSON.parse(db.galaxy()).homes[homeKey(other)]);
+  db.applyGalaxy({ homes: { [homeKey(c)]: c } });
+  const homes = JSON.parse(db.galaxy()).homes;
+  assert.ok(homes[`${a.persona}/${seed}`].city && homes[a.persona] && !homes[a.persona].city, 'a city beside the home');
+}
 
 // raids are keyed by attacker, target and day
 const r = { attacker: a.persona, nick: 'Ann', target: b.persona, day: 20000, nonces: [...miner.nonces], ante: a.ante, sig: '', cert: a.cert };
 assert.throws(() => db.applyGalaxy({ raids: { [raidKey(r)]: { ...r, sig: sign(raidMsg(r)) } } }), /siege too short/); // a colony's nonces are not a siege
+// a siege may target a city (`persona/seed`), not a malformed target or one's own city
+const rc = { ...r, target: `${b.persona}/${seed}` };
+assert.throws(() => db.applyGalaxy({ raids: { [raidKey(rc)]: { ...rc, sig: sign(raidMsg(rc)) } } }), /siege too short/);
+for (const target of [`${b.persona}/nope`, `${b.persona}/${seed}/x`, `${a.persona}/${seed}`]) {
+  const bad = { ...r, target };
+  assert.throws(() => db.applyGalaxy({ raids: { [raidKey(bad)]: { ...bad, sig: sign(raidMsg(bad)) } } }), /bad raid/);
+}
 
 // bred creatures live in homes (canonical ids only, as the contract), and the first name wins
 assert.ok(isAnimal('(v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3') && !isAnimal('v1-4_5_6#1+v1-1_2_3#0') && !isAnimal('v1-01_2_3#0+v1-4_5_6#1'));
