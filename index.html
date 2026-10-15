@@ -80,6 +80,7 @@
   <button id="jump" aria-label="Jump">⤴</button>
   <button id="walk" aria-pressed="false">🚶 Auto</button>
   <button id="homeBtn">🏠 Settle here</button>
+  <button id="cityBtn" hidden>🏙 Found a city</button>
   <button id="moveBtn" hidden>🚀 Move home here</button>
   <button id="fav">☆ Save</button>
   <button id="signBtn" hidden>Sign in</button>
@@ -126,6 +127,13 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · Upgrades count for what your home needs</h3>
+  <ul><li>An upgraded Stable now holds more creatures (8, then 12, 16, 20), so the Stables need fills up when you upgrade.</li>
+    <li>The advice in "What your home needs" now suggests upgrading a building you already have (marked ⭐ in Your buildings) when that is cheaper than building a new one.</li></ul>
+  <h3>2026-10-15 · Cities on your colonies</h3>
+  <ul><li>On a planet you colonized (your flag is there) you can now found a city with 🏙 Found a city: it costs plants and ore, and a little more for each one (up to 8).</li>
+    <li>You build, upgrade and repair a city like your home. It produces while you are away, and its people eat from your bag.</li>
+    <li>Other explorers who land there see your city. Your creatures, garden, ships and the pirates stay with your home planet.</li></ul>
   <h3>2026-10-15 · Upgrade your buildings</h3>
   <ul><li>In 🏗 Build, under Your buildings, each building has an Upgrade button: up to 3 levels, each one adding half of what it gave at first (more people housed and fed, more made an hour, more defence).</li>
     <li>An upgrade costs the building's price once more for each level, so it is a way to grow without building more.</li>
@@ -189,6 +197,7 @@
     Creatures you captured are released there. With <b>🏗 Build</b> you spend plants and ore on buildings where you stand (you can move them later from the same dialog):
     they produce while you are away (up to a day's worth), improve gathering, make jumps cheaper, and house and feed your people (huts and castles house them, mills and domes feed them; the more people, the more your home produces).
     Your people walk among your buildings, and they eat: each one 🌿0.1 an hour from your bag while you are away. With no plants to eat, some starve; once fed again, the empty homes slowly fill.</p>
+  <p>On a planet you colonized you can also <b>🏙 Found a city</b>: it is built, upgraded and fed like your home (creatures, garden, fleet and pirates stay with the home planet), and other explorers see it there.</p>
   <p>Your civilization level grows with people, buildings (and their variety) and creatures: from a camp to a village, a town, a city, a capital.</p>
   <p>☠ <b>Pirates</b> may attack your home every 8 hours (the same raids for everyone, three days after you settle), with bigger crews for bigger civilizations.
     Castles and towers defend it, and so do your people and creatures. Repelled pirates leave ore from their wreck; if they win, a building is damaged
@@ -233,7 +242,7 @@ import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterf
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, upgrade, upgradeCost, MAX_LV, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, withHome, withMain, foundCity, cityOf, cityCost, CITY, loseCities, repair, repairCost, upgrade, upgradeCost, MAX_LV, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -242,7 +251,7 @@ try { st = { ...emptyState(), ...JSON.parse(localStorage.getItem(KEY)) }; } catc
 if (st.tut === undefined) st.tut = (st.count ?? 0) < 3 ? 0 : 'done'; // players who already explore do not need it
 // each player gets their own explorer, random the first time
 st.avatar ??= Math.random().toString(36).slice(2);
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
+const save = () => withMain(st, () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} }); // a city swapped into st.home is not the home to keep
 setInterval(save, 20000); // play time is counted every frame, so keep it
 // First steps: a short guided tour for a new explorer, each step done by doing it (st.tut: step number, or 'done').
 const TUT = [
@@ -363,6 +372,14 @@ function load() {
       got.eaten && `👥 Your people ate 🌿${got.eaten}`, got.starved && `💀 ${got.starved} of your people starved: bring plants home (🌿 in your bag) to feed them. The empty homes fill again once everyone eats.`,
       ...fleetLines(fleet), ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
   }
+  else if (cityOf(st, seed)) {
+    let got;
+    const ach = withAchievements(st, () => { got = withHome(st, cityOf(st, seed), () => produce(st, Date.now())); });
+    const made = [got.plant && `🌿${got.plant}`, got.ore && `⛏${got.ore}`, got.fuel && `⚡${got.fuel}`].filter(Boolean);
+    save();
+    toast([made.length && `🏙 While you were away your city produced ${made.join(' ')}`, got.eaten && `👥 Its people ate 🌿${got.eaten}`,
+      got.starved && `💀 ${got.starved} people of your city starved: bring plants (🌿 in your bag) to feed them.`, ...ach.map((a) => `🏆 Achievement: ${a}`)].filter(Boolean));
+  }
   checkHome(); ev = null; evHerd = []; checkEvent();
   // the world before this one on the same star: its ruins, a surviving species, homes built there
   her = heritage(W); heirs = survivors(W, her);
@@ -373,7 +390,9 @@ function load() {
 }
 
 // Captured creatures roam among the buildings of the home planet (around the arrival point before any is built).
-function homePets(H = st.home?.seed === world.seed && st.home) {
+// Our home on a world: the home planet or one of our cities.
+const myHome = (seed) => (st.home?.seed === seed ? st.home : cityOf(st, seed));
+function homePets(H = myHome(world.seed)) {
   if (!H) return [];
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.2, span = Math.max(0.8, ...xs) + 0.2 - lo;
   return H.animals.slice(-24).map((id, k) => {
@@ -384,7 +403,7 @@ function homePets(H = st.home?.seed === world.seed && st.home) {
 }
 
 // The garden: every species whose seeds were sown, a few plants each, among the buildings.
-function homeGarden(H = st.home?.seed === world.seed && st.home) {
+function homeGarden(H = myHome(world.seed)) {
   if (!H?.garden?.length) return [];
   const xs = H.built.map((b) => b.x), lo = Math.min(0.2, ...xs) - 0.3, span = Math.max(0.8, ...xs) + 0.3 - lo;
   return H.garden.slice(-30).flatMap((id, k) => {
@@ -404,7 +423,7 @@ let garden = [];
 // Homes drawn on world W: ours, then those other explorers published (pets computed once per home version).
 const othersMemo = new Map();
 function homesHere(W) {
-  const out = st.home?.seed === W.seed ? [{ built: st.home.built, pets, garden, people: homePeople(st.home) }] : [];
+  const mine = myHome(W.seed), out = mine ? [{ built: mine.built, pets, garden, people: homePeople(mine) }] : [];
   for (const h of fn?.homesOn?.(W.seed) ?? []) {
     if (!othersMemo.has(h.sig)) {
       const H = { nick: h.nick, built: h.built.map(([kind, x], k) => ({ kind, x: x / 100, seed: k + 1 })), animals: h.animals };
@@ -931,6 +950,8 @@ walkBtn.onclick = () => { if (walking || (st.fuel ?? FUEL.max) > 0) { setWalking
 // The home's world is dying: move it, or lose it when the world collapses.
 const moveBtn = document.getElementById('moveBtn');
 function checkHome() {
+  const gone = loseCities(st, (s) => ageOf(s)?.dead);
+  if (gone.length) { save(); toast(gone.map((c) => `💥 Your city on ${makeWorld(c.seed).name} collapsed with its world: its ${c.built.length} buildings are lost.`)); fn?.homeChanged(); }
   const h = st.home && ageOf(st.home.seed);
   if (h?.dead) {
     const lost = loseHome(st); save();
@@ -1056,7 +1077,26 @@ document.getElementById('battleFlee').onclick = () => {
 
 // Home planet: settle on one world, come back to it for free and build with what you gathered.
 const homeBtn = document.getElementById('homeBtn'), buildDlg = document.getElementById('buildDlg');
-function updateHome() { homeBtn.textContent = !st.home ? '🏠 Settle here' : st.home.seed === world.seed ? '🏗 Build' : '🏠 Go home'; }
+const cityBtn = document.getElementById('cityBtn');
+function updateHome() {
+  homeBtn.textContent = !st.home ? '🏠 Settle here' : st.home.seed === world.seed ? '🏗 Build' : '🏠 Go home';
+  const mine = !!st.home && st.home.seed !== world.seed && (cityOf(st, world.seed) || (fn?.ownsColony?.(world.seed) && (st.cities?.length ?? 0) < CITY.max));
+  cityBtn.hidden = !mine;
+  if (mine) cityBtn.textContent = cityOf(st, world.seed) ? '🏙 City' : '🏙 Found a city';
+}
+let curCity = null; // the seed of the city the Build dialog is about (none: the home planet)
+cityBtn.onclick = () => {
+  if (!cityOf(st, world.seed)) {
+    const c = cityCost(st);
+    if (!confirm(`Found a city on ${world.name}, one of your colonies? It costs 🌿${c.plant} ⛏${c.ore}. You build it like your home, and it produces while you are away (creatures, garden, fleet and pirates stay with your home planet).`)) return;
+    if (!foundCity(st, world.seed, Date.now())) return toast([`You need 🌿${c.plant} ⛏${c.ore} to found a city.`]);
+    save(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); toast([`🏙 You founded a city on ${world.name}.`]);
+  }
+  curCity = world.seed;
+  const got = withHome(st, cityOf(st, curCity), () => produce(st, Date.now())); // what it made since the last visit
+  if (got.plant || got.ore || got.fuel) save();
+  renderBuild(); buildDlg.showModal();
+};
 homeBtn.onclick = () => {
   if (!st.home) {
     if (!confirm(`Make ${world.name} your home planet? You build your civilization there with what you gather exploring.`)) return;
@@ -1065,7 +1105,7 @@ homeBtn.onclick = () => {
   } else if (st.home.seed !== world.seed) { location.hash = st.home.seed; return; }
   const back = fleetBack(st, Date.now()); // ships that landed while you were here
   if (back.length) { save(); toast(fleetLines(back)); }
-  renderBuild(); buildDlg.showModal();
+  curCity = null; renderBuild(); buildDlg.showModal();
 };
 const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
   b.jump && `jumps ${b.jump * 100}% cheaper`, b.house && `houses ${b.house}`, b.food && `feeds ${b.food}`, b.guard && `guards ${b.guard}`].filter(Boolean).join(' · ');
@@ -1127,26 +1167,27 @@ function fleetHtml(H) {
 }
 // Home dialog sections fold like the Atlas; open ones stay open on the next render.
 const buildOpen = new Set(['What your home needs', 'Build']);
-function renderBuild() {
-  const H = st.home;
-  document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
-  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.${H.built.flatMap(partsOf).length > 64 || H.animals.length > 64 ? ' <small style="display:inline">Other explorers see the newest 64 buildings and 64 creatures of it on your world; the 🏆 leaderboard counts them all.</small>' : ''}
+// A city is built like the home planet: its buildings swap into st.home while the dialog (and its buttons) run.
+const inBuild = (f) => withHome(st, curCity && cityOf(st, curCity), f);
+const renderBuild = () => inBuild(renderBuildBody);
+function renderBuildBody() {
+  const H = st.home, isCity = !!curCity;
+  document.getElementById('buildTitle').textContent = `${isCity ? '🏙 ' : ''}${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
+  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore${isCity ? '' : ` · 🐾 ${H.animals.length} creatures living here`}.${H.built.flatMap(partsOf).length > 64 || H.animals.length > 64 ? ' <small style="display:inline">Other explorers see the newest 64 buildings and 64 creatures of it on your world; the 🏆 leaderboard counts them all.</small>' : ''}
     <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double), and eats 🌿${EAT} an hour from your bag (🌿${Math.round(population(H) * EAT * 24)} a day): with no plants, some starve.${H.lost ? ` 💀 ${Math.ceil(H.lost)} starved: one comes back every ${REGROW} hours everyone eats.` : ''}
     <br>☠ Defence ${defence(H)} against pirate crews of about ${pirateThreat(H)} (from ${Math.round(pirateThreat(H) / 2)} to ${Math.round(pirateThreat(H) * 1.5)}): castles, towers, one per 5 people, one per 3 creatures. Bigger civilizations draw bigger crews.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>
     ${(() => { const needs = homeNeeds(st), adv = homeAdvice(st, needs);
       return `<h3>What your home needs</h3>${needs.map((n) => `<div class="need${adv?.need === n ? ' top' : ''}"><span>${n.icon} ${n.label}</span><meter min="0" max="1" low="0.5" high="0.85" optimum="1" value="${Math.max(0.04, n.v)}"></meter><small>${esc(n.text)}</small></div>`).join('')}
-        <p>${adv ? `👉 <b>${esc(adv.need.label)}</b> is the weakest: build a <b>${BUILDINGS[adv.kind].name}</b> (${costText(costOf(adv.kind, grav()))}).` : '✓ Everything is covered: more of anything makes your home grow.'}</p>`; })()}
+        <p>${adv ? `👉 <b>${esc(adv.need.label)}</b> is the weakest: ${adv.up !== undefined ? `upgrade your <b>${esc(buildingName(H.built[adv.up]))}</b> (${costText(upgradeCost(H.built[adv.up], grav()))}) in Your buildings, or build` : 'build'} a <b>${BUILDINGS[adv.kind].name}</b> (${costText(costOf(adv.kind, grav()))}).` : '✓ Everything is covered: more of anything makes your home grow.'}</p>`; })()}
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
-    ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
-    ${fleetHtml(H)}
-    <h3>🧬 Breeding</h3>${breedHtml(H)}
-    <h3>🌸 Crossing</h3>${crossHtml(H)}
+    ${fn && !isCity ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
+    ${isCity ? '<h3>🏙 City</h3><p><small>Its creatures, garden, ships and breeding stay with your home planet, and pirates raid the home only.</small></p>' : `${fleetHtml(H)}\n    <h3>🧬 Breeding</h3>${breedHtml(H)}\n    <h3>🌸 Crossing</h3>${crossHtml(H)}`}
     <h3>Build</h3>
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b>${k === homeAdvice(st)?.kind ? ' ⭐' : ''} <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings <small style="display:inline">${H.built.length}</small></h3><p><small>Nearest first. Walk to the spot you want, then move a building there.</small></p>
-    <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : (b.lv ?? 0) < MAX_LV ? ` <button data-up="${i}"${canPay(upgradeCost(b, grav())) ? '' : ' disabled'}>Upgrade ${costText(upgradeCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.lv ? ` <span class="chip">Lv ${b.lv + 1}</span>` : ''}${b.damaged ? ' (damaged)' : ''}
+    <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : (b.lv ?? 0) < MAX_LV ? ` <button data-up="${i}"${canPay(upgradeCost(b, grav())) ? '' : ' disabled'}>Upgrade ${costText(upgradeCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${homeAdvice(st)?.up === i ? ' ⭐' : ''}${b.lv ? ` <span class="chip">Lv ${b.lv + 1}</span>` : ''}${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;
   foldAtlas(document.getElementById('buildBody'), buildOpen);
   buildDlg.querySelectorAll('[data-ship]').forEach((b) => (b.onclick = () => {
@@ -1213,6 +1254,8 @@ function renderBuild() {
     save(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); buildDlg.close();
     sfx('build'); toast([`🏗 ${BUILDINGS[b.dataset.k].name} built · ${civTitle(st.home)}`, ...ach.map((a) => `🏆 Achievement: ${a}`)]);
   }));
+  // every button acts on the city this dialog is about
+  buildDlg.querySelectorAll('button, input').forEach((el) => ['onclick', 'onchange'].forEach((ev) => { const f = el[ev]; if (f) el[ev] = (e) => inBuild(() => f.call(el, e)); }));
 }
 document.getElementById('buildClose').onclick = () => buildDlg.close();
 
@@ -1264,7 +1307,7 @@ function showClaim() {
 }
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
-    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, pos: () => cam, refresh: showClaim, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
+    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, pos: () => cam, refresh: () => { showClaim(); updateHome(); }, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
     setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
@@ -1380,7 +1423,7 @@ document.getElementById('atlasBtn').onclick = () => {
       <button id="lookReset">Random again</button></p>
     <h3>Home planet</h3>
     <p>${st.home ? `<a href="#${encodeURIComponent(st.home.seed)}">${esc(makeWorld(st.home.seed).name)}</a> · Lv ${civLevel(st.home)} ${civTitle(st.home)} · 👥 ${population(st.home)} people · ${st.home.built.length} buildings · ${st.home.animals.length} creatures`
-      : '<small>No home yet. Use 🏠 Settle here on a world you like.</small>'}${st.home && ageOf(st.home.seed) ? ` <small style="display:inline">· world age ${Math.floor(ageOf(st.home.seed).age)}/100</small>` : ''}</p>
+      : '<small>No home yet. Use 🏠 Settle here on a world you like.</small>'}${st.home && ageOf(st.home.seed) ? ` <small style="display:inline">· world age ${Math.floor(ageOf(st.home.seed).age)}/100</small>` : ''}${(st.cities ?? []).map((c) => `<br>🏙 <a href="#${encodeURIComponent(c.seed)}">${esc(makeWorld(c.seed).name)}</a> · Lv ${civLevel(c)} ${civTitle(c)} · 👥 ${population(c)} people · ${c.built.length} buildings`).join('')}</p>
     <h3>Achievements</h3>
     <ul>${ACHIEVEMENTS.map(([n, d, ok]) => `<li>${ok(st) ? '🏆' : '🔒'} <b>${n}</b> — ${d}</li>`).join('')}</ul>
     <h3>Bestiary <small>${st.species.length} species</small></h3>

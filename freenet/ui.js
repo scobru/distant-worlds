@@ -8,7 +8,7 @@ import { drawCreature } from '../draw.js';
 import { colonyCost, canColonize, payColony, partsOf, homeSize, levelFor, titleFor, civTitle, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS, CHAT_LIVE, HERE_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
-import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, colonyLimit, validText, raidHash, raidScore, raidKey, today } from './colony.js';
+import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, colonyLimit, homeKey, validText, raidHash, raidScore, raidKey, today } from './colony.js';
 
 // Viso avatars as object URLs, loaded once per persona; until then a coloured dot stands in.
 const avatars = new Map();
@@ -58,17 +58,26 @@ export async function start(app) {
   // Our home, published when it changes (and once after sign-in), so other explorers see it.
   // shortcut: limits as in the contract (64 buildings, 64 creatures); older ones are left out.
   let homeTimer, lastHome = '';
+  const lastCity = {}; // seed -> what was last published of that city
   function homeChanged() {
     clearTimeout(homeTimer);
     homeTimer = setTimeout(async () => {
       const H = app.st().home;
       if (!H || !me || !nick || level() < COLONY_BITS) return;
       // the contract takes 64 building parts and 64 creatures (the newest); `size` declares the whole home
-      const built = H.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = H.animals.slice(-64), peace = !!H.peace, size = homeSize(H);
-      const key = JSON.stringify([H.seed, built, animals, nick, peace, size]);
-      if (key === lastHome && galaxy.homes?.[me]) return;
-      try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, size, ante: anteHex() }) }; lastHome = key; }
-      catch (e) { console.warn('home publish failed:', e); }
+      const pub = async (home, city, last) => {
+        const built = home.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = home.animals.slice(-64), peace = !!home.peace, size = homeSize(home);
+        const key = JSON.stringify([home.seed, built, animals, nick, peace, size]);
+        if (key === last && galaxy.homes?.[city ? `${me}/${home.seed}` : me]) return last;
+        const h = await net.publishHome({ nick, seed: home.seed, built, animals, peace, city, size, ante: anteHex() });
+        galaxy.homes = { ...galaxy.homes, [homeKey(h)]: h };
+        return key;
+      };
+      try {
+        lastHome = await pub(H, false, lastHome);
+        // a city is published once it has a building (the newest 8 are kept)
+        for (const c of app.st().cities ?? []) if (c.built.length) lastCity[c.seed] = await pub(c, true, lastCity[c.seed]);
+      } catch (e) { console.warn('home publish failed:', e); }
     }, 2000);
   }
 
@@ -92,7 +101,7 @@ export async function start(app) {
   function victim() {
     const w = app.world(), H = app.st().home;
     if (!me || !nick || level() < COLONY_BITS || !H || H.peace) return null;
-    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && x.persona !== me && x.built.length && sound('home', x));
+    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && !x.city && x.persona !== me && x.built.length && sound('home', x));
     return h && !peaceful(h) && !galaxy.raids?.[`${me}|${h.persona}|${today()}`] ? h : null;
   }
   const siegeHere = (h) => siege && h && siege.target === h.persona && siege.day === today();
@@ -312,7 +321,7 @@ export async function start(app) {
       const r = rowOf(c.persona, c.nick), t = seconds(colScore(seed, c));
       r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t, rec: c });
     }
-    for (const h of Object.values(galaxy.homes ?? {})) { const r = rowOf(h.persona, h.nick); r.home = h; r.nick = h.nick; }
+    for (const h of Object.values(galaxy.homes ?? {}).filter((x) => !x.city)) { const r = rowOf(h.persona, h.nick); r.home = h; r.nick = h.nick; }
     // the whole home as declared (`size`; older homes: what they list)
     const sizeOf = (h) => h?.size ?? (h ? homeSize(h) : [0, 0, 0, 0]), score = (r) => { r.size = sizeOf(r.home); r.pts = r.size[3]; r.lv = levelFor(r.pts); };
     rows.forEach(score);
@@ -484,6 +493,8 @@ export async function start(app) {
       return ghosts.list;
     },
     /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
+    /** Whether we hold the colony on this planet (a city can be founded there). */
+    ownsColony: (seed) => !!me && colonyOf(seed)?.persona === me,
     homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length && sound('home', h)),
     atlasHtml() {
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The Stables need counts creature room (8 per stable, +50% per level) instead of stable count, and `homeAdvice` may return `up` (the index of a building to upgrade) when that costs no more than the cheapest new building.
+- Cities: a persona can found a city on each planet it colonized (`foundCity`, `st.cities`, at most `CITY.max` 8, cost grows 1.5× each). Published as homes with `city: true` (signed `|city`), kept under `persona/seed` beside the home under `persona` (`home_key` in the contract, `homeKey` in `freenet/colony.js`); a persona keeps its 8 newest cities (`MAX_CITIES`, `prune_homes`, same in `web/db.js`). Raids, the leaderboard and fleets stay on the home planet. Galaxy contract changes; older homes stay valid.
 - Building upgrades (`lv`, up to `MAX_LV` 3): +50% of base house, food, hourly output and guard per level; `upgrade`/`upgradeCost` in `atlas.js`. Homes still list plain parts; `size_ok` (contract, `freenet/check.js`, so web) now allows 25 people and 125 cost a part (was 10 and 50). Galaxy contract changes but stays compatible with homes already published.
 - The home (Build) dialog folds into `<details>` sections like the Atlas, open ones kept across renders; same code for Freenet and web (shared `index.html`).
 - Touch: a double tap on the landscape jumps.

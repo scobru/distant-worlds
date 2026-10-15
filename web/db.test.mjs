@@ -5,7 +5,7 @@ import { open, isStar, anteLevel, isAnimal } from './db.js';
 import { grindAnte } from '../freenet/viso.js';
 import { connectMessage } from '../freenet/connect.js';
 import { chatMsg, hereMsg } from '../freenet/chat.js';
-import { homeMsg, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE, colonyLimit } from '../freenet/colony.js';
+import { homeMsg, homeKey, raidMsg, raidKey, nameMsg, msg as colonyMsg, newMiner, mineSome, minerScore, MAX_SCORE, colonyLimit } from '../freenet/colony.js';
 
 const { bytesToHex: hex } = ed.etc, enc = new TextEncoder();
 const admin = new Uint8Array(32).fill(9), app = new Uint8Array(32).fill(7);
@@ -54,6 +54,18 @@ const sized = (ts, size) => { const h = { ...home(ts), size, sig: '' }; h.sig = 
 db.applyGalaxy({ homes: { [a.persona]: sized(25, [70, 1060, 563, 5000]) } });
 assert.deepEqual(JSON.parse(db.galaxy()).homes[a.persona].size, [70, 1060, 563, 5000]);
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 563, 16_000]) } }), /home too big/);
+// cities: homes on planets you colonized, kept under `persona/seed` beside the home; a persona keeps its 8 newest
+const city = (seed, ts) => { const h = { ...home(ts), seed, city: true, sig: '' }; h.sig = sign(homeMsg(h)); return h; };
+for (let i = 0; i < 10; i++) { const c = city(`v1-7_7_${i}`, 100 + i); db.applyGalaxy({ homes: { [homeKey(c)]: c } }); }
+{
+  const homes = JSON.parse(db.galaxy()).homes, cities = Object.entries(homes).filter(([, h]) => h.city);
+  assert.equal(cities.length, 8, 'eight cities');
+  assert.ok(homes[a.persona] && !homes[a.persona].city, 'the home stays under the persona');
+  assert.ok(cities.every(([k, h]) => k === `${a.persona}/${h.seed}`) && !homes[`${a.persona}/v1-7_7_0`], 'the oldest two went');
+  const c = city('v1-8_8_8', 200);
+  db.applyGalaxy({ homes: { [a.persona]: c } }); // ignored, as the contract: a city may not take the home's key
+  assert.ok(!JSON.parse(db.galaxy()).homes[a.persona].city);
+}
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [0, 1060, 0, 0]) } }), /home too big/); // fewer than listed
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 1751, 5000]) } }), /home too big/); // more than upgraded domes house
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: { ...sized(26, [70, 1060, 563, 5000]), size: [70, 1060, 563, 5001] } } }), /bad signature/);
