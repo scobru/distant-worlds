@@ -126,6 +126,10 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · Upgrade your buildings</h3>
+  <ul><li>In 🏗 Build, under Your buildings, each building has an Upgrade button: up to 3 levels, each one adding half of what it gave at first (more people housed and fed, more made an hour, more defence).</li>
+    <li>An upgrade costs the building's price once more for each level, so it is a way to grow without building more.</li>
+    <li>Fusing two buildings keeps the higher level.</li></ul>
   <h3>2026-10-15 · A shorter home dialog</h3>
   <ul><li>The home dialog folds into sections (needs, fleet, breeding, crossing, build, your buildings): tap a title to open or close it.</li>
     <li>Sections you open stay open, so a big home no longer makes one very long list.</li></ul>
@@ -229,7 +233,7 @@ import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterf
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, repair, repairCost, upgrade, upgradeCost, MAX_LV, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -1065,6 +1069,7 @@ homeBtn.onclick = () => {
 };
 const perks = (b) => [b.gather && `+1 ${b.gather} when you gather`, b.hour && `makes ${Object.entries(b.hour).map(([r, n]) => `${n} ${r}`).join(', ')} an hour`,
   b.jump && `jumps ${b.jump * 100}% cheaper`, b.house && `houses ${b.house}`, b.food && `feeds ${b.food}`, b.guard && `guards ${b.guard}`].filter(Boolean).join(' · ');
+const canPay = (c) => st.bag.plant >= c.plant && st.bag.ore >= c.ore;
 const costText = (c) => [c.plant && `🌿${c.plant}`, c.ore && `⛏${c.ore}`, c.animals && `🐾${c.animals} at home`].filter(Boolean).join(' ');
 // where the explorer stands, on the buildings' layer
 const standing = () => cam * world.layers.at(-2).parallax + 0.5;
@@ -1141,7 +1146,7 @@ function renderBuild() {
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b>${k === homeAdvice(st)?.kind ? ' ⭐' : ''} <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
     ${H.built.length ? `<h3>Your buildings <small style="display:inline">${H.built.length}</small></h3><p><small>Nearest first. Walk to the spot you want, then move a building there.</small></p>
-    <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
+    <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : (b.lv ?? 0) < MAX_LV ? ` <button data-up="${i}"${canPay(upgradeCost(b, grav())) ? '' : ' disabled'}>Upgrade ${costText(upgradeCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.lv ? ` <span class="chip">Lv ${b.lv + 1}</span>` : ''}${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;
   foldAtlas(document.getElementById('buildBody'), buildOpen);
   buildDlg.querySelectorAll('[data-ship]').forEach((b) => (b.onclick = () => {
@@ -1187,6 +1192,13 @@ function renderBuild() {
   };
   const pc = document.getElementById('peaceChk');
   if (pc) pc.onchange = () => { st.home.peace = pc.checked; save(); fn?.homeChanged(); toast([pc.checked ? '🕊 Your home is peaceful.' : '⚔ Your home can besiege and be besieged.']); };
+  buildDlg.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => {
+    const i = +b.dataset.up;
+    produce(st, Date.now()); // what it made so far counts at the old level
+    if (!upgrade(st, i, grav())) return toast([`You need ${costText(upgradeCost(st.home.built[i], grav()))} to upgrade it.`]);
+    save(); fn?.homeChanged(); renderBuild();
+    sfx('build'); toast([`⬆ ${buildingName(st.home.built[i])} is now Lv ${st.home.built[i].lv + 1}`]);
+  }));
   buildDlg.querySelectorAll('[data-repair]').forEach((b) => (b.onclick = () => {
     const i = +b.dataset.repair;
     produce(st, Date.now()); // it starts producing again now

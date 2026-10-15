@@ -70,7 +70,7 @@ export function checkColony(app, seed, c) {
 }
 // A declared size (contract size_ok): at least what is listed, no more people and points than that many parts and creatures could give.
 const sizeOk = (h) => h.size === undefined || (Array.isArray(h.size) && h.size.length === 4 && h.size.every(uint) && (([b, c, p, pts]) =>
-  b >= h.built.length && c >= h.animals.length && b <= 10_000 && c <= 100_000 && p <= 10 * b && pts <= 5 * p + 50 * b + 360 + 3 * c)(h.size));
+  b >= h.built.length && c >= h.animals.length && b <= 10_000 && c <= 100_000 && p <= 25 * b && pts <= 5 * p + 125 * b + 360 + 3 * c)(h.size));
 export function checkHome(app, h) {
   if (!isPersona(h?.persona) || !isStar(h.seed) || !text(h.nick, 24) || !uint(h.ts) || (h.peace !== undefined && typeof h.peace !== 'boolean')) fail('bad home');
   if (!Array.isArray(h.built) || !Array.isArray(h.animals) || h.built.length > 64 || h.animals.length > 64 || !sizeOk(h)) fail('home too big');

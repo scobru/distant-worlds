@@ -579,3 +579,21 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual([s.bag.ore, s.bag.plant], [220, 130]);
   assert.equal(canColonize(s, colonyCost(1)), false);
 }
+
+{
+  const { setHome, build, upgrade, upgradeCost, population, defence, civPoints, MAX_LV } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'v1-1_2_3.4', 0);
+  st.bag.plant = 1000; st.bag.ore = 1000;
+  build(st, 'castle', 0.5);
+  const [pop0, def0, pts0] = [population(st.home), defence(st.home), civPoints(st.home)];
+  assert.deepEqual(upgradeCost(st.home.built[0]), { plant: 10, ore: 20 }, 'level 1 costs the building once');
+  assert.ok(upgrade(st, 0));
+  assert.deepEqual(upgradeCost(st.home.built[0]), { plant: 20, ore: 40 }, 'then twice');
+  assert.equal(defence(st.home), def0 + 3, 'half the guard more');
+  assert.ok(civPoints(st.home) > pts0 && population(st.home) >= pop0);
+  assert.ok(upgrade(st, 0) && upgrade(st, 0) && !upgrade(st, 0), `at most ${MAX_LV} levels`);
+  assert.equal(st.home.built[0].lv, MAX_LV);
+  st.home.built[0].damaged = true;
+  assert.ok(!upgrade(st, 0), 'not while damaged');
+}

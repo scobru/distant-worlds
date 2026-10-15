@@ -334,7 +334,14 @@ export const BUILDINGS = {
 // A fused building ({ kind, fused }) is both kinds at once; Freenet homes publish it as two entries.
 export const partsOf = (b) => [b.kind ?? b[0], ...(b.fused ? [b.fused] : [])];
 export const buildingName = (b) => partsOf(b).map((k) => BUILDINGS[k].name).join('-');
-const kinds = (home) => (home?.built ?? []).filter((b) => !b.damaged).flatMap(partsOf).filter((k) => BUILDINGS[k]);
+// Upgrades: a building can be upgraded up to MAX_LV times; each level adds half of its base housing, food, hourly
+// output and guard (a fused building upgrades both halves). Published homes still list plain parts: the level
+// shows in the declared size (people, points), which `size_ok` bounds as UP times the base.
+export const MAX_LV = 3;
+const mult = (b) => 1 + Math.min(MAX_LV, b.lv ?? 0) / 2;
+const working = (home) => (home?.built ?? []).filter((b) => !b.damaged).flatMap((b) => partsOf(b).filter((k) => BUILDINGS[k]).map((k) => [k, mult(b)]));
+const kinds = (home) => working(home).map(([k]) => k);
+const total = (home, f) => Math.floor(working(home).reduce((a, [k, m]) => a + (BUILDINGS[k][f] ?? 0) * m, 0));
 // What the land around the landing site feeds without farms.
 export const BASE_FOOD = 6;
 /** People living at home: as many as the buildings shelter, but no more than they can feed. */
@@ -344,7 +351,7 @@ export const homeSize = (home) => [(home.built ?? []).flatMap(partsOf).length, h
 export function population(home) {
   const k = kinds(home);
   if (!k.length) return 0;
-  const sum = (f) => k.reduce((a, x) => a + (BUILDINGS[x][f] ?? 0), 0);
+  const sum = (f) => total(home, f);
   // `lost`: people who starved (see produce); the empty homes fill again while everyone eats
   return Math.max(0, Math.min(sum('house'), BASE_FOOD + sum('food')) - Math.ceil(home.lost ?? 0));
 }
@@ -352,9 +359,9 @@ export function population(home) {
 export const EAT = 0.1, REGROW = 4;
 /** Civilization points: people, what was built (its cost), the variety of buildings (each kind of fusion too), creatures. */
 export function civPoints(home) {
-  const k = kinds(home), c = (x) => (BUILDINGS[x].cost.plant ?? 0) + (BUILDINGS[x].cost.ore ?? 0);
+  const k = kinds(home), c = (x) => (BUILDINGS[x].cost.plant ?? 0) + (BUILDINGS[x].cost.ore ?? 0), spent = working(home).reduce((a, [x, m]) => a + Math.floor(c(x) * m), 0);
   const fused = new Set((home?.built ?? []).filter((b) => b.fused && !b.damaged).map((b) => partsOf(b).sort().join('+')));
-  return population(home) * 5 + k.reduce((a, x) => a + c(x), 0) + (new Set(k).size + fused.size) * 10 + (home?.animals.length ?? 0) * 3;
+  return population(home) * 5 + spent + (new Set(k).size + fused.size) * 10 + (home?.animals.length ?? 0) * 3;
 }
 /** Civilization level, from 1: each level needs more points than the one before. */
 export const levelFor = (points) => 1 + Math.floor(Math.sqrt(points / 20));
@@ -408,7 +415,7 @@ export const jumpDiscount = (st) => Math.min(0.5, builtOf(st, 'tower') * BUILDIN
 export function produce(st, now) {
   const H = st.home, hours = Math.min(24, Math.max(0, (now - (H.prod ?? now)) / 3.6e6)), got = { plant: 0, ore: 0, fuel: 0 };
   H.prod = now;
-  for (const k of kinds(H)) for (const [r, n] of Object.entries(BUILDINGS[k].hour ?? {})) got[r] += n * hours;
+  for (const [k, m] of working(H)) for (const [r, n] of Object.entries(BUILDINGS[k].hour ?? {})) got[r] += n * m * hours;
   // workers: +2% plants and ore per inhabitant, at most double
   const work = 1 + Math.min(1, population(H) / 50);
   got.plant *= work; got.ore *= work;
@@ -465,7 +472,7 @@ export function build(st, kind, x, g = 1) {
 // New homes are left alone for 3 days, and a home that lost a raid for a day.
 export const PIRATES = { slot: 8 * 3600e3, chance: 0.3, grace: 3 * 864e5, shield: 864e5 };
 /** Defence of a home: castles and towers, one per 5 people, one per 3 creatures. */
-export const defence = (home) => kinds(home).reduce((a, k) => a + (BUILDINGS[k].guard ?? 0), 0)
+export const defence = (home) => total(home, 'guard')
   + Math.floor(population(home) / 5) + Math.floor((home?.animals.length ?? 0) / 3);
 /** Average pirate crew for a home of this civilization level (a raid ranges from half to 1.5 times it). */
 export const pirateThreat = (home) => 2 + 2 * civLevel(home);
@@ -473,7 +480,7 @@ export const pirateThreat = (home) => 2 + 2 * civLevel(home);
  *  homes (places for the people the land can feed), food (the land against the places), defence (against the
  *  biggest raid), stables (one per 8 creatures) and the plants in the bag (a day of food for everyone). */
 export function homeNeeds(st) {
-  const H = st.home, k = kinds(H), sum = (f) => k.reduce((a, x) => a + (BUILDINGS[x][f] ?? 0), 0);
+  const H = st.home, sum = (f) => total(H, f);
   const shelter = sum('house'), feed = BASE_FOOD + sum('food'), pop = population(H), top = Math.round(1.5 * pirateThreat(H)), def = defence(H);
   const animals = H.animals.length, stables = builtOf(st, 'longhouse'), wanted = animals >= 2 ? Math.ceil(animals / 8) : 0;
   const hours = pop ? st.bag.plant / (pop * EAT) : Infinity;
@@ -599,7 +606,22 @@ export function fuse(st, i, j) {
   if (i === j || !a || !b || a.fused || b.fused || a.damaged || b.damaged || a.kind === b.kind) return false;
   if (st.bag.plant < FUSE.plant || st.bag.ore < FUSE.ore) return false;
   st.bag.plant -= FUSE.plant; st.bag.ore -= FUSE.ore;
-  a.fused = b.kind; H.built.splice(j, 1);
+  a.fused = b.kind; a.lv = Math.max(a.lv ?? 0, b.lv ?? 0) || undefined; H.built.splice(j, 1);
+  return true;
+}
+
+// Upgrading: a working building gains a level for (level + 1) times the cost of building it (animals excepted).
+export const upgradeCost = (b, g = 1) => {
+  const c = partsOf(b).map((k) => costOf(k, g)), n = (b.lv ?? 0) + 1;
+  return { plant: n * c.reduce((a, x) => a + x.plant, 0), ore: n * c.reduce((a, x) => a + x.ore, 0) };
+};
+export function upgrade(st, i, g = 1) {
+  const b = st.home.built[i];
+  if (!b || b.damaged || (b.lv ?? 0) >= MAX_LV) return false;
+  const c = upgradeCost(b, g);
+  if (st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
+  st.bag.plant -= c.plant; st.bag.ore -= c.ore; b.lv = (b.lv ?? 0) + 1;
+  stat(st, 'upgraded');
   return true;
 }
 

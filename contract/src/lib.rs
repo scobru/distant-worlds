@@ -250,11 +250,11 @@ pub fn home_msg(h: &Home) -> String {
 }
 
 /// A declared size holds at least what is listed, and its people and points are no more than that many parts
-/// and creatures could give (as atlas.js population / civPoints: at most 10 people a part, 50 of cost a part,
-/// 10 for each of the 8 kinds and 28 pairs, 5 a person, 3 a creature).
+/// and creatures could give (as atlas.js population / civPoints: at most 25 people a part and 125 of cost a part,
+/// a dome upgraded to its top level; 10 for each of the 8 kinds and 28 pairs, 5 a person, 3 a creature).
 fn size_ok(h: &Home) -> bool {
     let Some([b, c, p, pts]) = h.size.map(|s| s.map(u64::from)) else { return true };
-    b >= h.built.len() as u64 && c >= h.animals.len() as u64 && b <= 10_000 && c <= 100_000 && p <= 10 * b && pts <= 5 * p + 50 * b + 360 + 3 * c
+    b >= h.built.len() as u64 && c >= h.animals.len() as u64 && b <= 10_000 && c <= 100_000 && p <= 25 * b && pts <= 5 * p + 125 * b + 360 + 3 * c
 }
 
 /// `<star seed><sep><k>` with k one or two digits: a wild species ('#') or a plant ('~').
@@ -830,8 +830,8 @@ mod tests {
         let s = Home { size: Some([70, 1060, 563, 5000]), ..p };
         assert!(home_msg(&s).ends_with("|peace|size:70,1060,563,5000") && size_ok(&s));
         assert!(!size_ok(&Home { size: Some([1, 0, 0, 0]), ..s.clone() }), "fewer than listed");
-        assert!(!size_ok(&Home { size: Some([70, 1060, 701, 5000]), ..s.clone() }), "more people than parts house");
-        assert!(!size_ok(&Home { size: Some([70, 1060, 563, 10_000]), ..s.clone() }), "more points than the parts give");
+        assert!(!size_ok(&Home { size: Some([70, 1060, 1751, 5000]), ..s.clone() }), "more people than parts house");
+        assert!(!size_ok(&Home { size: Some([70, 1060, 563, 16_000]), ..s.clone() }), "more points than the parts give");
         assert!(!serde_json::to_string(&Home { size: None, ..s }).unwrap().contains("size"), "old homes keep their JSON");
     }
 
