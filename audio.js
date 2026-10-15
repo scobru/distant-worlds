@@ -143,6 +143,7 @@ export function startAudio(M, getInterest) {
       const B = song.bar(n, interest), A = B.arr, lead = B.section === 'B' && A.lead2 ? LEAD2[M.lead] : M.lead;
       for (const x of B.notes) {
         out = place[x.voice] ?? bus;
+        if (x.voice === 'lead') { const g = ac.createGain(); g.gain.value = x.vel / 0.8; g.connect(out); out = g; } // the lead instruments have a fixed peak: accents and phrase swells come from here
         const t = next + x.beat * beat, f = hz(x.midi) * (M.microtonal && x.voice === 'lead' ? 2 ** ((r() - 0.5) * 0.05) : 1), dur = x.dur * beat;
         if (x.voice === 'lead') INSTR[lead](f, t, dur);
         if (x.voice === 'comp') INSTR[(groove ? ['pluck', 'marimba', 'kalimba'] : ['piano', 'harp', 'kalimba'])[A.comp]](f, t, dur, x.vel * (0.6 + interest * 0.04));
@@ -165,7 +166,13 @@ export function startAudio(M, getInterest) {
     }
   };
   const timer = setInterval(tick, 100);
-  return () => { clearInterval(timer); ac.close(); };
+  // fade out over `fade` seconds before closing: a cut mid-note clicks
+  return (fade = 0) => {
+    clearInterval(timer);
+    const now = ac.currentTime;
+    master.gain.cancelScheduledValues(now); master.gain.setValueAtTime(master.gain.value, now); master.gain.linearRampToValueAtTime(0, now + fade + 0.02);
+    setTimeout(() => ac.close(), (fade + 0.1) * 1000);
+  };
 }
 
 // Sound effects, synthesized on the spot. They play even with the music off, softly.

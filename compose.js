@@ -148,7 +148,9 @@ export function makeSong(M) {
     // last bar of a phrase rests on a long note
     const motif = section === 'A' ? P.motifA : P.motifB, lo = len * 2 + 2, hi = len * 4;
     const cadence = inPhrase === PHRASE - 1, phraseNo = Math.floor(inSec / PHRASE), way = phraseNo ? -1 : 1;
-    const calm = Math.max(0, 0.35 - interest * 0.03); // a busier screen leaves fewer rests
+    // a busier screen leaves fewer rests, and so does a denser world (density 0.15..0.65)
+    const calm = Math.max(0, 0.35 - interest * 0.03 + (0.4 - (M.density ?? 0.4)) * 0.4);
+    const swell = [0.85, 0.95, 1.05, 0.9][inPhrase] * (phraseNo ? 1.05 : 1); // each phrase grows and falls back, the answer a little louder
     let si = inPhrase * 4 + phraseNo * 7;
     if (inPass >= 2) ORDER[inPhrase].map((k) => motif[k]).forEach((cell, ci) => cell.forEach(([o, d], ni) => {
       const beat = ci * 2 + o;
@@ -164,7 +166,7 @@ export function makeSong(M) {
       target = Math.max(lo, Math.min(hi, target));
       target = Math.max(prevNote - len, Math.min(prevNote + len, target)); // at most an octave from the last note: a learned leap plus the snap to a chord tone could go further
       prevNote = target;
-      out.push({ beat, dur: d * 0.95, midi: at(target), voice: 'lead', vel: strong ? 0.9 : 0.7 });
+      out.push({ beat, dur: d * 0.95, midi: at(target), voice: 'lead', vel: (strong ? 0.9 : 0.7) * swell });
     }));
     if (section === 'B' && P.arr.counter) for (const [k, c] of chords.entries()) // a slow line above, on the chord's third
       out.push({ beat: k * S.chordBeats, dur: S.chordBeats * 0.95, midi: at(c.tones[1] + len * 2), voice: 'counter', vel: 0.55 });
@@ -172,7 +174,7 @@ export function makeSong(M) {
       const c = chordAt(2), root = [c.tones[0], c.tones[0] + len, c.tones[0] + 2 * len, c.tones[0] + 3 * len].filter((x) => x >= lo && x <= hi)
         .sort((a, b) => Math.abs(a - prevNote) - Math.abs(b - prevNote))[0] ?? prevNote;
       prevNote = root;
-      out.push({ beat: 2, dur: 2, midi: at(root), voice: 'lead', vel: 0.85 });
+      out.push({ beat: 2, dur: 2, midi: at(root), voice: 'lead', vel: 0.85 * swell });
     }
     return { notes: out.sort((a, b) => a.beat - b.beat), chords: chords.map((c) => c.deg), section, arr: P.arr };
   }

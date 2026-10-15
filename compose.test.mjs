@@ -45,6 +45,16 @@ assert.deepEqual([...styles].sort(), [...STYLE_NAMES].sort(), 'every style shows
 }
 console.log('compose ok:', [...styles].join(', '));
 {
+  // A sparse world rests more than a dense one; the lead's loudness swells with the phrase but stays in range.
+  const M = makeWorld('v1-3_7_1').music, count = (density) => {
+    const song = makeSong({ ...M, density }), lead = Array.from({ length: 64 }, (_, n) => song.bar(n, 6).notes).flat().filter((x) => x.voice === 'lead');
+    assert.ok(lead.every((x) => x.vel > 0.5 && x.vel < 1.1), 'lead velocity in range');
+    return lead.length;
+  };
+  assert.ok(count(0.15) < count(0.65), 'density sets how often the lead rests');
+  console.log('compose density ok');
+}
+{
   // The learner, on a tiny MIDI made here: C major, I-IV-V-I in half notes, a melody on top.
   const { learnOne, keyOf } = await import('./tools/learn-music.mjs');
   const ev = [], div = 96, vlq = (n) => { const out = [n & 0x7f]; while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80); return out; };
