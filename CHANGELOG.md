@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The home (Build) dialog folds into `<details>` sections like the Atlas, open ones kept across renders; same code for Freenet and web (shared `index.html`).
 - Touch: a double tap on the landscape jumps.
 - Music follows the game: battles and unstable worlds crossfade into tense music and back; songs fade on jump and mute; the lead swells with each phrase; a world's `density` sets how often the melody rests.
 - ☰ 📰 Updates: what changed, in players' words.
