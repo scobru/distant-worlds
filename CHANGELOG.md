@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- ☰ 🔊 Effects: mutes the sound effects apart from the music (`muteSfx` in `audio.js`, `st.sfxOff`, kept with the progress).
 - Cities are raided and besieged like the home: pirates when you arrive there (`pirates` through `withHome`), sieges with `Raid.target` as `persona` or `persona/seed` (`target_persona`; `targetPersona` in `freenet/check.js`, so web), fought by `defend` on the right city; the leaderboard adds up home and cities. A city needs its persona's colony on that planet (`city_ok` in the contract, the same in `web/db.js`): refused without it and dropped when the planet is taken. Galaxy contract changes again; raids already published stay valid.
 - The Stables need counts creature room (8 per stable, +50% per level) instead of stable count, and `homeAdvice` may return `up` (the index of a building to upgrade) when that costs no more than the cheapest new building.
 - Cities: a persona can found a city on each planet it colonized (`foundCity`, `st.cities`, at most `CITY.max` 8, cost grows 1.5× each). Published as homes with `city: true` (signed `|city`), kept under `persona/seed` beside the home under `persona` (`home_key` in the contract, `homeKey` in `freenet/colony.js`); a persona keeps its 8 newest cities (`MAX_CITIES`, `prune_homes`, same in `web/db.js`). Raids, the leaderboard and fleets stay on the home planet. Galaxy contract changes; older homes stay valid.

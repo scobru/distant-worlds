@@ -176,8 +176,10 @@ export function startAudio(M, getInterest) {
 }
 
 // Sound effects, synthesized on the spot. They play even with the music off, softly.
-let sac;
+let sac, sfxOff = false;
+export const muteSfx = (off) => { sfxOff = !!off; }; // the effects alone: the music has its own button
 export function sfx(kind) {
+  if (sfxOff) return;
   try { sac ??= new AudioContext(); sac.resume(); } catch { return; }
   const t = sac.currentTime + 0.02, out = sac.createGain();
   out.gain.value = 0.3; out.connect(sac.destination);

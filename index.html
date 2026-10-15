@@ -92,6 +92,7 @@
   <button popovertarget="more" aria-label="More">☰</button>
   <div id="more" popover>
     <button id="sound" aria-pressed="false">▶ Sound</button>
+    <button id="sfxBtn" aria-pressed="true">🔊 Effects: on</button>
     <button id="lbBtn" hidden>🏆 Leaderboard</button>
     <button id="chatBtn" hidden aria-controls="chat" aria-expanded="false">💬 Chat</button>
     <button id="share">Share</button>
@@ -127,6 +128,8 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · Mute the effects</h3>
+  <ul><li>The ☰ menu has a new 🔊 Effects button: switch off the little sounds (gathering, building, battles) and keep the music, or the other way round. Your choice is remembered.</li></ul>
   <h3>2026-10-15 · Upgrades count for what your home needs</h3>
   <ul><li>An upgraded Stable now holds more creatures (8, then 12, 16, 20), so the Stables need fills up when you upgrade.</li>
     <li>The advice in "What your home needs" now suggests upgrading a building you already have (marked ⭐ in Your buildings) when that is cheaper than building a new one.</li></ul>
@@ -241,7 +244,7 @@
 import { makeWorld, speciesOf, plantOf, sizeWord, bredId, generation, MAX_GEN, isFlyerId, randomSeed, rng, rngFrom, chunk, height, walkerAt, riversNear, islandsNear, smokeNear, volcanoesNear, fallsNear, pickupsNear, pageNear, foesNear, obstaclesNear, foreStructsNear, depositsNear, ISLAND_PARALLAX, starsIn, regionAt, wrapS, GALAXY, ageOf, instability, eventAt, meteoritesNear, migrants, deals, heritage, ruinsNear, survivors, chronicle, lexicon, languageOf, CONCEPTS } from './world.js';
 import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterfall, drawAurora, drawSmoke, drawWeather, drawPickup, drawDeposit, drawObstacle, drawAvatar, avatarLook, SKINS, HATS } from './draw.js';
 import { describe, boxOf } from './describe.js';
-import { startAudio as startMusic, sfx } from './audio.js';
+import { startAudio as startMusic, sfx, muteSfx } from './audio.js';
 import { PAGES } from './diary.js';
 import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, withHome, withMain, foundCity, cityOf, cityCost, CITY, loseCities, repair, repairCost, upgrade, upgradeCost, MAX_LV, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
@@ -1025,6 +1028,10 @@ function openTrade() {
 }
 
 // Battles (🗡 mode, off by default): reaching a wild creature's spot starts one; it ends when one side falls or you flee.
+const sfxBtn = document.getElementById('sfxBtn');
+const setSfxBtn = () => { muteSfx(st.sfxOff); sfxBtn.textContent = `${st.sfxOff ? '🔇' : '🔊'} Effects: ${st.sfxOff ? 'off' : 'on'}`; sfxBtn.setAttribute('aria-pressed', !st.sfxOff); };
+setSfxBtn();
+sfxBtn.onclick = () => { st.sfxOff = !st.sfxOff; save(); setSfxBtn(); };
 const battleDlg = document.getElementById('battleDlg'), battleBtn = document.getElementById('battleBtn');
 let battle = null;
 const setBattleBtn = () => { battleBtn.textContent = `🗡 Battles: ${st.battle ? 'on' : 'off'}`; battleBtn.setAttribute('aria-pressed', !!st.battle); };
@@ -1313,7 +1320,7 @@ function showClaim() {
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
     world: () => world, walking: () => walking, toast, esc, save, sfx, raided, pos: () => cam, refresh: () => { showClaim(); updateHome(); }, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
-    setSt: (s) => { st = { ...emptyState(), ...s }; save(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
+    setSt: (s) => { st = { ...emptyState(), ...s }; save(); setSfxBtn(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
   }))
