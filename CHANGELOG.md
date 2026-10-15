@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Building upgrades (`lv`, up to `MAX_LV` 3): +50% of base house, food, hourly output and guard per level; `upgrade`/`upgradeCost` in `atlas.js`. Homes still list plain parts; `size_ok` (contract, `freenet/check.js`, so web) now allows 25 people and 125 cost a part (was 10 and 50). Galaxy contract changes but stays compatible with homes already published.
 - The home (Build) dialog folds into `<details>` sections like the Atlas, open ones kept across renders; same code for Freenet and web (shared `index.html`).
 - Touch: a double tap on the landscape jumps.
 - Music follows the game: battles and unstable worlds crossfade into tense music and back; songs fade on jump and mute; the lead swells with each phrase; a world's `density` sets how often the melody rests.

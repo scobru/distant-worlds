@@ -53,8 +53,9 @@ assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: { ...home(30), built:
 const sized = (ts, size) => { const h = { ...home(ts), size, sig: '' }; h.sig = sign(homeMsg(h)); return h; };
 db.applyGalaxy({ homes: { [a.persona]: sized(25, [70, 1060, 563, 5000]) } });
 assert.deepEqual(JSON.parse(db.galaxy()).homes[a.persona].size, [70, 1060, 563, 5000]);
-assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 563, 10_000]) } }), /home too big/);
+assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 563, 16_000]) } }), /home too big/);
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [0, 1060, 0, 0]) } }), /home too big/); // fewer than listed
+assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 1751, 5000]) } }), /home too big/); // more than upgraded domes house
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: { ...sized(26, [70, 1060, 563, 5000]), size: [70, 1060, 563, 5001] } } }), /bad signature/);
 
 // colonies need the time spent (score under MAX_SCORE), and a whole delta fails together
