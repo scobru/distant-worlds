@@ -434,7 +434,8 @@ export const titleFor = (lv) => TITLES.findLast(([n]) => lv >= n)[1];
 export const civTitle = (home) => titleFor(civLevel(home));
 
 // Cities: besides the home planet, a city can be founded on each planet you colonized (up to CITY.max). A city has
-// its own buildings and people (and produces, eats and is upgraded like the home) but no creatures, garden or fleet; its
+// its own buildings, people, creatures and garden (the bag's creatures and seeds are unloaded there when you arrive, as at
+// the home) and produces, eats and is upgraded like the home, but has no fleet or breeding; its
 // buildings that ask for creatures count the ones at the main home. Pirates raid the main home only. Cities live in
 // `st.cities` as home-shaped objects; `withHome` runs home logic (build, upgrade, produce...) on one of them.
 export const CITY = { plant: 30, ore: 30, max: 8, grow: 1.5 };
@@ -490,7 +491,7 @@ export function arriveHome(st) {
 export const costOf = (kind, g = 1) => { const c = BUILDINGS[kind].cost; return { ...c, plant: Math.ceil((c.plant ?? 0) * g), ore: Math.ceil((c.ore ?? 0) * g) }; };
 export const canBuild = (st, kind, g = 1) => {
   const c = costOf(kind, g);
-  return st.bag.plant >= c.plant && st.bag.ore >= c.ore && (mainHome ?? st.home).animals.length >= (c.animals ?? 0);
+  return st.bag.plant >= c.plant && st.bag.ore >= c.ore && Math.max(st.home.animals.length, mainHome?.animals.length ?? 0) >= (c.animals ?? 0);
 };
 
 /** Builds `kind` at x (on the structures' layer) if the bag pays for it. */

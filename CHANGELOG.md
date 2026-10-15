@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Arriving at a city unloads the bag there (`arriveHome` and `sow` through `withHome`): creatures roam it, seeds grow in its garden; `canBuild` counts the larger of the city's and the home's creatures.
 - ☰ 🔊 Effects: mutes the sound effects apart from the music (`muteSfx` in `audio.js`, `st.sfxOff`, kept with the progress).
 - Cities are raided and besieged like the home: pirates when you arrive there (`pirates` through `withHome`), sieges with `Raid.target` as `persona` or `persona/seed` (`target_persona`; `targetPersona` in `freenet/check.js`, so web), fought by `defend` on the right city; the leaderboard adds up home and cities. A city needs its persona's colony on that planet (`city_ok` in the contract, the same in `web/db.js`): refused without it and dropped when the planet is taken. Galaxy contract changes again; raids already published stay valid.
 - The Stables need counts creature room (8 per stable, +50% per level) instead of stable count, and `homeAdvice` may return `up` (the index of a building to upgrade) when that costs no more than the cheapest new building.

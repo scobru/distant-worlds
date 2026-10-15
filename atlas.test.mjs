@@ -645,3 +645,18 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.equal(city.raided, week);
   assert.equal(withHome(st, city, () => besieged(st, 5, 1000, 'k')), null, 'a new city has its days of grace');
 }
+
+{
+  const { setHome, foundCity, cityOf, withHome, arriveHome, sow, build, defence } = await import('./atlas.js');
+  const st = emptyState();
+  st.bag.plant = 500; st.bag.ore = 500;
+  setHome(st, 'v1-1_1_1.1', 0);
+  foundCity(st, 'v1-2_2_2.1', 0);
+  const city = cityOf(st, 'v1-2_2_2.1');
+  st.bag.creature = ['v1-3_3_3#0', 'v1-3_3_3#1', 'v1-3_3_3#2']; st.bag.seeds = ['v1-3_3_3~0'];
+  let n, sown;
+  withHome(st, city, () => { n = arriveHome(st); sown = sow(st); });
+  assert.deepEqual([n, sown, city.animals.length, city.garden.length, st.home.animals.length, st.bag.creature.length], [3, 1, 3, 1, 0, 0], 'the bag is unloaded in the city');
+  withHome(st, city, () => assert.ok(build(st, 'longhouse', 0.5), 'its creatures pay for a stable'));
+  assert.ok(defence(city) >= 1, 'and add to its defence (one per 3)');
+}
