@@ -71,8 +71,8 @@ export async function publishColony(seed, { name, nick, x, nonces, ante }) {
   await call('galaxy', { colonies: { [seed]: c } });
   return c;
 }
-export async function publishHome({ nick, seed, built, animals, peace, ante }) {
-  const s = await signedIn(), h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), ante, sig: '', cert: s.cert };
+export async function publishHome({ nick, seed, built, animals, peace, size, ante }) {
+  const s = await signedIn(), h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), size, ante, sig: '', cert: s.cert };
   h.sig = await s.sign(homeMsg(h));
   await call('galaxy', { homes: { [s.persona]: h } });
   return h;

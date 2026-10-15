@@ -338,6 +338,9 @@ const kinds = (home) => (home?.built ?? []).filter((b) => !b.damaged).flatMap(pa
 // What the land around the landing site feeds without farms.
 export const BASE_FOOD = 6;
 /** People living at home: as many as the buildings shelter, but no more than they can feed. */
+// A published home lists at most 64 building parts and 64 creatures; it also declares its whole size
+// ([parts, creatures, people, points]), which only the leaderboard reads (fights use what is listed).
+export const homeSize = (home) => [(home.built ?? []).flatMap(partsOf).length, home.animals.length, population(home), civPoints(home)];
 export function population(home) {
   const k = kinds(home);
   if (!k.length) return 0;
@@ -354,7 +357,8 @@ export function civPoints(home) {
   return population(home) * 5 + k.reduce((a, x) => a + c(x), 0) + (new Set(k).size + fused.size) * 10 + (home?.animals.length ?? 0) * 3;
 }
 /** Civilization level, from 1: each level needs more points than the one before. */
-export const civLevel = (home) => 1 + Math.floor(Math.sqrt(civPoints(home) / 20));
+export const levelFor = (points) => 1 + Math.floor(Math.sqrt(points / 20));
+export const civLevel = (home) => levelFor(civPoints(home));
 const builtOf = (st, k) => st.home?.built.filter((b) => partsOf(b).includes(k) && !b.damaged).length ?? 0;
 // +1 per building of that kind, at most +3 (creatures: at most one extra)
 export const gatherBonus = (st, kind) => Math.min(kind === 'creature' ? 1 : 3,
@@ -419,7 +423,8 @@ export function produce(st, now) {
   return { ...got, eaten, starved };
 }
 const TITLES = [[1, 'Landing site'], [2, 'Camp'], [3, 'Village'], [5, 'Town'], [6, 'City'], [9, 'Capital']];
-export const civTitle = (home) => TITLES.findLast(([n]) => civLevel(home) >= n)[1];
+export const titleFor = (lv) => TITLES.findLast(([n]) => lv >= n)[1];
+export const civTitle = (home) => titleFor(civLevel(home));
 
 export const setHome = (st, seed, now = 0) => (st.home = { seed, built: [], animals: [], prod: now, since: now });
 

@@ -1100,7 +1100,7 @@ function fleetHtml(H) {
 function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
-  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.
+  document.getElementById('buildBody').innerHTML = `<p>In your bag: 🌿 ${Math.floor(st.bag.plant)} plants · ⛏ ${Math.floor(st.bag.ore)} ore · 🐾 ${H.animals.length} creatures living here.${H.built.flatMap(partsOf).length > 64 || H.animals.length > 64 ? ' <small style="display:inline">Other explorers see the newest 64 buildings and 64 creatures of it on your world; the 🏆 leaderboard counts them all.</small>' : ''}
     <br>👥 ${population(H)} people: as many as your buildings house, no more than they feed (the land feeds ${BASE_FOOD}). Each one makes your home produce 2% more plants and ore (at most double), and eats 🌿${EAT} an hour from your bag (🌿${Math.round(population(H) * EAT * 24)} a day): with no plants, some starve.${H.lost ? ` 💀 ${Math.ceil(H.lost)} starved: one comes back every ${REGROW} hours everyone eats.` : ''}
     <br>☠ Defence ${defence(H)} against pirate crews of about ${pirateThreat(H)} (from ${Math.round(pirateThreat(H) / 2)} to ${Math.round(pirateThreat(H) * 1.5)}): castles, towers, one per 5 people, one per 3 creatures. Bigger civilizations draw bigger crews.
     <br><small>Buildings go where you stand and help you: they make things while you are away (up to a day's worth, collected when you come home) and some make gathering or jumping better. Gather plants, ore and creatures while exploring (click them, or press E, when they are close to you).</small></p>

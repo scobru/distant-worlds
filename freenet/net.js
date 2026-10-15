@@ -145,10 +145,10 @@ export async function publishColony(seed, { name, nick, x, nonces, ante }) {
 }
 
 /** Publish our home planet (buildings as [kind, x in hundredths], creature ids), so others see it. */
-export async function publishHome({ nick, seed, built, animals, peace, ante }) {
+export async function publishHome({ nick, seed, built, animals, peace, size, ante }) {
   const s = await session();
   if (!s) throw new Error('Sign in first.');
-  const h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), ante, sig: '', cert: s.cert };
+  const h = { persona: s.persona, nick, seed, built, animals, ts: Date.now(), ...(peace && { peace: true }), size, ante, sig: '', cert: s.cert };
   h.sig = await s.sign(homeMsg(h));
   await send({ homes: { [s.persona]: h } });
   return h;

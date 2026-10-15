@@ -5,6 +5,7 @@
 - Explorers on the same planet see each other, near-live: a signed presence per persona in the chat contract (`Here`, `dwp1|…`), the same on Freenet and web; ☰ 👁 hides you.
 - Shared world cards carry the explorer's position (they carried a layer coordinate), so links and ghosts land where they were shared.
 - Battles and raids show: shakes and a red flash.
+- Homes declare their whole size (parts, creatures, people, points), bounded by the contract: the leaderboard counts homes bigger than the 64 buildings and 64 creatures they can list; the Build dialog and the leaderboard say what others see. New galaxy contract (homes published before stay valid on the web).
 - Breaking for the chat: the chat contract is new and starts empty (the galaxy is unchanged).
 
 ## 1.0.0
