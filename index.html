@@ -126,6 +126,9 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · A shorter home dialog</h3>
+  <ul><li>The home dialog folds into sections (needs, fleet, breeding, crossing, build, your buildings): tap a title to open or close it.</li>
+    <li>Sections you open stay open, so a big home no longer makes one very long list.</li></ul>
   <h3>2026-10-15 · Double tap to jump</h3>
   <ul><li>On a phone or tablet, double tap the landscape to jump over rocks and logs (the ⤴ button still works).</li></ul>
   <h3>2026-10-15 · Music that follows the game</h3>
@@ -1117,6 +1120,8 @@ function fleetHtml(H) {
       return `<li><button data-ship="${esc(s)}"${free > 0 && st.fuel >= v.fuel ? '' : ' disabled'}>Send ⚡${v.fuel}</button> <b>${esc(w.name)}</b> <small style="display:inline">${v.hours} h${life && instability(life.age) ? ' · ⚠ dying' : ''}</small></li>`; }).join('')}</ul>`
       : '<p><small>Visit other worlds first: ships fly only to stars you know.</small></p>'}`;
 }
+// Home dialog sections fold like the Atlas; open ones stay open on the next render.
+const buildOpen = new Set(['What your home needs', 'Build']);
 function renderBuild() {
   const H = st.home;
   document.getElementById('buildTitle').textContent = `${world.name} · Lv ${civLevel(H)} ${civTitle(H)}`;
@@ -1130,13 +1135,15 @@ function renderBuild() {
     ${grav() > 1 ? `<p>⚠ Gravity ×${grav().toFixed(1)} on this dying world: building costs more.</p>` : ''}
     ${fn ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
     ${fleetHtml(H)}
-    ${breedHtml(H)}
-    ${crossHtml(H)}
+    <h3>🧬 Breeding</h3>${breedHtml(H)}
+    <h3>🌸 Crossing</h3>${crossHtml(H)}
+    <h3>Build</h3>
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b>${k === homeAdvice(st)?.kind ? ' ⭐' : ''} <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
-    ${H.built.length ? `<h3>Your buildings</h3><p><small>Nearest first. Walk to the spot you want, then move a building there.</small></p>
+    ${H.built.length ? `<h3>Your buildings <small style="display:inline">${H.built.length}</small></h3><p><small>Nearest first. Walk to the spot you want, then move a building there.</small></p>
     <ul>${H.built.map((b, i) => [b, i]).sort(([a], [b]) => Math.abs(a.x - standing()) - Math.abs(b.x - standing())).map(([b, i]) => { const d = b.x - standing(); return `<li><button data-move="${i}">Move here</button>${b.damaged ? ` <button data-repair="${i}">Repair ${costText(repairCost(b, grav()))}</button>` : ''} <b>${esc(buildingName(b))}</b>${b.damaged ? ' (damaged)' : ''}
       <small style="display:inline">${Math.abs(d) < 0.05 ? 'where you stand' : `${Math.abs(d).toFixed(1)} screens to the ${d < 0 ? 'left' : 'right'}`}</small></li>`; }).join('')}</ul>${fuseHtml(H)}` : ''}`;
+  foldAtlas(document.getElementById('buildBody'), buildOpen);
   buildDlg.querySelectorAll('[data-ship]').forEach((b) => (b.onclick = () => {
     if (!sendShip(st, b.dataset.ship, Date.now())) return toast(['No free ship, or not enough fuel.']);
     save(); renderBuild(); sfx('pickup');
@@ -1309,11 +1316,11 @@ mapDlg.querySelectorAll('[data-d]').forEach((b) => (b.onclick = () => { const [d
 const dlg = document.getElementById('atlas');
 // Each h3 section becomes a collapsible <details>; open ones stay open on the next render.
 const atlasOpen = new Set(['Daily mission', 'Home planet']);
-function foldAtlas(body) {
+function foldAtlas(body, open = atlasOpen) {
   for (const h of [...body.querySelectorAll(':scope > h3')]) {
     const d = document.createElement('details'), s = document.createElement('summary'), key = h.firstChild.textContent.trim();
-    s.append(...h.childNodes); d.append(s); d.open = atlasOpen.has(key);
-    d.ontoggle = () => (d.open ? atlasOpen.add(key) : atlasOpen.delete(key));
+    s.append(...h.childNodes); d.append(s); d.open = open.has(key);
+    d.ontoggle = () => (d.open ? open.add(key) : open.delete(key));
     while (h.nextSibling && h.nextSibling.nodeName !== 'H3') d.append(h.nextSibling);
     h.replaceWith(d);
   }
