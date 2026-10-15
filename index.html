@@ -126,6 +126,8 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · Double tap to jump</h3>
+  <ul><li>On a phone or tablet, double tap the landscape to jump over rocks and logs (the ⤴ button still works).</li></ul>
   <h3>2026-10-15 · Music that follows the game</h3>
   <ul><li>A battle switches the music to a tense song, and back when it ends; so does a world close to collapse, as soon as it becomes unstable.</li>
     <li>Songs fade into each other when you jump or the mood changes, and fade out when you mute.</li>
@@ -163,7 +165,7 @@
   <h3>🚪 Rooms</h3>
   <p>Some buildings on the nearest ground can be walked into: their front fades and you see a room. A chest waits inside, new every day (fuel, plants or ore): take it as you would anything else.</p>
   <h3>⤴ Jumping</h3>
-  <p>Rocks, logs, crates and ice lie in the way: they stop you until you jump over them with <b>Space</b>, <b>↑</b> (or <b>W</b>) or the <b>⤴</b> button; on a world walked into, ↑ walks and Space jumps. A jump is lower on a heavy world. <b>Auto</b> jumps by itself.</p>
+  <p>Rocks, logs, crates and ice lie in the way: they stop you until you jump over them with <b>Space</b>, <b>↑</b> (or <b>W</b>) the <b>⤴</b> button or, on a touch screen, a double tap on the landscape; on a world walked into, ↑ walks and Space jumps. A jump is lower on a heavy world. <b>Auto</b> jumps by itself.</p>
   <h3>🛤 Paths</h3>
   <p>About one world in six is walked into rather than across: a path runs towards the horizon, and ↑ ↓ (or ◀ ▶, or dragging) take you along it. What lies ahead grows as you approach; take it when it reaches your feet.</p>
   <h3>🔭 Discover</h3>
@@ -239,7 +241,7 @@ setInterval(save, 20000); // play time is counted every frame, so keep it
 const TUT = [
   ['walk', '🚶 Walk', 'Hold ◀ ▶ (or A / D), or drag the landscape, and look around.'],
   ['take', '✋ Gather', 'Click something close to your explorer, or press E: plants, ore, glowing cells.'],
-  ['jump', '⤴ Jump', 'Rocks and logs block the way. Press Space (or ⤴) to jump over them.'],
+  ['jump', '⤴ Jump', 'Rocks and logs block the way. Press Space (or ⤴, or double tap) to jump over them.'],
   ['atlas', '📖 Atlas', 'Open the Atlas: everything you discover is kept there.'],
   ['auto', '🚶 Auto', 'Press Auto: your explorer walks, gathers and jumps by itself.'],
 ];
@@ -437,7 +439,7 @@ function frame(t, maxDt = 100) {
   if (auto && canJump(hop) && shouldLeap(gx0, facing, obs, 0.12 * 0.05 * JUMP.boost)) startJump(hop);
   jumpStep(hop, dt / 1000, grav());
   const wish = (keys ? keys * 0.3 : auto ? facing * 0.05 : 0) * dt / 1000 * (canJump(hop) ? 1 / grav() : JUMP.boost), moved = walkBy(gx0, hop.y, wish * pl, obs) / pl;
-  if (keys && wish && !moved && !jumpHinted) { jumpHinted = true; toast(['🪨 Something blocks the way: jump over it (Space, ↑ or the ⤴ button).']); }
+  if (keys && wish && !moved && !jumpHinted) { jumpHinted = true; toast(['🪨 Something blocks the way: jump over it (Space, ↑, the ⤴ button or a double tap).']); }
   cam += moved;
   cam += (settle(cam * pl + 0.5, hop.y, obs) - (cam * pl + 0.5)) / pl; // came down on an obstacle: step off it
   const day = days()[0];
@@ -876,7 +878,7 @@ for (const [id, code] of [['left', 'ArrowLeft'], ['right', 'ArrowRight']]) {
   b.onpointerup = b.onpointerleave = b.onpointercancel = () => hold(code, false);
 }
 document.getElementById('jump').onpointerdown = () => { startJump(hop); tut('jump'); };
-let dragX = null;
+let dragX = null, lastTap = 0;
 let dragged = false;
 function shiftCam(d) { const pl = world.layers.at(-1).parallax, gx = cam * pl + 0.5; cam += walkBy(gx, hop.y, d * pl, obstaclesNear(world, gx - 1, gx + 1)) / pl; }
 cv.addEventListener('pointerdown', (e) => { dragX = e.clientX; dragged = false; cv.setPointerCapture(e.pointerId); });
@@ -894,6 +896,9 @@ cv.addEventListener('pointerup', (e) => {
   const [px, py] = pointer.map((v) => v * devicePixelRatio);
   const it = hits.findLast(([[x0, y0, x1, y1], h]) => (h.take || h.trade) && px >= x0 && px <= x1 && py >= y0 && py <= y1)?.[1];
   if (it) take(it);
+  else if (e.pointerType !== 'mouse') { // a double tap on the landscape jumps
+    if (e.timeStamp - lastTap < 350) { lastTap = 0; startJump(hop); tut('jump'); } else lastTap = e.timeStamp;
+  }
 });
 // Pickups, plants, creatures and ore: whatever is within the explorer's reach.
 function take(e) {
