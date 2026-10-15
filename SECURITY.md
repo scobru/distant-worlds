@@ -41,6 +41,9 @@ Open (documented, not fixed):
   buildings and 64 animals). A cap tied to the persona's Viso level was considered and left out: the level most players
   hold (20 bits) would then limit them to a small home, which hurts honest play more than it stops a cheat that only
   inflates what others see. A proof of work proportional to growth would need a chain of homes; not done.
+  A home also declares its whole size (parts, creatures, people, points) for the leaderboard; the contract only bounds
+  it (see `size_ok`), so a modified client can climb the leaderboard up to those bounds. Fights (defence in sieges)
+  read only what the home lists, so the declared size cannot make a home harder to besiege.
 - **Sieges are applied by the defender's client**, which can ignore them (and republish an intact home). Deriving the
   damage from the public raids is not enough while the home itself is self-declared; the contract would have to refuse a
   home that ignores the raids against it. Left open.

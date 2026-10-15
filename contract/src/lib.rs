@@ -71,6 +71,10 @@ pub struct Home {
     pub ts: u64,                   // self-declared (ms); the newest home of a persona wins
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub peace: bool, // opted out of sieges, both ways
+    /// The whole home when it holds more than it can list: [building parts, creatures, people, civilization points].
+    /// Self-declared like the rest; `size_ok` bounds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<[u32; 4]>,
     pub ante: String,
     pub sig: String, // by the delegated app key over `home_msg()`
     pub cert: Cert,
@@ -241,7 +245,16 @@ pub fn is_star(seed: &str) -> bool {
 pub fn home_msg(h: &Home) -> String {
     let b: Vec<String> = h.built.iter().map(|(k, x)| format!("{k}:{x}")).collect();
     let peace = if h.peace { "|peace" } else { "" }; // absent for homes signed before sieges
-    format!("dwh1|{}|{}|{}|{}|{}|{}{peace}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
+    let size = h.size.map(|s| format!("|size:{},{},{},{}", s[0], s[1], s[2], s[3])).unwrap_or_default();
+    format!("dwh1|{}|{}|{}|{}|{}|{}{peace}{size}", h.persona, h.nick, h.seed, h.ts, b.join(","), h.animals.join(","))
+}
+
+/// A declared size holds at least what is listed, and its people and points are no more than that many parts
+/// and creatures could give (as atlas.js population / civPoints: at most 10 people a part, 50 of cost a part,
+/// 10 for each of the 8 kinds and 28 pairs, 5 a person, 3 a creature).
+fn size_ok(h: &Home) -> bool {
+    let Some([b, c, p, pts]) = h.size.map(|s| s.map(u64::from)) else { return true };
+    b >= h.built.len() as u64 && c >= h.animals.len() as u64 && b <= 10_000 && c <= 100_000 && p <= 10 * b && pts <= 5 * p + 50 * b + 360 + 3 * c
 }
 
 /// `<star seed><sep><k>` with k one or two digits: a wild species ('#') or a plant ('~').
@@ -332,7 +345,7 @@ pub fn check_home(app: &str, h: &Home) -> R<()> {
     if !is_persona(&h.persona) || !is_star(&h.seed) || !text_ok(&h.nick, 24) {
         return Err("bad home".into());
     }
-    if h.built.len() > MAX_BUILT || h.animals.len() > MAX_ANIMALS {
+    if h.built.len() > MAX_BUILT || h.animals.len() > MAX_ANIMALS || !size_ok(h) {
         return Err("home too big".into());
     }
     if !h.built.iter().all(|(k, x)| BUILDINGS.contains(&k.as_str()) && x.abs() <= 1_000_000_000) || !h.animals.iter().all(|a| is_animal(a)) {
@@ -767,7 +780,7 @@ mod tests {
         let c = colony("v1-1_1_1", persona, "x", 1, 1); // borrow its delegation and level
         let mut h = Home {
             persona: c.persona, nick: "nick".into(), seed: seed.into(), built: built.iter().map(|(k, x)| (k.to_string(), *x)).collect(),
-            animals: vec![format!("{seed}#0")], ts, peace: false, ante: c.ante, sig: String::new(), cert: c.cert,
+            animals: vec![format!("{seed}#0")], ts, peace: false, size: None, ante: c.ante, sig: String::new(), cert: c.cert,
         };
         h.sig = hex::encode(sk(100).sign(home_msg(&h).as_bytes()).to_bytes());
         h
@@ -809,11 +822,17 @@ mod tests {
         // same vector as freenet/net.test.mjs
         let c = colony("v1-1_1_1", &sk(2), "x", 1, 1);
         let h = Home { persona: "ab".repeat(32), nick: "Zed".into(), seed: "v1-1_2_3.4".into(), built: vec![("house".into(), 50), ("dome".into(), -20)],
-            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, peace: false, ante: String::new(), sig: String::new(), cert: c.cert };
+            animals: vec!["v1-1_2_3#0".into(), "v1-9_9_9#2".into()], ts: 7, peace: false, size: None, ante: String::new(), sig: String::new(), cert: c.cert };
         assert_eq!(home_msg(&h), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2", "ab".repeat(32)));
         let p = Home { peace: true, ..h };
         assert_eq!(home_msg(&p), format!("dwh1|{}|Zed|v1-1_2_3.4|7|house:50,dome:-20|v1-1_2_3#0,v1-9_9_9#2|peace", "ab".repeat(32)));
         assert!(!serde_json::to_string(&Home { peace: false, ..p.clone() }).unwrap().contains("peace"), "old homes keep their JSON");
+        let s = Home { size: Some([70, 1060, 563, 5000]), ..p };
+        assert!(home_msg(&s).ends_with("|peace|size:70,1060,563,5000") && size_ok(&s));
+        assert!(!size_ok(&Home { size: Some([1, 0, 0, 0]), ..s.clone() }), "fewer than listed");
+        assert!(!size_ok(&Home { size: Some([70, 1060, 701, 5000]), ..s.clone() }), "more people than parts house");
+        assert!(!size_ok(&Home { size: Some([70, 1060, 563, 10_000]), ..s.clone() }), "more points than the parts give");
+        assert!(!serde_json::to_string(&Home { size: None, ..s }).unwrap().contains("size"), "old homes keep their JSON");
     }
 
     /// A siege of `per_lane` nonces per lane by `attacker` on `target`'s home on `day`.

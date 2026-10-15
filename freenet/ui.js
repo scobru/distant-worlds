@@ -5,7 +5,7 @@ import * as net from './net.js';
 import { checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere } from './check.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
-import { colonyCost, canColonize, payColony, partsOf, civLevel, civPoints, civTitle, population, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
+import { colonyCost, canColonize, payColony, partsOf, homeSize, levelFor, titleFor, civTitle, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
 import { textOk, CHAT_BITS, CHAT_LIVE, HERE_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, colonyLimit, validText, raidHash, raidScore, raidKey, today } from './colony.js';
@@ -63,9 +63,11 @@ export async function start(app) {
     homeTimer = setTimeout(async () => {
       const H = app.st().home;
       if (!H || !me || !nick || level() < COLONY_BITS) return;
-      const built = H.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = H.animals.slice(-64), peace = !!H.peace, key = JSON.stringify([H.seed, built, animals, nick, peace]);
+      // the contract takes 64 building parts and 64 creatures (the newest); `size` declares the whole home
+      const built = H.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = H.animals.slice(-64), peace = !!H.peace, size = homeSize(H);
+      const key = JSON.stringify([H.seed, built, animals, nick, peace, size]);
       if (key === lastHome && galaxy.homes?.[me]) return;
-      try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, ante: anteHex() }) }; lastHome = key; }
+      try { galaxy.homes = { ...galaxy.homes, [me]: await net.publishHome({ nick, seed: H.seed, built, animals, peace, size, ante: anteHex() }) }; lastHome = key; }
       catch (e) { console.warn('home publish failed:', e); }
     }, 2000);
   }
@@ -311,7 +313,9 @@ export async function start(app) {
       r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t, rec: c });
     }
     for (const h of Object.values(galaxy.homes ?? {})) { const r = rowOf(h.persona, h.nick); r.home = h; r.nick = h.nick; }
-    for (const r of rows.values()) { r.lv = civLevel(r.home); r.pts = civPoints(r.home); }
+    // the whole home as declared (`size`; older homes: what they list)
+    const sizeOf = (h) => h?.size ?? (h ? homeSize(h) : [0, 0, 0, 0]), score = (r) => { r.size = sizeOf(r.home); r.pts = r.size[3]; r.lv = levelFor(r.pts); };
+    rows.forEach(score);
     // civilization first (level, then points), then colonies and time spent on them
     const rank = (a, b) => b.lv - a.lv || b.pts - a.pts || b.planets.length - a.planets.length || b.t - a.t;
     // the claims of the rows that will be shown are checked (a forged home or flag falls out and the list is ranked again)
@@ -320,7 +324,7 @@ export async function start(app) {
       r.vet = true;
       if (r.home && !sound('home', r.home)) r.home = null;
       r.planets = r.planets.filter((p) => sound('colony', p.rec, p.seed));
-      r.t = r.planets.reduce((x, p) => x + p.t, 0); r.lv = civLevel(r.home); r.pts = civPoints(r.home);
+      r.t = r.planets.reduce((x, p) => x + p.t, 0); score(r);
     };
     let all = [...rows.values()].sort(rank);
     for (let round = 0; round < 8; round++) {
@@ -329,12 +333,12 @@ export async function start(app) {
       todo.forEach(vetRow); all = all.filter((r) => !r.vet || r.home || r.planets.length).sort(rank);
     }
     const av = (p) => { const u = avatar(p, renderLeaderboard); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
-    const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — Lv ${r.lv} ${civTitle(r.home)} · 👥 ${population(r.home)} · 🏗 ${r.home?.built.length ?? 0} · 🚩 ${r.planets.length}${r.t ? `, ${fmt(r.t)}` : ''}</summary>
-      <ul>${r.home ? `<li>🏠 <a href="#${r.home.seed}">${app.esc(makeWorld(r.home.seed).name)}</a> <small style="display:inline">${r.home.animals.length} creatures</small></li>` : ''}${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
+    const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — Lv ${r.lv} ${titleFor(r.lv)} · 👥 ${r.size[2]} · 🏗 ${r.size[0]} · 🚩 ${r.planets.length}${r.t ? `, ${fmt(r.t)}` : ''}</summary>
+      <ul>${r.home ? `<li>🏠 <a href="#${r.home.seed}">${app.esc(makeWorld(r.home.seed).name)}</a> <small style="display:inline">${r.size[1]} creatures</small></li>` : ''}${r.persona === me && app.st().home && levelFor(homeSize(app.st().home)[3]) !== r.lv ? `<li><small style="display:inline">Lv ${levelFor(homeSize(app.st().home)[3])} at home: not published yet</small></li>` : ''}${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
     const mine = all.findIndex((r) => r.persona === me);
     if (mine >= 20) vetRow(all[mine]);
     document.getElementById('lbBody').innerHTML = all.length
-      ? `<p><small>${all.length} explorers · ${Object.keys(galaxy.colonies ?? {}).length} colonies · ranked by civilization level (people, buildings, creatures), then colonies and time. Open a name to see their planets.</small></p>
+      ? `<p><small>${all.length} explorers · ${Object.keys(galaxy.colonies ?? {}).length} colonies · ranked by civilization level (people, buildings, creatures, as each home declares them), then colonies and time. Open a name to see their planets. On their worlds, homes show at most 64 buildings and 64 creatures.</small></p>
         <ol>${all.slice(0, 20).map((r, i) => row(r, i + 1)).join('')}</ol>
         ${mine >= 20 ? `<p>…</p><ol>${row(all[mine], mine + 1)}</ol>` : ''}
         ${me && mine < 0 ? '<p><small>You are not ranked yet: settle a home 🏠 or stay on a planet for a few minutes.</small></p>' : ''}`
