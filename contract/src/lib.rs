@@ -89,7 +89,7 @@ pub struct Home {
 pub struct Raid {
     pub attacker: String, // hex ed25519 pubkey
     pub nick: String,
-    pub target: String, // the besieged persona
+    pub target: String, // the besieged home: a persona, or `<persona>/<seed>` for one of its cities (`home_key`)
     pub day: u64,       // days since 1970 (UTC), self-declared; clients ignore old and future ones
     pub nonces: Vec<u64>,
     pub ante: String,
@@ -178,6 +178,14 @@ pub fn raid_score(r: &Raid) -> u128 {
     r.nonces.iter().enumerate().map(|(i, n)| u64::from_be_bytes(raid_hash(r, i, *n)[..8].try_into().unwrap()) as u128).sum()
 }
 
+/// The persona a siege target belongs to, when the target is a well-formed `home_key`.
+pub fn target_persona(t: &str) -> Option<&str> {
+    match t.split_once('/') {
+        None => is_persona(t).then_some(t),
+        Some((p, seed)) => (is_persona(p) && is_star(seed)).then_some(p),
+    }
+}
+
 pub fn raid_key(r: &Raid) -> String {
     format!("{}|{}|{}", r.attacker, r.target, r.day)
 }
@@ -192,7 +200,7 @@ fn raid_rank(r: &Raid) -> (u128, &str) {
 }
 
 pub fn check_raid(app: &str, r: &Raid) -> R<()> {
-    if !is_persona(&r.attacker) || !is_persona(&r.target) || r.attacker == r.target || !text_ok(&r.nick, 24) || r.nonces.len() != LANES {
+    if !is_persona(&r.attacker) || target_persona(&r.target).is_none_or(|p| p == r.attacker) || !text_ok(&r.nick, 24) || r.nonces.len() != LANES {
         return Err("bad raid".into());
     }
     if raid_score(r) > MAX_SCORE {
@@ -207,7 +215,7 @@ pub fn check_raid(app: &str, r: &Raid) -> R<()> {
 }
 
 fn raid_blocked(b: &Blocklist, r: &Raid) -> bool {
-    b.list.iter().any(|x| *x == r.attacker || *x == r.target)
+    b.list.iter().any(|x| *x == r.attacker || Some(x.as_str()) == target_persona(&r.target) || *x == r.target)
 }
 
 /// Keep the MAX_RAIDS most recent raids (then the longest sieges).
@@ -459,6 +467,11 @@ pub fn home_key(h: &Home) -> String {
     if h.city { format!("{}/{}", h.persona, h.seed) } else { h.persona.clone() }
 }
 
+/// A city stands on a planet its persona holds the colony of.
+fn city_ok(colonies: &BTreeMap<String, Colony>, h: &Home) -> bool {
+    !h.city || colonies.get(&h.seed).is_some_and(|c| c.persona == h.persona)
+}
+
 /// Keep the MAX_HOMES newest homes, and of each persona the MAX_CITIES newest cities.
 fn prune_homes(homes: &mut BTreeMap<String, Home>) {
     let mut cities: BTreeMap<String, Vec<(std::cmp::Reverse<(u64, String)>, String)>> = BTreeMap::new();
@@ -490,7 +503,7 @@ pub fn validate(admin: &str, app: &str, s: &GalaxyState) -> R<()> {
     if s.colonies.len() > MAX_COLONIES || s.colonies.iter().any(|(k, c)| blocked(&s.blocked, k, c)) {
         return Err("state out of bounds".into());
     }
-    if s.homes.len() > MAX_HOMES || s.homes.iter().any(|(k, h)| *k != home_key(h) || home_blocked(&s.blocked, h)) {
+    if s.homes.len() > MAX_HOMES || s.homes.iter().any(|(k, h)| *k != home_key(h) || home_blocked(&s.blocked, h) || !city_ok(&s.colonies, h)) {
         return Err("homes out of bounds".into());
     }
     if s.raids.len() > MAX_RAIDS || s.raids.iter().any(|(k, r)| *k != raid_key(r) || raid_blocked(&s.blocked, r)) {
@@ -523,7 +536,7 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         s.colonies.insert(seed, c);
     }
     for (k, h) in d.homes {
-        if k != home_key(&h) || home_blocked(&s.blocked, &h) || s.homes.get(&k).is_some_and(|old| home_rank(old) >= home_rank(&h)) {
+        if k != home_key(&h) || home_blocked(&s.blocked, &h) || !city_ok(&s.colonies, &h) || s.homes.get(&k).is_some_and(|old| home_rank(old) >= home_rank(&h)) {
             continue;
         }
         check_home(app, &h)?;
@@ -551,6 +564,8 @@ pub fn apply(admin: &str, app: &str, s: &mut GalaxyState, d: Delta) -> R<()> {
         s.colonies.remove(&seed);
     }
     prune(&mut s.colonies);
+    let colonies = &s.colonies;
+    s.homes.retain(|_, h| city_ok(colonies, h)); // a city goes with the colony it stood on
     prune_homes(&mut s.homes);
     prune_raids(&mut s.raids);
     s.names.retain(|_, n| !b.list.contains(&n.persona));
@@ -810,29 +825,73 @@ mod tests {
         Delta { colonies: Default::default(), blocked: None, homes: [(home_key(&h), h)].into(), raids: Default::default(), names: Default::default() }
     }
 
-    #[test]
-    fn cities_live_beside_the_home_and_are_capped() {
-        let admin = pk(&sk(1));
-        let mut s = GalaxyState::default();
-        let mine = home(&sk(2), "v1-5_5_5", &[("house", 50)], 1);
-        apply(&admin, APP, &mut s, homes(mine.clone())).unwrap();
-        for i in 0..(MAX_CITIES as u64 + 2) {
-            let mut c = home(&sk(2), &format!("v1-6_6_{i}"), &[("house", 10)], 10 + i);
-            c.city = true;
-            c.sig = hex::encode(sk(100).sign(home_msg(&c).as_bytes()).to_bytes());
-            apply(&admin, APP, &mut s, homes(c)).unwrap();
-        }
-        assert!(s.homes.contains_key(&mine.persona), "the home stays under the persona");
-        assert_eq!(s.homes.values().filter(|h| h.city).count(), MAX_CITIES, "the newest cities stay");
-        assert!(!s.homes.contains_key(&format!("{}/v1-6_6_0", mine.persona)), "the oldest went");
-        validate(&admin, APP, &s).unwrap();
-        // a city under the persona's own key is refused: it would replace the home
-        let mut c = home(&sk(2), "v1-7_7_7", &[], 99);
+    fn city(persona: &SigningKey, seed: &str, ts: u64) -> Home {
+        let mut c = home(persona, seed, &[("house", 10)], ts);
         c.city = true;
         c.sig = hex::encode(sk(100).sign(home_msg(&c).as_bytes()).to_bytes());
+        c
+    }
+
+    #[test]
+    fn a_persona_keeps_its_newest_cities() {
+        let mut m = BTreeMap::new();
+        for i in 0..(MAX_CITIES as u64 + 2) {
+            let c = city(&sk(2), &format!("v1-6_6_{i}"), 10 + i);
+            m.insert(home_key(&c), c);
+        }
+        let mine = home(&sk(2), "v1-5_5_5", &[("house", 50)], 1);
+        m.insert(home_key(&mine), mine.clone());
+        prune_homes(&mut m);
+        assert!(m.contains_key(&mine.persona), "the home stays under the persona");
+        assert_eq!(m.values().filter(|h| h.city).count(), MAX_CITIES, "the newest cities stay");
+        assert!(!m.contains_key(&format!("{}/v1-6_6_0", mine.persona)), "the oldest went");
+    }
+
+    #[test]
+    fn a_city_needs_the_colony_it_stands_on() {
+        let admin = pk(&sk(1));
+        let seed = "v1-6_6_6";
+        let mine = home(&sk(2), "v1-5_5_5", &[("house", 50)], 1);
+        let c = city(&sk(2), seed, 5);
+        let mut s = GalaxyState::default();
+        apply(&admin, APP, &mut s, homes(mine.clone())).unwrap();
+        apply(&admin, APP, &mut s, homes(c.clone())).unwrap();
+        assert!(!s.homes.contains_key(&home_key(&c)), "no colony, no city");
+        apply(&admin, APP, &mut s, one(seed, colony(seed, &sk(2), "Mine", 1 << 18, 10))).unwrap();
+        apply(&admin, APP, &mut s, homes(c.clone())).unwrap();
+        assert!(s.homes.contains_key(&home_key(&c)));
+        validate(&admin, APP, &s).unwrap();
+        // a city may not take the home's key: it would replace the home
+        let under_home = Delta { homes: [(c.persona.clone(), c.clone())].into(), ..Default::default() };
         let before = s.clone();
-        apply(&admin, APP, &mut s, Delta { homes: [(c.persona.clone(), c)].into(), ..Default::default() }).unwrap();
+        apply(&admin, APP, &mut s, under_home).unwrap();
         assert_eq!(s, before);
+        // someone who spends much more time takes the planet, and the city goes with it
+        apply(&admin, APP, &mut s, one(seed, colony(seed, &sk(3), "Theirs", 1 << 21, 11))).unwrap();
+        assert!(!s.homes.contains_key(&home_key(&c)), "the city goes with the colony");
+        assert!(s.homes.contains_key(&mine.persona), "the home stays");
+        validate(&admin, APP, &s).unwrap();
+        apply(&admin, APP, &mut s, homes(c.clone())).unwrap();
+        assert!(!s.homes.contains_key(&home_key(&c)), "and it does not come back");
+    }
+
+    #[test]
+    fn a_siege_may_target_a_city() {
+        let (p, q) = (pk(&sk(3)), pk(&sk(2)));
+        assert_eq!(target_persona(&p), Some(p.as_str()));
+        assert_eq!(target_persona(&format!("{p}/v1-6_6_6.1")), Some(p.as_str()));
+        assert!(target_persona(&format!("{p}/nope")).is_none() && target_persona(&format!("{p}/v1-6_6_6/x")).is_none() && target_persona("x").is_none());
+        let mut r = raid(&sk(2), &sk(3), 20000, 1);
+        r.target = format!("{p}/v1-6_6_6");
+        r.nonces = (0..LANES).map(|i| (0..(1u64 << 18)).min_by_key(|n| u64::from_be_bytes(raid_hash(&r, i, *n)[..8].try_into().unwrap())).unwrap()).collect();
+        r.sig = hex::encode(sk(100).sign(raid_msg(&r).as_bytes()).to_bytes());
+        assert!(check_raid(APP, &r).is_ok(), "a siege of a city");
+        let mut own = r.clone();
+        own.target = format!("{q}/v1-6_6_6");
+        own.sig = hex::encode(sk(100).sign(raid_msg(&own).as_bytes()).to_bytes());
+        assert!(check_raid(APP, &own).is_err(), "not your own city");
+        let b = Blocklist { ts: 1, list: vec![p.clone()], sig: String::new() };
+        assert!(raid_blocked(&b, &r), "blocking a persona blocks sieges of its cities");
     }
 
     #[test]

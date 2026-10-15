@@ -5,7 +5,7 @@ import * as net from './net.js';
 import { checkColony, checkHome, checkRaid, checkName, checkMessage, checkHere } from './check.js';
 import { makeWorld, colonists, makeSpecies } from '../world.js';
 import { drawCreature } from '../draw.js';
-import { colonyCost, canColonize, payColony, partsOf, homeSize, levelFor, titleFor, civTitle, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE } from '../atlas.js';
+import { colonyCost, canColonize, payColony, partsOf, homeSize, levelFor, titleFor, civTitle, defence, siegeCrew, BUILDINGS, siegeLoot, canSiege, payForSiege, besieged, SIEGE, withHome } from '../atlas.js';
 import { textOk, CHAT_BITS, CHAT_LIVE, HERE_LIVE } from './chat.js';
 import { grindAnte, anteBits } from './viso.js';
 import { newMiner, mineSome, mineWith, minerScore, score, seconds, MAX_SCORE, HASHES_PER_SECOND, COLONY_BITS, colonyLimit, homeKey, validText, raidHash, raidScore, raidKey, today } from './colony.js';
@@ -66,7 +66,7 @@ export async function start(app) {
       if (!H || !me || !nick || level() < COLONY_BITS) return;
       // the contract takes 64 building parts and 64 creatures (the newest); `size` declares the whole home
       const pub = async (home, city, last) => {
-        const built = home.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = home.animals.slice(-64), peace = !!home.peace, size = homeSize(home);
+        const built = home.built.flatMap((b) => partsOf(b).map((k) => [k, Math.round(b.x * 100)])).slice(-64), animals = home.animals.slice(-64), peace = !!app.st().home.peace, size = homeSize(home); // a city is as peaceful as the home
         const key = JSON.stringify([home.seed, built, animals, nick, peace, size]);
         if (key === last && galaxy.homes?.[city ? `${me}/${home.seed}` : me]) return last;
         const h = await net.publishHome({ nick, seed: home.seed, built, animals, peace, city, size, ante: anteHex() });
@@ -96,15 +96,15 @@ export async function start(app) {
   const raidedLately = (persona) => raids().some((r) => r.attacker === persona && r.day >= today() - 1 && sound('raid', r));
   const peaceful = (h) => !!h?.peace && !raidedLately(h.persona);
   const crewOf = (r) => siegeCrew(seconds(raidScore(r)));
-  const siegeKey = (target, day) => `siege:${target.slice(0, 16)}:${day}`;
+  const siegeKey = (target, day) => `siege:${target.slice(0, 16)}${target.slice(64).replaceAll('/', '~')}:${day}`; // a home or one of its cities
   /** The home on this planet we could besiege now, if any. */
   function victim() {
     const w = app.world(), H = app.st().home;
     if (!me || !nick || level() < COLONY_BITS || !H || H.peace) return null;
-    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && !x.city && x.persona !== me && x.built.length && sound('home', x));
-    return h && !peaceful(h) && !galaxy.raids?.[`${me}|${h.persona}|${today()}`] ? h : null;
+    const h = Object.values(galaxy.homes ?? {}).find((x) => x.seed === w.seed && x.persona !== me && x.built.length && sound('home', x) && !peaceful(x) && !galaxy.raids?.[`${me}|${homeKey(x)}|${today()}`]);
+    return h ?? null;
   }
-  const siegeHere = (h) => siege && h && siege.target === h.persona && siege.day === today();
+  const siegeHere = (h) => siege && h && siege.target === homeKey(h) && siege.day === today();
   const siegeScore = () => minerScore(siege.miner);
   setInterval(() => {
     if (!siege || document.visibilityState !== 'visible' || !siegeHere(victim())) return;
@@ -116,13 +116,13 @@ export async function start(app) {
     const h = victim();
     siegeBtn.hidden = !h;
     if (!h) return;
-    const k = siegeKey(h.persona, today());
+    const k = siegeKey(homeKey(h), today());
     if (!siegeHere(h) && resumed !== k) {
       resumed = k; // a siege started earlier today (before a reload) carries on
       const raw = await net.storeGet(k);
-      if (raw && !siegeHere(h)) siege = { target: h.persona, day: today(), miner: JSON.parse(raw) };
+      if (raw && !siegeHere(h)) siege = { target: homeKey(h), day: today(), miner: JSON.parse(raw) };
     }
-    if (!siegeHere(h)) { siegeBtn.textContent = `⚔ Besiege ${h.nick} (⚡${SIEGE.fuel} ⛏${SIEGE.ore})`; return; }
+    if (!siegeHere(h)) { siegeBtn.textContent = `⚔ Besiege ${h.nick}${h.city ? "'s city" : ''} (⚡${SIEGE.fuel} ⛏${SIEGE.ore})`; return; }
     const sc = siegeScore(), crew = sc === null ? 0 : siegeCrew(seconds(sc));
     siegeBtn.textContent = `⚔ Attack ${h.nick}: ${crew} raiders vs defence ${defence(h)}`;
   }
@@ -132,16 +132,16 @@ export async function start(app) {
     if (!h) return;
     if (!siegeHere(h)) {
       if (!canSiege(st)) return app.toast([`A siege needs ⚡${SIEGE.fuel} fuel and ⛏${SIEGE.ore} ore.`]);
-      if (!confirm(`Besiege ${h.nick}'s ${civTitle(h).toLowerCase()} (defence ${defence(h)})? It costs ⚡${SIEGE.fuel} ⛏${SIEGE.ore}. Stay here: every ${SIEGE.minutesPerRaider} minutes another raider joins, then attack.`)) return;
+      if (!confirm(`Besiege ${h.nick}'s ${h.city ? 'city' : civTitle(h).toLowerCase()} (defence ${defence(h)})? It costs ⚡${SIEGE.fuel} ⛏${SIEGE.ore}. Stay here: every ${SIEGE.minutesPerRaider} minutes another raider joins, then attack.`)) return;
       payForSiege(st); app.save();
-      siege = { target: h.persona, day: today(), miner: newMiner() };
+      siege = { target: homeKey(h), day: today(), miner: newMiner() };
       return updateSiege();
     }
     const sc = siegeScore();
     if (sc === null || sc > MAX_SCORE) return app.toast(['The siege has only just begun: stay a few minutes more.']);
     siegeBtn.disabled = true;
     try {
-      const r = await net.publishRaid({ nick, target: h.persona, day: siege.day, nonces: [...siege.miner.nonces], ante: anteHex() });
+      const r = await net.publishRaid({ nick, target: homeKey(h), day: siege.day, nonces: [...siege.miner.nonces], ante: anteHex() });
       galaxy.raids = { ...galaxy.raids, [raidKey(r)]: r }; siege = null;
       const crew = crewOf(r), d = defence(h);
       if (crew > d) { st.bag.ore += siegeLoot(crew); app.save(); }
@@ -150,23 +150,28 @@ export async function start(app) {
     } catch (e) { app.toast([app.esc(e.message)]); }
     finally { siegeBtn.disabled = false; updateSiege(); }
   };
-  /** Sieges of our home we have not fought yet (from the last 2 days): fought like pirate raids. */
+  /** Sieges of our home and cities we have not fought yet (from the last 2 days): fought like pirate raids. */
   function defend() {
-    const st = app.st(), H = st.home;
-    if (!me || !H) return;
-    H.sieged ??= [];
-    const fresh = raids().filter((r) => r.target === me && r.day >= today() - 2 && r.day <= today() && !H.sieged.includes(raidKey(r)) && sound('raid', r));
-    if (!fresh.length) return;
+    const st = app.st();
+    if (!me || !st.home) return;
     const lines = [];
-    let fought = false, lost = false;
-    for (const r of fresh) {
-      H.sieged = [...H.sieged, raidKey(r)].slice(-200);
-      if (H.peace && !raidedLately(me)) continue;
-      const res = besieged(st, crewOf(r), Date.now(), raidKey(r));
-      if (res) { fought = true; lost ||= !res.won; }
-      if (res) lines.push(res.won ? `⚔ ${app.esc(r.nick)} besieged your home with ${res.crew} raiders: your defence (${res.defence}) held. ⛏${res.loot} from what they left.`
-        : `⚔ ${app.esc(r.nick)} besieged your home with ${res.crew} raiders against your defence ${res.defence}.${res.damaged ? ` Your ${BUILDINGS[res.damaged].name} was damaged: repair it from 🏗 Build.` : ''} You are shielded for a day.`);
+    let seen = false, fought = false, lost = false;
+    for (const [H, target, city] of [[st.home, me, null], ...(st.cities ?? []).map((c) => [c, `${me}/${c.seed}`, c])]) {
+      H.sieged ??= [];
+      const fresh = raids().filter((r) => r.target === target && r.day >= today() - 2 && r.day <= today() && !H.sieged.includes(raidKey(r)) && sound('raid', r));
+      for (const r of fresh) {
+        seen = true;
+        H.sieged = [...H.sieged, raidKey(r)].slice(-200);
+        if (st.home.peace && !raidedLately(me)) continue; // peace is the persona's: cities follow the home
+        const res = withHome(st, city, () => besieged(st, crewOf(r), Date.now(), raidKey(r)));
+        if (!res) continue;
+        fought = true; lost ||= !res.won;
+        const where = city ? `your city ${app.esc(makeWorld(city.seed).name)}` : 'your home';
+        lines.push(res.won ? `⚔ ${app.esc(r.nick)} besieged ${where} with ${res.crew} raiders: your defence (${res.defence}) held. ⛏${res.loot} from what they left.`
+          : `⚔ ${app.esc(r.nick)} besieged ${where} with ${res.crew} raiders against your defence ${res.defence}.${res.damaged ? ` Your ${BUILDINGS[res.damaged].name} was damaged: repair it from 🏗 Build.` : ''} You are shielded for a day.`);
+      }
     }
+    if (!seen) return;
     app.save(); if (fought) app.raided(lost);
     if (lines.length) app.toast(lines);
   }
@@ -315,15 +320,16 @@ export async function start(app) {
   // ---------------------------------------------------------------- leaderboard
   const lbBtn = document.getElementById('lbBtn'), lbDlg = document.getElementById('lbDlg');
   function renderLeaderboard() {
+    const mySize = () => [app.st().home, ...(app.st().cities ?? [])].reduce((a, h) => a + homeSize(h)[3], 0); // points of the home and cities
     const rows = new Map();
-    const rowOf = (persona, nick) => rows.get(persona) ?? rows.set(persona, { nick, persona, t: 0, planets: [], home: null }).get(persona);
+    const rowOf = (persona, nick) => rows.get(persona) ?? rows.set(persona, { nick, persona, t: 0, planets: [], home: null, cities: [] }).get(persona);
     for (const [seed, c] of Object.entries(galaxy.colonies ?? {})) {
       const r = rowOf(c.persona, c.nick), t = seconds(colScore(seed, c));
       r.t += t; r.planets.push({ seed, name: makeWorld(seed).name, t, rec: c });
     }
-    for (const h of Object.values(galaxy.homes ?? {}).filter((x) => !x.city)) { const r = rowOf(h.persona, h.nick); r.home = h; r.nick = h.nick; }
+    for (const h of Object.values(galaxy.homes ?? {})) { const r = rowOf(h.persona, h.nick); if (h.city) r.cities.push(h); else { r.home = h; r.nick = h.nick; } }
     // the whole home as declared (`size`; older homes: what they list)
-    const sizeOf = (h) => h?.size ?? (h ? homeSize(h) : [0, 0, 0, 0]), score = (r) => { r.size = sizeOf(r.home); r.pts = r.size[3]; r.lv = levelFor(r.pts); };
+    const sizeOf = (h) => h?.size ?? (h ? homeSize(h) : [0, 0, 0, 0]), score = (r) => { r.size = [r.home, ...r.cities].map(sizeOf).reduce((a, s) => a.map((n, i) => n + s[i])); r.pts = r.size[3]; r.lv = levelFor(r.pts); }; // the home and the cities add up
     rows.forEach(score);
     // civilization first (level, then points), then colonies and time spent on them
     const rank = (a, b) => b.lv - a.lv || b.pts - a.pts || b.planets.length - a.planets.length || b.t - a.t;
@@ -332,6 +338,7 @@ export async function start(app) {
       if (r.vet) return;
       r.vet = true;
       if (r.home && !sound('home', r.home)) r.home = null;
+      r.cities = r.cities.filter((c) => sound('home', c));
       r.planets = r.planets.filter((p) => sound('colony', p.rec, p.seed));
       r.t = r.planets.reduce((x, p) => x + p.t, 0); score(r);
     };
@@ -339,11 +346,11 @@ export async function start(app) {
     for (let round = 0; round < 8; round++) {
       const todo = all.slice(0, 20).filter((r) => !r.vet);
       if (!todo.length) break;
-      todo.forEach(vetRow); all = all.filter((r) => !r.vet || r.home || r.planets.length).sort(rank);
+      todo.forEach(vetRow); all = all.filter((r) => !r.vet || r.home || r.cities.length || r.planets.length).sort(rank);
     }
     const av = (p) => { const u = avatar(p, renderLeaderboard); return u ? `<img class="av" src="${u}" alt="">` : `<span class="av" style="background:hsl(${hueOf(p)} 70% 55%)"></span>`; };
     const row = (r, rank) => `<li value="${rank}"${r.persona === me ? ' class="me"' : ''}><details><summary>${av(r.persona)}<b>${app.esc(r.nick)}</b>${r.persona === me ? ' (you)' : ''} — Lv ${r.lv} ${titleFor(r.lv)} · 👥 ${r.size[2]} · 🏗 ${r.size[0]} · 🚩 ${r.planets.length}${r.t ? `, ${fmt(r.t)}` : ''}</summary>
-      <ul>${r.home ? `<li>🏠 <a href="#${r.home.seed}">${app.esc(makeWorld(r.home.seed).name)}</a> <small style="display:inline">${r.size[1]} creatures</small></li>` : ''}${r.persona === me && app.st().home && levelFor(homeSize(app.st().home)[3]) !== r.lv ? `<li><small style="display:inline">Lv ${levelFor(homeSize(app.st().home)[3])} at home: not published yet</small></li>` : ''}${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
+      <ul>${r.home ? `<li>🏠 <a href="#${r.home.seed}">${app.esc(makeWorld(r.home.seed).name)}</a> <small style="display:inline">${r.size[1]} creatures</small></li>` : ''}${r.cities.map((c) => `<li>🏙 <a href="#${c.seed}">${app.esc(makeWorld(c.seed).name)}</a></li>`).join('')}${r.persona === me && app.st().home && levelFor(mySize()) !== r.lv ? `<li><small style="display:inline">Lv ${levelFor(mySize())} at home: not published yet</small></li>` : ''}${r.planets.sort((a, b) => b.t - a.t).map((p) => `<li><a href="#${p.seed}">${app.esc(p.name)}</a> <small style="display:inline">${fmt(p.t)}</small></li>`).join('')}</ul></details></li>`;
     const mine = all.findIndex((r) => r.persona === me);
     if (mine >= 20) vetRow(all[mine]);
     document.getElementById('lbBody').innerHTML = all.length

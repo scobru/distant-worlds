@@ -54,18 +54,6 @@ const sized = (ts, size) => { const h = { ...home(ts), size, sig: '' }; h.sig = 
 db.applyGalaxy({ homes: { [a.persona]: sized(25, [70, 1060, 563, 5000]) } });
 assert.deepEqual(JSON.parse(db.galaxy()).homes[a.persona].size, [70, 1060, 563, 5000]);
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 563, 16_000]) } }), /home too big/);
-// cities: homes on planets you colonized, kept under `persona/seed` beside the home; a persona keeps its 8 newest
-const city = (seed, ts) => { const h = { ...home(ts), seed, city: true, sig: '' }; h.sig = sign(homeMsg(h)); return h; };
-for (let i = 0; i < 10; i++) { const c = city(`v1-7_7_${i}`, 100 + i); db.applyGalaxy({ homes: { [homeKey(c)]: c } }); }
-{
-  const homes = JSON.parse(db.galaxy()).homes, cities = Object.entries(homes).filter(([, h]) => h.city);
-  assert.equal(cities.length, 8, 'eight cities');
-  assert.ok(homes[a.persona] && !homes[a.persona].city, 'the home stays under the persona');
-  assert.ok(cities.every(([k, h]) => k === `${a.persona}/${h.seed}`) && !homes[`${a.persona}/v1-7_7_0`], 'the oldest two went');
-  const c = city('v1-8_8_8', 200);
-  db.applyGalaxy({ homes: { [a.persona]: c } }); // ignored, as the contract: a city may not take the home's key
-  assert.ok(!JSON.parse(db.galaxy()).homes[a.persona].city);
-}
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [0, 1060, 0, 0]) } }), /home too big/); // fewer than listed
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: sized(26, [70, 1060, 1751, 5000]) } }), /home too big/); // more than upgraded domes house
 assert.throws(() => db.applyGalaxy({ homes: { [a.persona]: { ...sized(26, [70, 1060, 563, 5000]), size: [70, 1060, 563, 5001] } } }), /bad signature/);
@@ -94,10 +82,28 @@ while (minerScore(m2) > colonyLimit(1)) mineSome(m2, seed2, a.persona, 200_000);
 db.applyGalaxy({ colonies: { [seed2]: c2(m2, 4) } });
 assert.equal(JSON.parse(db.galaxy()).colonies[seed2].name, 'Second');
 assert.ok(JSON.parse(db.galaxy()).colonies[seed], 'the first colony stays');
+// cities: homes on planets you hold the colony of, kept under `persona/seed` beside the home
+const city = (cseed, ts) => { const h = { ...home(ts), seed: cseed, city: true, sig: '' }; h.sig = sign(homeMsg(h)); return h; };
+{
+  const c = city(seed, 300), other = city('v1-7_7_7', 301);
+  db.applyGalaxy({ homes: { [homeKey(other)]: other } }); // no colony there: ignored
+  db.applyGalaxy({ homes: { [a.persona]: c } }); // a city may not take the home's key: ignored
+  assert.ok(!JSON.parse(db.galaxy()).homes[a.persona].city && !JSON.parse(db.galaxy()).homes[homeKey(other)]);
+  db.applyGalaxy({ homes: { [homeKey(c)]: c } });
+  const homes = JSON.parse(db.galaxy()).homes;
+  assert.ok(homes[`${a.persona}/${seed}`].city && homes[a.persona] && !homes[a.persona].city, 'a city beside the home');
+}
 
 // raids are keyed by attacker, target and day
 const r = { attacker: a.persona, nick: 'Ann', target: b.persona, day: 20000, nonces: [...miner.nonces], ante: a.ante, sig: '', cert: a.cert };
 assert.throws(() => db.applyGalaxy({ raids: { [raidKey(r)]: { ...r, sig: sign(raidMsg(r)) } } }), /siege too short/); // a colony's nonces are not a siege
+// a siege may target a city (`persona/seed`), not a malformed target or one's own city
+const rc = { ...r, target: `${b.persona}/${seed}` };
+assert.throws(() => db.applyGalaxy({ raids: { [raidKey(rc)]: { ...rc, sig: sign(raidMsg(rc)) } } }), /siege too short/);
+for (const target of [`${b.persona}/nope`, `${b.persona}/${seed}/x`, `${a.persona}/${seed}`]) {
+  const bad = { ...r, target };
+  assert.throws(() => db.applyGalaxy({ raids: { [raidKey(bad)]: { ...bad, sig: sign(raidMsg(bad)) } } }), /bad raid/);
+}
 
 // bred creatures live in homes (canonical ids only, as the contract), and the first name wins
 assert.ok(isAnimal('(v1-1_2_3#0+v1-4_5_6#1)+v1-7_8_9.2#3') && !isAnimal('v1-4_5_6#1+v1-1_2_3#0') && !isAnimal('v1-01_2_3#0+v1-4_5_6#1'));

@@ -78,8 +78,14 @@ export function checkHome(app, h) {
   signed(app, h.persona, h.ante, COLONY_BITS, homeMsg(h), h.sig, h.cert);
   return { persona: h.persona, nick: h.nick, seed: h.seed, built: h.built, animals: h.animals, ts: h.ts, ...(h.peace && { peace: true }), ...(h.city && { city: true }), ...(h.size && { size: h.size }), ante: h.ante, sig: h.sig, cert: cert(h.cert) };
 }
+/** The persona a siege target belongs to (contract target_persona): a persona, or `persona/seed` for one of its cities. */
+export function targetPersona(t) {
+  if (typeof t !== 'string') return null;
+  const [p, seed, ...rest] = t.split('/');
+  return isPersona(p) && rest.length === 0 && (seed === undefined || isStar(seed)) ? p : null;
+}
 export function checkRaid(app, r) {
-  if (!isPersona(r?.attacker) || !isPersona(r.target) || r.attacker === r.target || !text(r.nick, 24) || !uint(r.day) || !nonces(r.nonces)) fail('bad raid');
+  if (!isPersona(r?.attacker) || targetPersona(r.target) === null || targetPersona(r.target) === r.attacker || !text(r.nick, 24) || !uint(r.day) || !nonces(r.nonces)) fail('bad raid');
   if (raidScore(r) > MAX_SCORE) fail('siege too short');
   signed(app, r.attacker, r.ante, COLONY_BITS, raidMsg(r), r.sig, r.cert);
   return { attacker: r.attacker, nick: r.nick, target: r.target, day: r.day, nonces: r.nonces, ante: r.ante, sig: r.sig, cert: cert(r.cert) };

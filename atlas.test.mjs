@@ -632,3 +632,16 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   upgrade(st, 0);
   assert.ok(Math.abs(stables().v - 12 / 12) < 1e-9, 'an upgraded stable holds 12');
 }
+
+{
+  const { setHome, foundCity, cityOf, withHome, pirates, besieged } = await import('./atlas.js');
+  const st = emptyState();
+  st.bag.plant = 500; st.bag.ore = 500;
+  setHome(st, 'v1-1_1_1.1', 0);
+  foundCity(st, 'v1-2_2_2.1', 0);
+  const city = cityOf(st, 'v1-2_2_2.1'), week = 7 * 864e5;
+  withHome(st, city, () => { pirates(st, week); assert.equal(st.home.raided, week); });
+  assert.equal(st.home.raided, undefined, 'pirates stamped the city, not the home');
+  assert.equal(city.raided, week);
+  assert.equal(withHome(st, city, () => besieged(st, 5, 1000, 'k')), null, 'a new city has its days of grace');
+}
