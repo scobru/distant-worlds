@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Music follows the game: battles and unstable worlds crossfade into tense music and back; songs fade on jump and mute; the lead swells with each phrase; a world's `density` sets how often the melody rests.
+- ☰ 📰 Updates: what changed, in players' words.
 - Explorers on the same planet see each other, near-live: a signed presence per persona in the chat contract (`Here`, `dwp1|…`), the same on Freenet and web; ☰ 👁 hides you.
 - Shared world cards carry the explorer's position (they carried a layer coordinate), so links and ghosts land where they were shared.
 - Battles and raids show: shakes and a red flash.

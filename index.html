@@ -99,6 +99,7 @@
     <button id="seenBtn" hidden aria-pressed="true">👁 Visible to others: on</button>
     <button id="logBtn">📜 Log</button>
     <button id="guideBtn">❓ Guide</button>
+    <button id="updatesBtn">📰 Updates</button>
     <button id="tutBtn">🔁 Tutorial</button>
   </div>
 </div>
@@ -123,6 +124,20 @@
   <p><button id="signImport">Import a key</button><br><small>A key you backed up before (64 hex characters).</small></p></dialog>
 <dialog id="lbDlg"><div class="row"><h2>Leaderboard</h2><button id="lbClose">Close</button></div><div id="lbBody"></div></dialog>
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
+<!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
+<dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-15 · Music that follows the game</h3>
+  <ul><li>A battle switches the music to a tense song, and back when it ends; so does a world close to collapse, as soon as it becomes unstable.</li>
+    <li>Songs fade into each other when you jump or the mood changes, and fade out when you mute.</li>
+    <li>Melodies breathe: each phrase swells and falls back, and quiet worlds leave more silence than lively ones.</li></ul>
+  <h3>2026-10-15 · A fairer leaderboard</h3>
+  <ul><li>Homes now publish their whole size, so the leaderboard counts homes bigger than 64 buildings or 64 creatures, and shows the level you see at home.</li></ul>
+  <h3>2026-10-14 · Explorers meet</h3>
+  <ul><li>Explorers on the same planet see each other walking, almost live. ☰ 👁 hides you.</li>
+    <li>Shared world cards remember where you stood.</li></ul>
+  <h3>2026-10-14 · Battles you can feel</h3>
+  <ul><li>Hits shake the screen and flash red, in battles and pirate raids.</li></ul>
+</dialog>
 <dialog id="guide"><div class="row"><h2>How to play</h2><button id="guideClose">Close</button></div>
   <h3>🚶 Walk</h3>
   <p>Your explorer walks with ← → (or A / D), by holding ◀ ▶, or by dragging the landscape. Walking new ground by hand slowly fills your hyperdrive fuel ⚡.
@@ -345,7 +360,7 @@ function load() {
   if (her) setTimeout(() => world === W && toast([`🏚 ${W.name} was born where ${her.name} once stood: its ruins remain${her.survivor ? `, and its ${her.survivor.name} survived` : ''}.`]), 1800);
   if (inst) setTimeout(() => world === W && toast([`⚠ ${W.name} is unstable: it collapses in ${left(life.collapse - Date.now())}. Ore is richer here, but gravity is ×${grav().toFixed(1)}: you walk slower, reach less and building costs more.`]), 3600);
   updateHome(); pets = homePets(); garden = homeGarden();
-  if (audio) { stopAudio(); startAudio(); }
+  if (audio) { audio(1.5); startAudio(); } // the old world's song fades under the new one
 }
 
 // Captured creatures roam among the buildings of the home planet (around the arrival point before any is built).
@@ -944,7 +959,7 @@ function checkEvent() {
 setInterval(() => {
   checkEvent();
   if (!life) return;
-  if (Date.now() < life.collapse) { inst = instability(ageOf(world.seed).age); return; }
+  if (Date.now() < life.collapse) { inst = instability(ageOf(world.seed).age); moodCheck(); return; }
   const next = ageOf(world.seed).next;
   life = null; evacuate(st); save();
   toast([`💥 ${world.name} collapsed! Emergency jump: you escaped, but half of your bag was left behind.`]);
@@ -981,7 +996,7 @@ battleDlg.oncancel = (e) => e.preventDefault(); // Escape does not skip a battle
 function startFight(f, co, lv) {
   setWalking(false);
   battle = { ...startBattle(f.dna, f.seed, battleParty(st, elementOf(f.dna)), battleLevel(st), lv), take: f, co, log: [], elite: f.elite };
-  sfx('creature'); renderBattle(); battleDlg.showModal();
+  sfx('creature'); renderBattle(); battleDlg.showModal(); moodCheck();
 }
 function renderBattle() {
   const icon = (e) => (e ? ` ${ELEMENTS[e][0]}` : ''), b = battle, bar = (n, max) => `<meter min="0" max="${max}" value="${Math.max(0, n)}"></meter> ${Math.max(0, n)}/${max}`;
@@ -1001,7 +1016,7 @@ function renderBattle() {
 }
 function endFight(msg) {
   collect(st, days()[0], world.seed, battle.take, Date.now()); // fought: this creature waits elsewhere tomorrow
-  battle = null; battleDlg.close(); save(); toast([msg].flat());
+  battle = null; battleDlg.close(); save(); toast([msg].flat()); moodCheck();
 }
 function strike(act) {
   const b = battle, name = esc(b.foe.name), lv = battleLevel(st);
@@ -1177,10 +1192,12 @@ function renderBuild() {
 }
 document.getElementById('buildClose').onclick = () => buildDlg.close();
 
-let audio = null;
-// a world close to collapse plays tense music
-function startAudio() { audio = startMusic({ ...world.music, tense: inst > 0.3 }, () => interest); setBtn(true); }
-function stopAudio() { audio(); audio = null; setBtn(false); }
+let audio = null, mood = false;
+// a battle, or a world close to collapse, plays tense music; a change of mood crossfades into the other song
+const tense = () => !!battle || inst > 0.3;
+function startAudio() { mood = tense(); audio = startMusic({ ...world.music, tense: mood }, () => interest); setBtn(true); }
+function stopAudio() { audio(0.3); audio = null; setBtn(false); }
+function moodCheck() { if (audio && tense() !== mood) { audio(2); startAudio(); } }
 const sb = document.getElementById('sound');
 function setBtn(on) { sb.textContent = on ? '■ Mute' : '▶ Sound'; sb.setAttribute('aria-pressed', on); }
 
@@ -1391,6 +1408,9 @@ const guide = document.getElementById('guide');
 document.getElementById('guideBtn').onclick = () => guide.showModal();
 document.getElementById('more').addEventListener('click', (e) => e.target.closest('button') && e.currentTarget.hidePopover());
 document.getElementById('guideClose').onclick = () => guide.close();
+const updates = document.getElementById('updates');
+document.getElementById('updatesBtn').onclick = () => updates.showModal();
+document.getElementById('updatesClose').onclick = () => updates.close();
 // the first time, the guide opens by itself
 if (!st.guided) { st.guided = true; save(); setTimeout(() => guide.showModal(), 600); }
 

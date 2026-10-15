@@ -16,3 +16,7 @@ The game ships in two multiplayer versions that must always behave the same:
 - README: document the feature for both versions, or say why one cannot have it.
 
 If a feature truly cannot exist on one side, say so in the README and in the PR.
+
+## Tell players what changed
+
+Every change players can notice adds an entry at the top of the 📰 Updates dialog (`<dialog id="updates">` in `index.html`), in the same change: a dated `<h3>` title and a few plain bullets, in players' words (what they will see or do, not how it is built), newest first. `CHANGELOG.md` stays the technical record.
