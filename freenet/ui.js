@@ -146,6 +146,7 @@ export async function start(app) {
       const crew = crewOf(r), d = defence(h);
       if (crew > d) { st.bag.ore += siegeLoot(crew); app.save(); }
       app.sfx(crew > d ? 'win' : 'lose');
+      app.fx(...(crew > d ? ['shake'] : ['shake', 'hurt'])); // their walls break (shake) or your raiders are driven back (red too)
       app.toast([crew > d ? `⚔ Your ${crew} raiders broke ${app.esc(h.nick)}'s defence (${d}): ⛏${siegeLoot(crew)} taken.` : `⚔ ${app.esc(h.nick)}'s defence (${d}) held against your ${crew} raiders.`]);
     } catch (e) { app.toast([app.esc(e.message)]); }
     finally { siegeBtn.disabled = false; updateSiege(); }

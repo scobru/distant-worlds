@@ -128,6 +128,8 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-16 · Feel your own sieges</h3>
+  <ul><li>When you attack another explorer's home, the screen now shakes when their defence breaks, and shakes and flashes red when your raiders are driven back.</li></ul>
   <h3>2026-10-15 · Unload at your cities</h3>
   <ul><li>When you come back to a city of yours from an expedition, the creatures and seeds in your bag are now released there, as at your home planet: you no longer have to carry them all the way home.</li>
     <li>Creatures living in a city count for its defence and for the buildings that ask for creatures.</li></ul>
@@ -1325,7 +1327,7 @@ function showClaim() {
 }
 if (onFreenet) import('./freenet/ui.js')
   .then((m) => m.start({
-    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, pos: () => cam, refresh: () => { showClaim(); updateHome(); }, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
+    world: () => world, walking: () => walking, toast, esc, save, sfx, raided, fx: (...cls) => fx(cv, ...cls), pos: () => cam, refresh: () => { showClaim(); updateHome(); }, st: () => st, boost: (seed) => boostOn(st, seed, Date.now()),
     setSt: (s) => { st = { ...emptyState(), ...s }; save(); setSfxBtn(); updateHome(); pets = homePets(); garden = homeGarden(); }, // progress kept in the node replaces this browser's
     // the beacon goes where the explorer stands: mid-screen on the structures' layer
     cam: () => cam * world.layers[world.layers.length - 2].parallax + 0.5,
