@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- ⚡ Colonize now (`rushBtn`, `plant`/`rushBtn.onclick` in `freenet/ui.js`, `rushCost`/`RUSH` in `atlas.js`): mines the missing proof at full speed and plants the flag, charging `rushCost` (flag price × missing minutes) on top of the flag. Same proof, so no contract or `web/db.js` change; shared by Freenet and web. The honest rate stays the default; this is a paid bypass.
+
 - The bottom bar's Sign in button reads Sign out when signed in (`signOutNow` in `freenet/ui.js`, also used by the Atlas button); shared by Freenet and web.
 
 - Settlers: `sendSettlers` (`atlas.js`) founds a city on one of your colonies with `SETTLERS.start` buildings for `SETTLERS.mult` × `cityCost`, taking `SETTLERS.people` from the sending home or city as `lost`. `foundCity` takes a cost multiplier. `fn.myColonies` in `freenet/ui.js` (shared with web) lists the targets; no contract or `web/db.js` change (the city is an ordinary published city).

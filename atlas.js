@@ -592,6 +592,11 @@ function fight(st, raid, key) {
 // raider. A siege costs fuel and ore to start; a won one brings back ore from the defeated home.
 // A flag costs what you carry: it grows 1.8x with every colony you already hold, and taking another explorer's planet costs double.
 export const colonyCost = (owned, taken = false) => { const k = 1.8 ** owned * (taken ? 2 : 1); return { ore: Math.round(100 * k), plant: Math.round(150 * k) }; };
+// Colonizing at once: the browser does the missing proof of work in a burst instead of waiting on the planet, and you
+// pay for it on top of the flag: every minute of the goal still missing adds `perMinute` times the flag's price.
+// `maxHashes` refuses a burst that would take too long (a planet whose colonist spent a very long time there).
+export const RUSH = { perMinute: 1, maxHashes: 3e7 };
+export const rushCost = (owned, taken, secondsLeft) => { const c = colonyCost(owned, taken), k = RUSH.perMinute * Math.ceil(Math.max(0, secondsLeft) / 60); return { ore: c.ore * k, plant: c.plant * k }; };
 export const canColonize = (st, cost) => st.bag.ore >= cost.ore && st.bag.plant >= cost.plant;
 export function payColony(st, cost) {
   if (!canColonize(st, cost)) return false;

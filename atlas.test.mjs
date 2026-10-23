@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { makeWorld, sectorOf } from './world.js';
-import { FUEL, addFuel, jumpCost, ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay, colonyCost, canColonize, payColony } from './atlas.js';
+import { rushCost, RUSH, FUEL, addFuel, jumpCost, ENTRIES, COMBOS, emptyState, visit, findRelic, findSpecies, dailySeed, mission, matches, checkMission, isoDay, colonyCost, canColonize, payColony } from './atlas.js';
 
 const st = emptyState();
 let found = 0, missionWorld;
@@ -573,6 +573,9 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.deepEqual(colonyCost(0), { ore: 100, plant: 150 });
   assert.deepEqual(colonyCost(2), { ore: 324, plant: 486 });
   assert.deepEqual(colonyCost(2, true), { ore: 648, plant: 972 });
+  assert.deepEqual(rushCost(0, false, 0), { ore: 0, plant: 0 }, 'nothing missing, nothing to pay');
+  assert.deepEqual(rushCost(0, false, 61), { ore: 200, plant: 300 }, 'each started minute adds the flag price');
+  assert.deepEqual(rushCost(2, true, 30), colonyCost(2, true), 'dearer for a taken planet');
   const s = emptyState(); s.bag.ore = 400; s.bag.plant = 400;
   assert.equal(payColony(s, colonyCost(2)), false);
   assert.equal(payColony(s, colonyCost(1)), true);
