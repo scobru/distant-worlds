@@ -8,10 +8,10 @@ RUN npm run build:web
 
 FROM node:22-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=8080 DB=/data/distant-worlds.sqlite DIST=/app/dist NODE_NO_WARNINGS=1
+ENV NODE_ENV=production PORT=8080 DB=/data/distant-worlds.sqlite DIST=/app/dist-web NODE_NO_WARNINGS=1
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && mkdir /data && chown node /data
-COPY --from=build /app/dist dist
+COPY --from=build /app/dist-web dist-web
 COPY web web
 COPY freenet/*.js freenet/
 # every root module, so a new import from web/ or freenet/ cannot be left out of the image
