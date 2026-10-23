@@ -119,8 +119,8 @@ The same multiplayer game without Freenet: a small Node server keeps the galaxy 
 - Live updates through server-sent events (`/api/events`); `GET`/`POST /api/galaxy` and `/api/chat` read the state and send deltas, in the contracts' JSON shapes.
 
 ```bash
-npm install && npm run build:web     # -> dist/
-npm start                            # http://localhost:8080 (env: PORT, DB=distant-worlds.sqlite, DIST=dist, APP_PATH=/, ADMIN=<hex pubkey>)
+npm install && npm run build:web     # -> dist-web/ (never dist/, which is what you publish on Freenet)
+npm start                            # http://localhost:8080 (env: PORT, DB=distant-worlds.sqlite, DIST=dist-web, APP_PATH=/, ADMIN=<hex pubkey>)
 
 # dev: the server in one terminal, vite (proxies /api) in another
 npm start & npm run dev:web          # http://localhost:5173

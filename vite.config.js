@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 // --mode web: the web version (web/), whose server keeps the galaxy in SQLite; freenet/net.js becomes web/net.js.
 export default defineConfig(({ mode }) => ({
   base: './',
-  build: { target: 'es2022', assetsInlineLimit: 0 },
+  // the web build goes to dist-web/ so it can never overwrite the Freenet build in dist/ before a publish
+  build: { target: 'es2022', assetsInlineLimit: 0, outDir: mode === 'web' ? 'dist-web' : 'dist' },
   plugins: mode === 'web' ? [{
     name: 'web-net',
     enforce: 'pre',

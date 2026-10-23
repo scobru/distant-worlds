@@ -1,6 +1,7 @@
 contract/target/
 node_modules/
 dist/
+dist-web/
 .devnode/
 chat/target/
 *.sqlite*
