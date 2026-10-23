@@ -1,7 +1,7 @@
-// Web version server: serves the built app (dist/, `npm run build:web`) and keeps the galaxy and the
+// Web version server: serves the built app (dist-web/, `npm run build:web`) and keeps the galaxy and the
 // chat in SQLite (web/db.js). API: GET /api/galaxy, GET /api/chat (state JSON, as the contracts),
 // POST the same paths with a delta, GET /api/events (server-sent events on every change).
-// Env: PORT (8080), DB (distant-worlds.sqlite), DIST (dist), APP_PATH (/), ADMIN (blocklist key), TRUST_PROXY (1: the
+// Env: PORT (8080), DB (distant-worlds.sqlite), DIST (dist-web), APP_PATH (/), ADMIN (blocklist key), TRUST_PROXY (1: the
 // rightmost X-Forwarded-For entry is the client, for a reverse proxy you control; otherwise the socket's address).
 // Web only, not part of the contract: security headers, per-client rate limits, a cap on open event streams.
 import http from 'node:http';
@@ -11,7 +11,7 @@ import zlib from 'node:zlib';
 import { open } from './db.js';
 
 const ADMIN = process.env.ADMIN ?? '4498bd4c2ab992afa152bc9b968e246cf70dc4fa5a670b23c33e73b8516ce9f3'; // as freenet/net.js
-const APP = process.env.APP_PATH ?? '/', DIST = path.resolve(process.env.DIST ?? 'dist');
+const APP = process.env.APP_PATH ?? '/', DIST = path.resolve(process.env.DIST ?? 'dist-web');
 const DB = path.resolve(process.env.DB ?? 'distant-worlds.sqlite');
 let db;
 try { fs.mkdirSync(path.dirname(DB), { recursive: true }); db = open(DB, { admin: ADMIN, app: APP }); }
