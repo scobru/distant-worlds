@@ -503,6 +503,8 @@ export async function start(app) {
     /** Other explorers' homes on this planet: { nick, persona, built: [kind, x], animals }. */
     /** Whether we hold the colony on this planet (a city can be founded there). */
     ownsColony: (seed) => !!me && colonyOf(seed)?.persona === me,
+    /** Our colonies as [seed, flag x in screens]. */
+    myColonies: () => Object.entries(galaxy.colonies ?? {}).filter(([seed, c]) => c.persona === me && colonyOf(seed)).map(([seed, c]) => [seed, c.x / 100]),
     homesOn: (seed) => Object.values(galaxy.homes ?? {}).filter((h) => h.seed === seed && h.persona !== me && h.built.length && sound('home', h)),
     atlasHtml() {
       const mine = Object.entries(galaxy.colonies ?? {}).filter(([, c]) => c.persona === me);

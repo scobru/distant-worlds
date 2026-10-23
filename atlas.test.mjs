@@ -620,6 +620,26 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
 }
 
 {
+  const { setHome, cityOf, withHome, withMain, population, sendSettlers, settlersCost, SETTLERS, cityCost } = await import('./atlas.js');
+  const st = emptyState();
+  setHome(st, 'v1-1_1_1.1', 0);
+  st.home.built = Array.from({ length: 4 }, (_, i) => ({ kind: 'house', x: i, seed: i + 1 }));
+  assert.deepEqual(settlersCost(st), { plant: 30 * SETTLERS.mult, ore: 30 * SETTLERS.mult });
+  assert.ok(!sendSettlers(st, 'v1-2_2_2.1', 0.5), 'needs the resources');
+  st.bag.plant = 5000; st.bag.ore = 5000;
+  const before = population(st.home);
+  assert.ok(sendSettlers(st, 'v1-2_2_2.1', 0.5), 'settlers go');
+  assert.equal(population(st.home), before - SETTLERS.people, 'they are missing at home');
+  assert.equal(st.bag.plant, 5000 - 30 * SETTLERS.mult);
+  const city = cityOf(st, 'v1-2_2_2.1');
+  assert.equal(city.built.length, SETTLERS.start.length); assert.ok(population(city) > 0, 'the city starts with people');
+  assert.ok(!sendSettlers(st, 'v1-2_2_2.1', 0.5), 'once a planet');
+  assert.ok(!sendSettlers(st, 'v1-1_1_1.1', 0.5), 'not on the home planet');
+  // from a city: the main home is still the one checked
+  assert.ok(withHome(st, city, () => !sendSettlers(st, 'v1-1_1_1.1', 0.5)), 'not on the home planet, even from a city');
+}
+
+{
   const { setHome, build, upgrade, homeNeeds, homeAdvice } = await import('./atlas.js');
   const st = emptyState();
   setHome(st, 'v1-1_1_1.1', 0);

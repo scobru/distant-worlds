@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Settlers: `sendSettlers` (`atlas.js`) founds a city on one of your colonies with `SETTLERS.start` buildings for `SETTLERS.mult` × `cityCost`, taking `SETTLERS.people` from the sending home or city as `lost`. `foundCity` takes a cost multiplier. `fn.myColonies` in `freenet/ui.js` (shared with web) lists the targets; no contract or `web/db.js` change (the city is an ordinary published city).
+
 - Siege effects for the attacker: `app.fx` (`fx` on the canvas) shakes when the defence breaks, shakes and flashes red when it holds. Shared `freenet/ui.js` + `index.html`, so web too.
 - Arriving at a city unloads the bag there (`arriveHome` and `sow` through `withHome`): creatures roam it, seeds grow in its garden; `canBuild` counts the larger of the city's and the home's creatures.
 - ☰ 🔊 Effects: mutes the sound effects apart from the music (`muteSfx` in `audio.js`, `st.sfxOff`, kept with the progress).
