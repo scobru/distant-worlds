@@ -442,12 +442,24 @@ export const CITY = { plant: 30, ore: 30, max: 8, grow: 1.5 };
 export const cityOf = (st, seed) => (st.cities ?? []).find((c) => c.seed === seed);
 export const cityCost = (st) => { const k = CITY.grow ** (st.cities?.length ?? 0); return { plant: Math.ceil(CITY.plant * k), ore: Math.ceil(CITY.ore * k) }; };
 /** Founds a city on `seed` (the caller checks that it is your colony): not on the home planet, once per planet. */
-export function foundCity(st, seed, now = 0) {
-  const c = cityCost(st);
+export function foundCity(st, seed, now = 0, k = 1) {
+  const c = cityCost(st); c.plant *= k; c.ore *= k;
   if (!st.home || st.home.seed === seed || cityOf(st, seed) || (st.cities?.length ?? 0) >= CITY.max || st.bag.plant < c.plant || st.bag.ore < c.ore) return false;
   st.bag.plant -= c.plant; st.bag.ore -= c.ore;
   (st.cities ??= []).push({ seed, built: [], animals: [], prod: now, since: now });
   stat(st, 'cities');
+  return true;
+}
+// Settlers: people from the home or a city found a city on one of your colonies, with a few buildings already up.
+// It costs `mult` times a city; the people who leave are missing from where they were (they come back as the starved do).
+export const SETTLERS = { mult: 10, people: 5, start: ['house', 'house', 'windmill'] };
+export const settlersCost = (st) => { const c = cityCost(st); return { plant: c.plant * SETTLERS.mult, ore: c.ore * SETTLERS.mult }; };
+/** Sends settlers from `st.home` (the home or a city swapped in) to found a city on `seed`, whose flag stands at `x`. */
+export function sendSettlers(st, seed, x, now = 0) {
+  const from = st.home;
+  if (!from || population(from) < SETTLERS.people || !withMain(st, () => foundCity(st, seed, now, SETTLERS.mult))) return false;
+  cityOf(st, seed).built = SETTLERS.start.map((kind, i) => ({ kind, x: x + (i - 1) * 0.15, seed: i + 1 }));
+  from.lost = (from.lost ?? 0) + SETTLERS.people;
   return true;
 }
 let mainHome = null; // the real home while `withHome` has a city in st.home
