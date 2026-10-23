@@ -277,12 +277,20 @@ export async function start(app) {
   }
 
   function update() {
-    signBtn.hidden = !!me;
+    signBtn.textContent = me ? 'Sign out' : 'Sign in';
+  }
+  /** Forgets the session (and a key made here); false if the player backed out. */
+  async function signOutNow() {
+    if (await net.localKey(me) && !confirm('Signing out forgets this key on this node. Did you back it up?')) return false;
+    saveMiner(); me = null; nick = ''; profile = null; miner = null; minerSeed = null; // stop the miner before the session goes
+    await net.signOut(); await net.storePut('nick', '');
+    update(); app.refresh(); app.toast(['Signed out.']);
+    return true;
   }
 
   signBtn.hidden = false;
   const signDlg = document.getElementById('signDlg');
-  signBtn.onclick = () => signDlg.showModal();
+  signBtn.onclick = () => (me ? signOutNow() : signDlg.showModal());
   document.getElementById('signClose').onclick = () => signDlg.close();
   document.getElementById('signViso').parentElement.hidden = !net.startSignIn; // the web version has no Viso
   document.getElementById('signViso').onclick = async () => { try { await net.startSignIn(); } catch (e) { app.toast([app.esc(e.message)]); } };
@@ -522,12 +530,7 @@ export async function start(app) {
       const bk = dlg.querySelector('#backupBtn');
       net.localKey(me ?? '').then((k) => { if (bk && k) { bk.hidden = false; bk.onclick = () => prompt('Your explorer key. Keep it somewhere safe: whoever has it plays as you, and without it you cannot get this explorer back.', k); } });
       const so = dlg.querySelector('#signOutBtn');
-      if (so) so.onclick = async () => {
-        if (await net.localKey(me) && !confirm('Signing out forgets this key on this node. Did you back it up?')) return;
-        saveMiner(); me = null; nick = ''; profile = null; miner = null; minerSeed = null; // stop the miner before the session goes
-        await net.signOut(); await net.storePut('nick', '');
-        update(); app.refresh(); dlg.close(); app.toast(['Signed out.']);
-      };
+      if (so) so.onclick = async () => { if (await signOutNow()) dlg.close(); };
       const bb = dlg.querySelector('#blockBtn');
       if (bb) bb.onclick = async () => {
         const secret = prompt('Admin secret key (hex):'), list = prompt('Stars or persona keys to hide, comma-separated (replaces the list):', (galaxy.blocked?.list ?? []).join(','));

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The bottom bar's Sign in button reads Sign out when signed in (`signOutNow` in `freenet/ui.js`, also used by the Atlas button); shared by Freenet and web.
+
 - Settlers: `sendSettlers` (`atlas.js`) founds a city on one of your colonies with `SETTLERS.start` buildings for `SETTLERS.mult` × `cityCost`, taking `SETTLERS.people` from the sending home or city as `lost`. `foundCity` takes a cost multiplier. `fn.myColonies` in `freenet/ui.js` (shared with web) lists the targets; no contract or `web/db.js` change (the city is an ordinary published city).
 
 - Siege effects for the attacker: `app.fx` (`fx` on the canvas) shakes when the defence breaks, shakes and flashes red when it holds. Shared `freenet/ui.js` + `index.html`, so web too.
