@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Move between homes: `moveTo`/`homesOf` (`atlas.js`) move creatures, a garden's species or people (into the target's starved slots) from the home or city in the Build dialog (🚚 Move, `moveHtml` in `index.html`) to another of your homes. Local save; creatures are published as before, so no contract or `web/db.js` change; shared by Freenet and web.
+
 - ⚡ Colonize now (`rushBtn`, `plant`/`rushBtn.onclick` in `freenet/ui.js`, `rushCost`/`RUSH` in `atlas.js`): mines the missing proof at full speed and plants the flag, charging `rushCost` (flag price × missing minutes) on top of the flag. Same proof, so no contract or `web/db.js` change; shared by Freenet and web. The honest rate stays the default; this is a paid bypass.
 - `npm run build:web` writes to `dist-web/` (the server's `DIST` default, the Dockerfile, `.gitignore`, `.dockerignore` follow); `npm run build` keeps `dist/`. Publishing `dist` on Freenet can no longer ship the web build by mistake (it has no Viso sign-in and no node storage).
 

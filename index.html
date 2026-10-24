@@ -129,6 +129,9 @@
 <dialog id="buildDlg"><div class="row"><h2 id="buildTitle">Home</h2><button id="buildClose">Close</button></div><div id="buildBody"></div></dialog>
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
+  <h3>2026-10-24 · Move between your worlds</h3>
+  <ul><li>In the 🏗 Build dialog of your home or a city, the new 🚚 Move section takes your creatures, your plants or 5 of your people to another home of yours.</li>
+    <li>People only go where there are empty homes for them.</li></ul>
   <h3>2026-10-24 · Colonize at once</h3>
   <ul><li>On a planet you can colonize, a new ⚡ Colonize now button skips the waiting: your browser does the missing work in a few seconds, and you pay for it in ore and plants on top of the flag.</li>
     <li>The more time is still missing, the dearer it is (every missing minute adds the flag's price again), so it is cheap when you have almost waited it out and very dear for a planet someone held for a long time. Nothing is spent if you leave the planet first.</li></ul>
@@ -263,7 +266,7 @@ import { drawThing, drawCreature, drawRiver, drawIsland, drawVolcano, drawWaterf
 import { describe, boxOf } from './describe.js';
 import { startAudio as startMusic, sfx, muteSfx } from './audio.js';
 import { PAGES } from './diary.js';
-import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, withHome, withMain, foundCity, cityOf, cityCost, CITY, SETTLERS, settlersCost, sendSettlers, loseCities, repair, repairCost, upgrade, upgradeCost, MAX_LV, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
+import { homeNeeds, homeAdvice, stat, chestLoot, JUMP, walkBy, settle, jumpStep, startJump, canJump, shouldLeap, FUEL, addFuel, jumpCost, PICKUP, collect, picked, hasPage, BATTLE, startBattle, battleRound, winBattle, battleLevel, battleParty, creatureLevel, elementOf, foeStats, canCapture, ELEMENTS, cultureElement, boostOn, ENTRIES, COMBOS, ACHIEVEMENTS, emptyState, visit, findRelic, findSpecies, findPlant, mission, matches, checkMission, isoDay, dailySeed, BUILDINGS, civTitle, civLevel, population, BASE_FOOD, EAT, REGROW, setHome, arriveHome, canBuild, build, produce, jumpDiscount, withAchievements, moveCost, moveHome, loseHome, evacuate, trade, costOf, sow, pirates, defence, pirateThreat, withHome, withMain, foundCity, cityOf, cityCost, CITY, SETTLERS, settlersCost, sendSettlers, homesOf, moveTo, loseCities, repair, repairCost, upgrade, upgradeCost, MAX_LV, BREED, breedAt, breedsLeft, CROSS, crossAt, crossesLeft, FUSE, fuse, partsOf, buildingName, fleetSize, voyage, sendShip, fleetBack, expedition, checkExpedition, EXPEDITION, learn } from './atlas.js';
 
 // Progress lives only in this browser; the page still works if storage is blocked.
 const KEY = 'distant-worlds-v1';
@@ -1203,6 +1206,14 @@ function settlersHtml(H) {
   return `<h3>🚀 Settlers</h3><p><small>${SETTLERS.people} of your people go to found a city on one of your colonies, with a few buildings already up. It costs 🌿${c.plant} ⛏${c.ore}, and the ${SETTLERS.people} missing people come back as the starved do.${room ? '' : ' You already have the most cities.'}</small></p>
     <ul>${targets.map(([s, x]) => `<li><button data-settle="${esc(s)}" data-x="${x}"${can ? '' : ' disabled'}>Send</button> <b>${esc(makeWorld(s).name)}</b></li>`).join('')}</ul>`;
 }
+// Move creatures, people and plants between your home and cities.
+const MOVE_PEOPLE = 5;
+function moveHtml(H) {
+  const others = homesOf(st).filter((h) => h.seed !== H.seed);
+  if (!others.length) return '';
+  return `<h3>🚚 Move</h3><p><small>Take creatures, people (${MOVE_PEOPLE} at a time, into empty homes) or the plants of the garden to another home of yours. Free.</small></p>
+    <ul>${others.map((o) => `<li><b>${esc(makeWorld(o.seed).name)}</b> ${[['animals', `🐾 ${H.animals.length}`, H.animals.length], ['people', `👥 ${MOVE_PEOPLE}`, population(H)], ['garden', `🌿 ${(H.garden ?? []).length}`, (H.garden ?? []).length]].map(([w, t, n]) => `<button data-mv="${w}" data-to="${esc(o.seed)}"${n ? '' : ' disabled'}>${t}</button>`).join(' ')}</li>`).join('')}</ul>`;
+}
 // Home dialog sections fold like the Atlas; open ones stay open on the next render.
 const buildOpen = new Set(['What your home needs', 'Build']);
 // A city is built like the home planet: its buildings swap into st.home while the dialog (and its buttons) run.
@@ -1222,6 +1233,7 @@ function renderBuildBody() {
     ${fn && !isCity ? `<p><label><input type="checkbox" id="peaceChk"${H.peace ? ' checked' : ''}> 🕊 Peaceful: other explorers cannot besiege your home, and you cannot besiege theirs (for a day after you besiege someone, you can be besieged anyway).</label></p>` : ''}
     ${isCity ? '<h3>🏙 City</h3><p><small>Creatures and seeds in your bag are unloaded here when you arrive. Ships and breeding stay with your home planet. Pirates and sieges can come for it too, and it counts for your civilization level.</small></p>' : `${fleetHtml(H)}\n    <h3>🧬 Breeding</h3>${breedHtml(H)}\n    <h3>🌸 Crossing</h3>${crossHtml(H)}`}
     ${settlersHtml(H)}
+    ${moveHtml(H)}
     <h3>Build</h3>
     <ul>${Object.entries(BUILDINGS).map(([k, b]) => `<li><button data-k="${k}"${canBuild(st, k, grav()) ? '' : ' disabled'}>Build</button>
       <b>${b.name}</b>${k === homeAdvice(st)?.kind ? ' ⭐' : ''} <small style="display:inline">${costText(costOf(k, grav()))} · built ${H.built.filter((x) => partsOf(x).includes(k)).length}</small><small>${perks(b)}</small></li>`).join('')}</ul>
@@ -1239,6 +1251,12 @@ function renderBuildBody() {
     if (!sendSettlers(st, seed, +b.dataset.x)) return toast(['Not enough people or resources for settlers.']);
     save(); renderBuild(); updateHome(); fn?.homeChanged(); sfx('pickup');
     toast([`🚀 Settlers founded a city on ${esc(makeWorld(seed).name)}.`]);
+  }));
+  buildDlg.querySelectorAll('[data-mv]').forEach((b) => (b.onclick = () => {
+    const w = b.dataset.mv, n = moveTo(st, b.dataset.to, w, w === 'people' ? MOVE_PEOPLE : [...(st.home[w] ?? [])]);
+    if (!n) return toast(['Nothing moved: the other home has no empty homes for people.']);
+    save(); renderBuild(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); sfx('pickup');
+    toast([`🚚 Moved ${n} ${w === 'garden' ? 'plants' : w === 'animals' ? 'creatures' : 'people'} to ${esc(makeWorld(b.dataset.to).name)}.`]);
   }));
   buildDlg.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
     st.home.built[+b.dataset.move].x = standing();

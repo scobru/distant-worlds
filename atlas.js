@@ -462,6 +462,24 @@ export function sendSettlers(st, seed, x, now = 0) {
   from.lost = (from.lost ?? 0) + SETTLERS.people;
   return true;
 }
+/** Your homes (main home first): where creatures, people and plants can be moved. */
+export const homesOf = (st) => withMain(st, () => [st.home, ...(st.cities ?? [])]).filter(Boolean);
+/** Moves `n` creatures, `n` people or one plant species (`what` = 'animals' | 'people' | 'garden') from `st.home`
+ *  (the home or a city swapped in) to the home on `seed`. `ids`: the creatures or the species. Returns how many moved. */
+export function moveTo(st, seed, what, ids) {
+  const from = st.home, to = homesOf(st).find((h) => h.seed === seed);
+  if (!from || !to || to === from) return 0;
+  if (what === 'people') { // people fill the empty homes of the target: the starved slots
+    const room = population({ ...to, lost: 0 }) - population(to), n = Math.min(ids, population(from), room);
+    if (n < 1) return 0;
+    from.lost = (from.lost ?? 0) + n; to.lost = Math.max(0, Math.ceil(to.lost) - n); if (!to.lost) delete to.lost;
+    return n;
+  }
+  const list = from[what] ?? [], moved = list.filter((x) => ids.includes(x));
+  if (what === 'animals') { for (const id of moved) list.splice(list.indexOf(id), 1); to.animals.push(...moved); return moved.length; }
+  from.garden = list.filter((x) => !moved.includes(x)); (to.garden ??= []).push(...moved.filter((x) => !to.garden.includes(x)));
+  return moved.length;
+}
 let mainHome = null; // the real home while `withHome` has a city in st.home
 /** Runs `f` with `city` as st.home (nested calls keep the first real home). */
 export function withHome(st, city, f) {
