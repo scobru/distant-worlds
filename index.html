@@ -130,7 +130,7 @@
 <!-- What changed, in players' words, newest first: every update adds an entry here (see AGENTS.md). -->
 <dialog id="updates"><div class="row"><h2>📰 Updates</h2><button id="updatesClose">Close</button></div>
   <h3>2026-10-24 · Move between your worlds</h3>
-  <ul><li>In the 🏗 Build dialog of your home or a city, the new 🚚 Move section takes your creatures, your plants or 5 of your people to another home of yours.</li>
+  <ul><li>In the 🏗 Build dialog of your home or a city, the new 🚚 Move section takes as many of your creatures, plant species or people as you choose to another home of yours.</li>
     <li>People only go where there are empty homes for them.</li></ul>
   <h3>2026-10-24 · Colonize at once</h3>
   <ul><li>On a planet you can colonize, a new ⚡ Colonize now button skips the waiting: your browser does the missing work in a few seconds, and you pay for it in ore and plants on top of the flag.</li>
@@ -1207,12 +1207,11 @@ function settlersHtml(H) {
     <ul>${targets.map(([s, x]) => `<li><button data-settle="${esc(s)}" data-x="${x}"${can ? '' : ' disabled'}>Send</button> <b>${esc(makeWorld(s).name)}</b></li>`).join('')}</ul>`;
 }
 // Move creatures, people and plants between your home and cities.
-const MOVE_PEOPLE = 5;
 function moveHtml(H) {
   const others = homesOf(st).filter((h) => h.seed !== H.seed);
   if (!others.length) return '';
-  return `<h3>🚚 Move</h3><p><small>Take creatures, people (${MOVE_PEOPLE} at a time, into empty homes) or the plants of the garden to another home of yours. Free.</small></p>
-    <ul>${others.map((o) => `<li><b>${esc(makeWorld(o.seed).name)}</b> ${[['animals', `🐾 ${H.animals.length}`, H.animals.length], ['people', `👥 ${MOVE_PEOPLE}`, population(H)], ['garden', `🌿 ${(H.garden ?? []).length}`, (H.garden ?? []).length]].map(([w, t, n]) => `<button data-mv="${w}" data-to="${esc(o.seed)}"${n ? '' : ' disabled'}>${t}</button>`).join(' ')}</li>`).join('')}</ul>`;
+  return `<h3>🚚 Move</h3><p><small>Take creatures, people (into empty homes) or plant species of the garden to another home of yours: pick how many, then what. Free.</small></p>
+    <ul>${others.map((o) => `<li><b>${esc(makeWorld(o.seed).name)}</b> <input type="number" class="mvn" min="1" value="1" style="width:4.5em" aria-label="How many"> ${[['animals', `🐾 ${H.animals.length}`, H.animals.length], ['people', `👥 ${population(H)}`, population(H)], ['garden', `🌿 ${(H.garden ?? []).length}`, (H.garden ?? []).length]].map(([w, t, n]) => `<button data-mv="${w}" data-to="${esc(o.seed)}"${n ? '' : ' disabled'}>${t}</button>`).join(' ')}</li>`).join('')}</ul>`;
 }
 // Home dialog sections fold like the Atlas; open ones stay open on the next render.
 const buildOpen = new Set(['What your home needs', 'Build']);
@@ -1253,8 +1252,8 @@ function renderBuildBody() {
     toast([`🚀 Settlers founded a city on ${esc(makeWorld(seed).name)}.`]);
   }));
   buildDlg.querySelectorAll('[data-mv]').forEach((b) => (b.onclick = () => {
-    const w = b.dataset.mv, n = moveTo(st, b.dataset.to, w, w === 'people' ? MOVE_PEOPLE : [...(st.home[w] ?? [])]);
-    if (!n) return toast(['Nothing moved: the other home has no empty homes for people.']);
+    const w = b.dataset.mv, k = Math.max(1, Math.floor(+b.parentNode.querySelector('.mvn').value) || 1), n = moveTo(st, b.dataset.to, w, w === 'people' ? k : (st.home[w] ?? []).slice(-k));
+    if (!n) return toast(['Nothing moved: people need empty homes in the other home.']);
     save(); renderBuild(); updateHome(); pets = homePets(); garden = homeGarden(); fn?.homeChanged(); sfx('pickup');
     toast([`🚚 Moved ${n} ${w === 'garden' ? 'plants' : w === 'animals' ? 'creatures' : 'people'} to ${esc(makeWorld(b.dataset.to).name)}.`]);
   }));
