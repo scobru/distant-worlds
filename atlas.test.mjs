@@ -640,6 +640,15 @@ console.log('atlas ok', ENTRIES.length, 'entries, mission', JSON.stringify(m));
   assert.ok(!sendSettlers(st, 'v1-1_1_1.1', 0.5), 'not on the home planet');
   // from a city: the main home is still the one checked
   assert.ok(withHome(st, city, () => !sendSettlers(st, 'v1-1_1_1.1', 0.5)), 'not on the home planet, even from a city');
+  // moving between homes
+  const { moveTo } = await import('./atlas.js');
+  st.home.animals = ['a#0', 'a#1']; st.home.garden = ['p~0'];
+  assert.equal(moveTo(st, city.seed, 'animals', ['a#0']), 1); assert.deepEqual(st.home.animals, ['a#1']); assert.deepEqual(city.animals, ['a#0']);
+  assert.equal(moveTo(st, city.seed, 'garden', ['p~0']), 1); assert.deepEqual(city.garden, ['p~0']); assert.deepEqual(st.home.garden, []);
+  assert.equal(moveTo(st, st.home.seed, 'animals', ['a#1']), 0, 'not to itself');
+  city.lost = 0; assert.equal(moveTo(st, city.seed, 'people', 3), 0, 'no empty homes');
+  city.lost = 2; const pop = population(st.home); assert.equal(moveTo(st, city.seed, 'people', 5), 2, 'only the empty homes');
+  assert.equal(population(st.home), pop - 2); assert.equal(city.lost, undefined);
 }
 
 {
